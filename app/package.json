@@ -1,0 +1,40 @@
+{
+	"name": "tasks-app",
+	"private": true,
+	"version": "0.1.0",
+	"type": "module",
+	"description": "Tasks for Windows and Android (Tauri 2): a local tasks DB that syncs with tasks-server.",
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"tauri": "tauri",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"icons": "tauri icon icons-src/icon.svg",
+		"android:init": "tauri android init && node scripts/android-permissions.mjs",
+		"android:dev": "tauri android dev",
+		"android:build": "tauri android build --apk"
+	},
+	"devDependencies": {
+		"@sveltejs/adapter-static": "^3.0.10",
+		"@sveltejs/kit": "^2.57.0",
+		"@sveltejs/vite-plugin-svelte": "^7.0.0",
+		"@tailwindcss/forms": "^0.5.11",
+		"@tailwindcss/typography": "^0.5.19",
+		"@tailwindcss/vite": "^4.3.3",
+		"@tauri-apps/cli": "^2.9.0",
+		"@types/node": "^26.6.6",
+		"svelte": "^5.55.2",
+		"svelte-check": "^4.4.6",
+		"tailwindcss": "^4.3.3",
+		"typescript": "^6.0.2",
+		"vite": "^8.2.2"
+	},
+	"dependencies": {
+		"@fontsource-variable/figtree": "^5.3.0",
+		"@fontsource-variable/hanken-grotesk": "^5.3.0",
+		"@fontsource/ibm-plex-mono": "^5.3.0",
+		"@tauri-apps/api": "^2.9.0",
+		"chrono-node": "^2.10.3",
+		"vanilla-calendar-pro": "^3.4.0"
+	}
+}

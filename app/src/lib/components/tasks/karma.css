@@ -1,0 +1,276 @@
+/* Karma view (TaskKarma) and its column charts (KarmaBars). Colours are theme
+   tokens only: the columns wear --color-brand (validated >= 3:1 on the sheet in
+   all six themes), text stays in text tokens, the goal line is muted ink. */
+
+.karma {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+/* ── Headline tiles ─────────────────────────────────────────────────────── */
+.karma-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: var(--space-xs);
+}
+
+.karma-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  min-width: 0;
+  padding: var(--space-sm);
+  border: var(--rule-hair) solid var(--clr-border);
+  border-radius: var(--radius-card);
+  background-color: var(--bg-card);
+}
+
+.karma-tile-label {
+  font-family: var(--font-prose);
+  font-size: var(--text-label);
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.karma-tile-value {
+  font-family: var(--font-display);
+  font-size: var(--text-3xl);
+  font-weight: 600;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.karma-tile-of {
+  font-size: var(--text-md);
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.karma-tile-note {
+  font-family: var(--font-prose);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* A meter: the brand on a track of its own glow. */
+.karma-meter {
+  height: 4px;
+  overflow: hidden;
+  border-radius: var(--radius-control);
+  background-color: var(--color-brand-glow);
+}
+
+.karma-meter-fill {
+  display: block;
+  height: 100%;
+  background-color: var(--color-brand);
+  transition: width var(--dur-micro) var(--ease-out);
+}
+
+/* ── Goals ──────────────────────────────────────────────────────────────── */
+.karma-goals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  margin-top: calc(var(--space-sm) * -1);
+}
+
+.karma-goal {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-family: var(--font-prose);
+  font-size: var(--text-label);
+  color: var(--text-secondary);
+}
+
+.karma-goal-input {
+  width: 5rem;
+}
+
+/* ── Chart cards ────────────────────────────────────────────────────────── */
+.karma-card {
+  padding: var(--space-md);
+  border: var(--rule-hair) solid var(--clr-border);
+  border-radius: var(--radius-card);
+  background-color: var(--bg-card);
+}
+
+.karma-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+}
+
+.karma-card-title {
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.karma-card-sub {
+  font-family: var(--font-prose);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* ── KarmaBars ──────────────────────────────────────────────────────────── */
+.kbars {
+  position: relative;
+  width: 100%;
+  min-height: 200px;
+}
+
+.kbars-svg {
+  display: block;
+  overflow: visible;
+}
+
+.kbars-svg:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.kbars-grid {
+  stroke: var(--clr-border);
+  stroke-width: 1;
+}
+
+.kbars-base {
+  stroke: var(--clr-border-light);
+  stroke-width: 1;
+}
+
+.kbars-tick,
+.kbars-axis,
+.kbars-goal-label,
+.kbars-value {
+  font-family: var(--font-outlier);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.kbars-tick,
+.kbars-axis {
+  fill: var(--text-faint);
+}
+
+.kbars-axis-current {
+  fill: var(--text-primary);
+  font-weight: 600;
+}
+
+.kbars-value {
+  fill: var(--text-secondary);
+  font-weight: 600;
+}
+
+.kbars-bar {
+  fill: var(--color-brand);
+}
+
+.kbars-goal {
+  stroke: var(--text-muted);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+}
+
+.kbars-goal-label {
+  fill: var(--text-muted);
+}
+
+.kbars-hover {
+  fill: var(--bg-hover);
+}
+
+.kbars-hit {
+  fill: transparent;
+}
+
+.kbars-tip {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 8rem;
+  padding: var(--space-2xs) var(--space-xs);
+  border: var(--rule-hair) solid var(--clr-border-light);
+  border-radius: var(--radius-control);
+  background-color: var(--bg-input);
+  box-shadow: var(--shadow-float);
+  transform: translate(-50%, -100%);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.kbars-tip-value {
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.kbars-tip-label {
+  font-family: var(--font-prose);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.kbars-tip-goal {
+  font-family: var(--font-prose);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.kbars-table {
+  margin-top: var(--space-xs);
+  font-family: var(--font-prose);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.kbars-table summary {
+  cursor: pointer;
+  width: fit-content;
+}
+
+.kbars-table summary:hover {
+  color: var(--text-primary);
+}
+
+.kbars-table table {
+  width: 100%;
+  margin-top: var(--space-xs);
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.kbars-table th,
+.kbars-table td {
+  padding: var(--space-2xs) var(--space-xs);
+  border-bottom: var(--rule-hair) solid var(--clr-border);
+  text-align: left;
+  color: var(--text-secondary);
+}
+
+.kbars-table thead th {
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.kbars-table td {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 720px) {
+  .karma-tile-value {
+    font-size: var(--text-2xl);
+  }
+}

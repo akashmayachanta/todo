@@ -1,0 +1,23 @@
+[package]
+name = "tasks-server"
+description = "Tasks sync server: accounts, a REST API for tasks, and /sync for the apps"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tasks-core.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+tokio.workspace = true
+axum = "0.8"
+argon2 = "0.5"
+rpassword = "7"
+sha2 = "0.10"
+getrandom = "0.3"
+dotenvy = "0.15"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

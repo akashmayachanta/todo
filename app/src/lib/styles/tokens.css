@@ -1,0 +1,31 @@
+/* Hallmark tokens · Almanac, app scope. The shared scale lives here; the
+   palette (paper, ink, rules, brand, status) is per theme in layout.css,
+   under the project's own names (--bg-*, --clr-*, --text-*, --color-brand*). */
+:root {
+  --space-3xs: 2px; --space-2xs: 4px; --space-xs: 8px; --space-sm: 12px; --space-md: 16px; --space-lg: 24px; --space-xl: 40px; --space-2xl: 64px; --space-3xl: 96px; --space-4xl: 144px;
+
+  /* App type scale: kept on Tailwind's steps so no screen reflows */
+  --text-xs: 0.75rem; --text-sm: 0.875rem; --text-md: 1rem; --text-lg: 1.125rem; --text-xl: 1.25rem; --text-2xl: 1.5rem; --text-3xl: 1.875rem;
+  --text-label: 0.8125rem;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1); --ease-in: cubic-bezier(0.7, 0, 0.84, 0); --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 120ms; --dur-short: 220ms; --dur-long: 420ms;
+
+  --z-base: 1; --z-raised: 10; --z-dropdown: 100; --z-sticky: 200; --z-sticky-nav: 300; --z-modal: 400; --z-toast: 500; --z-tooltip: 600;
+
+  /* Faces, bundled with @fontsource (offline-first, no CDN) */
+  --font-display: "Hanken Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Hanken Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-prose: "Figtree Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-outlier: "IBM Plex Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+
+  /* Square corners; 2px at most on a control. Two rule weights. */
+  --radius-card: 0; --radius-pill: 2px; --radius-control: 2px;
+  --rule-hair: 1px; --rule-bar: 2px;
+  --shadow-card: none;
+  --tracking-display: -0.02em; --display-weight: 600;
+
+  /* The two papers as fixed swatches, for the mode picker's preview */
+  --preview-paper-light: oklch(95.5% 0.007 245);
+  --preview-paper-dark: oklch(18% 0.018 245);
+}

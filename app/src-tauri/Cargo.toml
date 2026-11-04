@@ -1,0 +1,36 @@
+[package]
+name = "tasks-app"
+description = "Tasks for Windows and Android: a local tasks DB that syncs with tasks-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+# The _lib suffix keeps the lib apart from the bin on Windows (cargo#8519).
+name = "tasks_app_lib"
+# rlib for the Windows exe, cdylib for Android. Add "staticlib" back to build
+# for iOS; it made a 237 MB .lib on every Windows build.
+crate-type = ["cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tasks-core = { workspace = true, features = ["client"] }
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+tokio.workspace = true
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-notification = "2"
+
+[target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
+# Schedule::At takes a time::OffsetDateTime.
+time = "0.3"
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-autostart = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-single-instance = "2"
+keyring = { version = "3", features = ["windows-native"] }

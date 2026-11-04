@@ -1,0 +1,38 @@
+/* The theme (tokens, Tailwind setup, the fonts' roles), then the app shell. */
+@import './routes/layout.css';
+
+.app-shell {
+	display: flex;
+	flex-direction: column;
+	height: 100dvh;
+	background: var(--bg-base);
+	color: var(--text-primary);
+	padding-top: env(safe-area-inset-top);
+	padding-bottom: env(safe-area-inset-bottom);
+}
+.app-bar {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	height: 2.75rem;
+	padding: 0 0.75rem;
+	border-bottom: 1px solid var(--clr-border);
+	background: var(--bg-surface);
+	flex-shrink: 0;
+}
+.app-bar-title {
+	font-weight: 600;
+	margin-right: auto;
+}
+.app-bar-button {
+	background: none;
+	border: 0;
+	padding: 0.25rem 0.4rem;
+	font: inherit;
+	font-size: 0.85rem;
+	color: var(--text-secondary, inherit);
+}
+.app-main {
+	flex: 1;
+	overflow: auto;
+}

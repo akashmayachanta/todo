@@ -1,0 +1,372 @@
+@reference "tailwindcss";
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Cursor defaults
+   ───────────────────────────────────────────────────────────────────────── */
+button:not(:disabled),
+a[href],
+[role="button"],
+input[type="button"]:not(:disabled),
+input[type="submit"]:not(:disabled),
+input[type="reset"]:not(:disabled),
+label[for],
+select:not(:disabled),
+summary {
+  cursor: pointer;
+}
+
+button:disabled,
+input[type="button"]:disabled,
+input[type="submit"]:disabled,
+input[type="reset"]:disabled,
+[aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Page chrome: a Hanken head, a Figtree line under it
+   ───────────────────────────────────────────────────────────────────────── */
+.page-header {
+  @apply flex items-start justify-between mb-6;
+}
+
+.page-title {
+  @apply text-xl;
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: var(--tracking-display);
+  color: var(--text-primary);
+  overflow-wrap: break-word;
+  min-width: 0;
+}
+
+.page-subtitle {
+  @apply mt-0.5;
+  font-family: var(--font-prose);
+  font-size: 0.9375rem;
+  color: var(--text-muted);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Buttons: one filled primary (two sizes), an ink-outlined secondary,
+   quiet ghosts. 2px corners, Hanken 500.
+   ───────────────────────────────────────────────────────────────────────── */
+.btn {
+  @apply inline-flex items-center justify-center gap-2 px-4 py-2 text-sm whitespace-nowrap;
+  border-radius: var(--radius-control);
+  font-weight: 500;
+  transition: background-color var(--dur-micro) var(--ease-out), border-color var(--dur-micro) var(--ease-out), color var(--dur-micro) var(--ease-out), opacity var(--dur-micro) var(--ease-out), transform var(--dur-micro) var(--ease-out);
+}
+
+.btn-primary,
+.btn-icon {
+  background-color: var(--color-brand);
+  border: var(--rule-hair) solid var(--color-brand);
+  color: var(--color-brand-text);
+}
+
+.btn-primary:hover:not(:disabled),
+.btn-icon:hover:not(:disabled) {
+  background-color: var(--color-brand-dim);
+  border-color: var(--color-brand-dim);
+}
+
+.btn-primary:active:not(:disabled),
+.btn-icon:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn-primary:disabled,
+.btn-icon:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-icon {
+  @apply inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs whitespace-nowrap;
+  border-radius: var(--radius-control);
+  font-weight: 500;
+  transition: background-color var(--dur-micro) var(--ease-out), border-color var(--dur-micro) var(--ease-out), opacity var(--dur-micro) var(--ease-out), transform var(--dur-micro) var(--ease-out);
+}
+
+.btn-secondary {
+  @apply border text-sm px-4 py-2 whitespace-nowrap;
+  border-radius: var(--radius-control);
+  font-weight: 500;
+  border-color: var(--clr-field);
+  background-color: transparent;
+  color: var(--text-primary);
+  transition: background-color var(--dur-micro) var(--ease-out), border-color var(--dur-micro) var(--ease-out), color var(--dur-micro) var(--ease-out), transform var(--dur-micro) var(--ease-out);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  border-color: var(--text-primary);
+  background-color: var(--bg-hover);
+}
+
+.btn-secondary:disabled,
+.btn-ghost:disabled,
+.btn-danger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-secondary:active:not(:disabled),
+.btn-ghost:active:not(:disabled),
+.btn-danger:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn-ghost {
+  @apply p-1.5;
+  border-radius: var(--radius-control);
+  color: var(--text-muted);
+  transition: background-color var(--dur-micro) var(--ease-out), color var(--dur-micro) var(--ease-out), transform var(--dur-micro) var(--ease-out);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  color: var(--text-primary);
+  background-color: var(--bg-hover);
+}
+
+.btn-danger {
+  @apply p-1.5;
+  border-radius: var(--radius-control);
+  color: var(--text-muted);
+  transition: background-color var(--dur-micro) var(--ease-out), color var(--dur-micro) var(--ease-out), transform var(--dur-micro) var(--ease-out);
+}
+
+.btn-danger:hover:not(:disabled) {
+  color: var(--color-danger);
+  background-color: color-mix(in oklab, var(--color-danger) 10%, transparent);
+}
+
+/* Ghost icon button that takes the brand on hover (edit/reveal icons) */
+.btn-ghost-brand:hover:not(:disabled) {
+  color: var(--color-brand);
+  background-color: var(--color-brand-glow);
+}
+
+/* Status/priority badge that follows the brand accent */
+.badge-brand {
+  color: var(--color-brand);
+  background-color: var(--color-brand-glow);
+  border-color: color-mix(in oklab, var(--color-brand) 35%, transparent);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Inputs: square, a constant 1px field edge, an outline for focus
+   ───────────────────────────────────────────────────────────────────────── */
+.input {
+  @apply w-full border px-3 py-2 text-sm;
+  border-radius: var(--radius-control);
+  background-color: var(--bg-input);
+  border-color: var(--clr-field);
+  color: var(--text-primary);
+  transition: background-color var(--dur-micro) var(--ease-out);
+}
+
+.input::placeholder,
+.input-search::placeholder {
+  color: var(--text-faint);
+}
+
+.input:focus,
+.input-search:focus {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -1px;
+  box-shadow: none;
+}
+
+.input:disabled,
+.input-search:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.input-search {
+  @apply pl-10 pr-4 py-2 text-sm;
+  border-radius: var(--radius-control);
+  background-color: var(--bg-input);
+  border: var(--rule-hair) solid var(--clr-field);
+  color: var(--text-primary);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Cards: the sheet, a hairline edge, square corners, no shadow
+   ───────────────────────────────────────────────────────────────────────── */
+.card {
+  border-radius: var(--radius-card);
+  border: var(--rule-hair) solid var(--clr-border);
+  background-color: var(--bg-card);
+  transition: border-color var(--dur-micro) var(--ease-out), background-color var(--dur-micro) var(--ease-out);
+}
+
+.card-hover:hover {
+  border-color: var(--clr-border-light);
+}
+
+.card-footer {
+  @apply px-4 pb-4 pt-2 flex items-center gap-2;
+  border-top: var(--rule-hair) solid var(--clr-border);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Modals: a sheet laid on a slate scrim, a 2px ink rule at its head
+   ───────────────────────────────────────────────────────────────────────── */
+.modal-backdrop {
+  @apply fixed inset-0 z-40;
+  background-color: var(--color-scrim);
+}
+
+.modal-overlay {
+  @apply fixed inset-0 z-50 flex items-center justify-center px-4 pointer-events-none;
+}
+
+.modal-panel {
+  @apply w-full max-w-lg pointer-events-auto;
+  border-radius: var(--radius-card);
+  background-color: var(--bg-card);
+  border: var(--rule-hair) solid var(--clr-border-light);
+  border-top: var(--rule-bar) solid var(--clr-rule-firm);
+}
+
+.modal-header {
+  @apply flex items-center justify-between px-6 py-4;
+  border-bottom: var(--rule-hair) solid var(--clr-border);
+}
+
+.modal-title {
+  @apply text-base;
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  overflow-wrap: break-word;
+  min-width: 0;
+}
+
+.modal-close {
+  border-radius: var(--radius-control);
+  color: var(--text-muted);
+  transition: color var(--dur-micro) var(--ease-out);
+}
+
+.modal-close:hover {
+  color: var(--text-primary);
+}
+
+.modal-body {
+  @apply px-6 py-4 space-y-3;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Form labels: Figtree 500, a step smaller, sentence case
+   ───────────────────────────────────────────────────────────────────────── */
+.label {
+  @apply block mb-1;
+  font-family: var(--font-prose);
+  font-size: var(--text-label);
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Empty states
+   ───────────────────────────────────────────────────────────────────────── */
+.empty-state {
+  @apply flex flex-col items-center gap-4 py-20 text-center;
+}
+
+.empty-icon {
+  @apply w-16 h-16 flex items-center justify-center;
+  border-radius: var(--radius-card);
+  border-top: var(--rule-bar) solid var(--clr-rule-firm);
+  background-color: var(--bg-raised);
+}
+
+.empty-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.empty-sub {
+  @apply mt-1;
+  font-family: var(--font-prose);
+  font-size: 0.9375rem;
+  color: var(--text-muted);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Badges & misc
+   ───────────────────────────────────────────────────────────────────────── */
+.badge {
+  @apply text-xs px-2 py-0.5 font-medium;
+  border-radius: var(--radius-control);
+  background-color: var(--bg-raised);
+  border: var(--rule-hair) solid var(--clr-border);
+  color: var(--text-secondary);
+}
+
+.icon-avatar {
+  @apply w-10 h-10 flex items-center justify-center shrink-0;
+  border-radius: var(--radius-control);
+  color: var(--color-accent-2);
+  background-color: color-mix(in oklab, var(--color-accent-2) 12%, transparent);
+  border: var(--rule-hair) solid color-mix(in oklab, var(--color-accent-2) 30%, transparent);
+}
+
+.spinner {
+  @apply w-5 h-5 border-2 rounded-full animate-spin;
+  border-color: var(--color-brand);
+  border-top-color: transparent;
+}
+
+.error-box {
+  @apply px-4 py-3 text-sm;
+  border-radius: var(--radius-control);
+  border: var(--rule-hair) solid color-mix(in oklab, var(--color-danger) 40%, transparent);
+  background-color: color-mix(in oklab, var(--color-danger) 8%, transparent);
+  color: var(--color-danger);
+}
+
+/* Skeleton placeholder — use instead of a spinner when the loading layout is known */
+.skeleton {
+  border-radius: var(--radius-control);
+  background: linear-gradient(
+    90deg,
+    var(--bg-raised) 0%,
+    color-mix(in oklab, var(--bg-raised) 55%, var(--bg-card)) 50%,
+    var(--bg-raised) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-sheen 1.4s ease-in-out infinite;
+}
+
+@keyframes skeleton-sheen {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+/* An empty value in a table or list: a short hairline, read as "None" */
+.dt-none {
+  display: inline-block;
+  width: 0.75em;
+  height: 0;
+  vertical-align: middle;
+  border-top: var(--rule-hair) solid var(--text-faint);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Code / mono display (revealed passwords, tokens): Plex Mono on a paper step
+   ───────────────────────────────────────────────────────────────────────── */
+.code-reveal {
+  @apply text-xs rounded-sm px-2 py-1 break-all select-all mt-2;
+  font-family: var(--font-outlier);
+  background-color: var(--bg-raised);
+  color: var(--text-secondary);
+  border: var(--rule-hair) solid var(--clr-border);
+}

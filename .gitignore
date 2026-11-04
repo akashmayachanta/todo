@@ -1,0 +1,12 @@
+/target
+/app/node_modules
+/app/build
+/app/.svelte-kit
+/app/src-tauri/target
+# Android release keystore and its passwords, never committed
+*.jks
+*.keystore
+/app/src-tauri/gen/android/keystore.properties
+# The server's data (accounts.db, user_<id>.db) and settings
+/data
+.env

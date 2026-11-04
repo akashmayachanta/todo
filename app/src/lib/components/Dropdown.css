@@ -1,0 +1,122 @@
+/* Hallmark · checked: 2026-11-03 · theme: Almanac (tokens and stamp in routes/layout.css) · built: the project · redesign: restyle · v2.0.0 */
+@reference "tailwindcss";
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Select and DropdownMenu — trigger and panel on the app theme tokens
+   (layout.css), so every theme works unchanged.
+   ───────────────────────────────────────────────────────────────────────── */
+.dd {
+  @apply relative;
+}
+
+.dd-inline {
+  @apply inline-block;
+}
+
+/* ── Select trigger (looks like .input) ─────────────────────────────────── */
+.dd-trigger {
+  @apply flex items-center justify-between gap-2 text-left;
+}
+
+.dd-trigger:hover:not(:disabled) {
+  border-color: var(--clr-border-light);
+}
+
+.dd-trigger:disabled {
+  @apply opacity-60 cursor-not-allowed;
+}
+
+.dd-value {
+  @apply truncate;
+}
+
+.dd-placeholder {
+  color: var(--text-muted);
+}
+
+.dd-caret {
+  @apply w-4 h-4 shrink-0 transition-transform duration-150;
+  color: var(--text-muted);
+}
+
+.dd-trigger[aria-expanded="true"] .dd-caret,
+.dd-menu-trigger[aria-expanded="true"] .dd-caret {
+  @apply rotate-180;
+}
+
+.dd-trigger:focus .dd-caret,
+.dd-trigger[aria-expanded="true"] .dd-caret {
+  color: var(--color-brand);
+}
+
+/* ── Panel ──────────────────────────────────────────────────────────────── */
+.dd-panel {
+  @apply fixed z-[60] overflow-y-auto rounded-xl p-1 shadow-2xl shadow-black/30;
+  width: max-content;
+  max-width: min(22rem, calc(100vw - 1rem));
+  background-color: var(--bg-card);
+  border: 1px solid var(--clr-border);
+  animation: dd-pop 120ms ease-out;
+}
+
+@keyframes dd-pop {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.dd-option,
+.dd-item {
+  @apply flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm text-left;
+  color: var(--text-primary);
+}
+
+.dd-option {
+  @apply justify-between cursor-pointer;
+}
+
+.dd-option[data-active="true"],
+.dd-item:hover,
+.dd-item:focus-visible {
+  @apply outline-none;
+  background-color: var(--bg-raised);
+}
+
+.dd-option[aria-selected="true"] {
+  @apply font-medium;
+  color: var(--color-brand);
+}
+
+.dd-tick {
+  @apply w-4 h-4 shrink-0;
+  color: var(--color-brand);
+}
+
+.dd-empty {
+  @apply px-2.5 py-1.5 text-sm;
+  color: var(--text-muted);
+}
+
+/* ── Menu with checkbox items ───────────────────────────────────────────── */
+.dd-item {
+  @apply cursor-pointer;
+}
+
+.dd-check {
+  @apply inline-flex items-center justify-center w-4 h-4 shrink-0 rounded transition-colors;
+  border: 1px solid var(--clr-border-light);
+  color: transparent;
+}
+
+.dd-item[aria-checked="true"] .dd-check {
+  background-color: var(--color-brand);
+  border-color: var(--color-brand);
+  color: var(--color-brand-text);
+}
+
+.dd-item-danger {
+  color: var(--color-danger);
+}
+
+.dd-item:disabled {
+  @apply opacity-50 cursor-not-allowed;
+}

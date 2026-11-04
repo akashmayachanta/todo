@@ -1,0 +1,83 @@
+/* Hallmark · checked: 2026-11-03 · theme: Almanac (tokens and stamp in routes/layout.css) · built: the project · redesign: restyle · v2.0.0 */
+@reference "tailwindcss";
+
+/* ─────────────────────────────────────────────────────────────────────────
+   DatePicker — trigger, popover and vanilla-calendar-pro colours mapped onto
+   the app theme tokens (layout.css), so all six themes work unchanged.
+   ───────────────────────────────────────────────────────────────────────── */
+.date-picker {
+  @apply relative;
+}
+
+.date-picker-trigger {
+  @apply flex items-center gap-2 text-left;
+}
+
+.date-picker-placeholder {
+  color: var(--text-muted);
+}
+
+.date-picker-pop {
+  @apply absolute left-0 top-full mt-1 z-20 rounded-xl overflow-hidden shadow-2xl;
+  background-color: var(--bg-card);
+  border: 1px solid var(--clr-border);
+}
+
+.date-picker-footer {
+  @apply flex items-center justify-between px-3 py-2;
+  border-top: 1px solid var(--clr-border);
+}
+
+.date-picker-link {
+  @apply text-xs font-semibold transition-colors;
+  color: var(--color-brand);
+}
+
+.date-picker-link:hover:not(:disabled) {
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.date-picker-link:disabled {
+  color: var(--text-faint);
+}
+
+.date-picker-pop .vc {
+  --vc-bg: var(--bg-card);
+  --vc-color: var(--text-primary);
+  --vc-header-color: var(--text-primary);
+  --vc-title-color: var(--text-primary);
+  --vc-title-color-hover: var(--color-brand);
+  --vc-title-color-disabled: var(--text-faint);
+  --vc-focus-outline-color: var(--color-brand);
+
+  --vc-week-day-color: var(--text-muted);
+  --vc-week-day-color-hover: var(--text-muted);
+  --vc-week-day-off-color: var(--text-muted);
+  --vc-week-day-off-color-hover: var(--text-muted);
+
+  --vc-date-color: var(--text-primary);
+  --vc-date-weekend-color: var(--text-primary);
+  --vc-date-outside-color: var(--text-faint);
+  --vc-date-weekend-outside-color: var(--text-faint);
+  --vc-date-disabled-color: var(--text-faint);
+  --vc-date-hover-bg: var(--bg-raised);
+  --vc-date-weekend-hover-bg: var(--bg-raised);
+  --vc-date-weekend-outside-hover-bg: var(--bg-raised);
+  --vc-date-today-color: var(--color-brand);
+  --vc-date-weekend-today-color: var(--color-brand);
+  --vc-date-today-outside-color: var(--color-brand);
+  --vc-date-selected-bg: var(--color-brand);
+  --vc-date-selected-color: var(--color-brand-text);
+  --vc-date-weekend-selected-bg: var(--color-brand);
+  --vc-date-weekend-selected-color: var(--color-brand-text);
+  --vc-date-selected-outside-bg: var(--color-brand);
+  --vc-date-selected-outside-color: var(--color-brand-text);
+
+  --vc-months-years-bg: var(--bg-card);
+  --vc-months-years-bg-hover: var(--bg-raised);
+  --vc-months-years-bg-selected: var(--color-brand);
+  --vc-months-years-color: var(--text-secondary);
+  --vc-months-years-color-selected: var(--color-brand-text);
+  --vc-months-years-color-disabled: var(--text-faint);
+}

@@ -127,52 +127,42 @@ export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:
 EOF
 source ~/.bashrc
 
-# SDK packages: download the zips by hand, because sdkmanager is slow and shows little progress.
-# If a download stops, run its curl line again to resume it.
-mkdir -p $ANDROID_HOME/downloads && cd $ANDROID_HOME/downloads
-curl -L -C - --progress-bar -O https://dl.google.com/android/repository/android-ndk-r27c-linux.zip        # 664 MB
-curl -L -C - --progress-bar -O https://dl.google.com/android/repository/platform-37.0_r02.zip             # 67 MB
-curl -L -C - --progress-bar -O https://dl.google.com/android/repository/build-tools_r36_linux.zip         # 64 MB
-curl -L -C - --progress-bar -O https://dl.google.com/android/repository/platform-tools_r37.0.2-linux.zip  # 10 MB
+# NDK: download it by hand, because this 664 MB zip is slow to fetch through sdkmanager.
+# If the download stops, run the curl line again to resume it.
+mkdir -p $ANDROID_HOME/downloads $ANDROID_HOME/ndk && cd $ANDROID_HOME/downloads
+curl -L -C - --progress-bar -O https://dl.google.com/android/repository/android-ndk-r27c-linux.zip
+echo "090e8083a715fdb1a3e402d0763c388abb03fb4e  android-ndk-r27c-linux.zip" | sha1sum -c
 
-# Compare the zips with Google's checksums. Every line should end in OK.
-sha1sum -c <<'EOF'
-090e8083a715fdb1a3e402d0763c388abb03fb4e  android-ndk-r27c-linux.zip
-ed8ebf7f8822a4de5686d427f237d2fa30ff7410  platform-37.0_r02.zip
-b0b6376977657e8ad9b969bacf4093601da2c6fb  build-tools_r36_linux.zip
-736a08af10515674e40d8b754fe87390d698da2b  platform-tools_r37.0.2-linux.zip
-EOF
+# Unzip it to the path NDK_HOME expects. This prints nothing and may take a few minutes.
+rm -rf $NDK_HOME
+unzip -q android-ndk-r27c-linux.zip -d $ANDROID_HOME/ndk
+mv $ANDROID_HOME/ndk/android-ndk-r27c $NDK_HOME
 
-# Unzip each one to the folder the SDK expects. This prints nothing, and the NDK may take a few minutes.
-install_zip() {
-  rm -rf "$2" unpacked
-  mkdir -p "$(dirname "$2")"
-  unzip -q "$1" -d unpacked && mv unpacked/* "$2" && rmdir unpacked
-}
-install_zip android-ndk-r27c-linux.zip $NDK_HOME
-install_zip platform-37.0_r02.zip $ANDROID_HOME/platforms/android-37.0
-install_zip build-tools_r36_linux.zip $ANDROID_HOME/build-tools/36.0.0
-install_zip platform-tools_r37.0.2-linux.zip $ANDROID_HOME/platform-tools
-cd ~ && rm -rf $ANDROID_HOME/downloads
-
+# Remaining SDK packages. Use sdkmanager for these, not hand-unzipped zips: the zips have no
+# package.xml, so Gradle ignores those folders and downloads the package again.
 yes | sdkmanager --licenses
+sdkmanager "platform-tools" "platforms;android-36" "platforms;android-37.0" "build-tools;36.0.0"
 ```
 
 Check the setup:
 
 ```bash
 java -version          # 17.x
-sdkmanager --list_installed   # should list all four packages
+sdkmanager --list_installed   # should list the four packages above
 ls $NDK_HOME           # should exist
 node -v && cargo -V
 ```
 
-If a package is missing from that list, install it with `sdkmanager` instead, for example
-`sdkmanager "platforms;android-37.0" "build-tools;36.0.0"`.
+The installed list won't show the NDK, because it was unzipped by hand. That's expected: the
+build finds it through `NDK_HOME`.
 
-The generated Android project sets these versions: `compileSdk = 37`, and its Android Gradle
-Plugin (9.3.1) expects build-tools 36.0.0. They can change when the Tauri CLI is upgraded and
-`android:init` is run again.
+These versions come from the project's dependencies, and can change when they're upgraded:
+
+- **`platforms;android-37.0`:** the generated Android project sets `compileSdk = 37`.
+- **`platforms;android-36`:** Tauri's Android modules and its notification plugin set `compileSdk = 36`.
+- **`build-tools;36.0.0`:** the default for the Android Gradle Plugin (9.3.1).
+
+If one of these is missing, Gradle downloads it during the build.
 
 ### 3.2 Copy the project into Linux
 
@@ -226,7 +216,11 @@ cd ~/todo/app
 npm run android:build
 ```
 
-The APK is at:
+This builds for arm64 only, which is much faster than building all four CPU targets and covers
+nearly every modern phone. For an APK that also runs on 32-bit phones and x86 emulators, use
+`npm run android:build:all` instead. `build-android.sh` uses the arm64 build.
+
+The APK is at the path below. Its name says `universal` even for an arm64-only build:
 
 ```
 ~/todo/app/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk
@@ -307,3 +301,6 @@ rsync -a --exclude build --exclude .gradle --exclude keystore.properties \
 | `npm ci` fails on lightningcss / rolldown | `node_modules` was copied from Windows. `rm -rf node_modules && npm ci` |
 | APK won't install over an older one | It was signed with a different key. Uninstall the old app first |
 | `adb devices` is empty in WSL | Expected for USB. Use option A or C above |
+| `Observed package id … in inconsistent location` (a folder ending in `-2`) | The target folder already existed, so the package went in a second one. With no build running, delete the older folder and rename the `-2` folder to the expected name. Then clear Gradle's saved paths: in `gen/android`, run `./gradlew --stop` and `rm -rf .gradle/configuration-cache` |
+| Kotlin errors such as `Cannot access 'Object'` or `Unresolved reference 'Class'` | Gradle is using a saved path to an SDK platform that has moved. In `gen/android`, run `./gradlew --stop` and `rm -rf .gradle/configuration-cache`, then build again |
+| `This version only understands SDK XML versions up to 3` | Gradle wrote a newer package format than these command-line tools know. The warning is harmless |

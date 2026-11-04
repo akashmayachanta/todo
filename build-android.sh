@@ -23,12 +23,15 @@ rsync -a \
   --exclude .svelte-kit --exclude app/src-tauri/gen/android \
   "$SRC/" "$DEST/"
 
+APK="$DEST/app/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk"
+
 cd "$DEST/app"
 npm install
+# Delete the old APK, so the copy below can't pick it up if this build writes elsewhere.
+rm -f "$APK"
 npm run android:build
 
 # Put the APK where Windows can reach it (target/ is git-ignored).
-APK="$DEST/app/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk"
 mkdir -p "$SRC/target/apk"
 cp "$APK" "$SRC/target/apk/tasks.apk"
 

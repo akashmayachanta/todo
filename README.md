@@ -253,24 +253,8 @@ AlarmManager.
    keyAlias=tasks
    storeFile=C:\\Users\\<you>\\tasks-release.jks
    ```
-3. In `src-tauri/gen/android/app/build.gradle.kts`, add a release signing config
-   that reads it:
-   ```kotlin
-   import java.io.FileInputStream
-   import java.util.Properties
-   // inside android { … }
-   signingConfigs {
-       create("release") {
-           val props = Properties().apply { load(FileInputStream(rootProject.file("keystore.properties"))) }
-           keyAlias = props["keyAlias"] as String
-           keyPassword = props["password"] as String
-           storeFile = file(props["storeFile"] as String)
-           storePassword = props["password"] as String
-       }
-   }
-   buildTypes { getByName("release") { signingConfig = signingConfigs.getByName("release") } }
-   ```
-4. Build the APK and sideload it:
+3. Build the APK and sideload it. `android:build` runs `scripts/android-signing.mjs`,
+   which adds the signing config to the generated `build.gradle.kts`:
    ```powershell
    npm run android:build
    adb install -r src-tauri\gen\android\app\build\outputs\apk\universal\release\app-universal-release.apk

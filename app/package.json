@@ -12,7 +12,7 @@
 		"icons": "tauri icon icons-src/icon.svg",
 		"android:init": "tauri android init && node scripts/android-permissions.mjs",
 		"android:dev": "tauri android dev",
-		"android:build": "tauri android build --apk"
+		"android:build": "node scripts/android-signing.mjs && tauri android build --apk"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-static": "^3.0.10",

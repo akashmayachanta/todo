@@ -127,19 +127,52 @@ export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:
 EOF
 source ~/.bashrc
 
-# SDK packages
+# SDK packages: download the zips by hand, because sdkmanager is slow and shows little progress.
+# If a download stops, run its curl line again to resume it.
+mkdir -p $ANDROID_HOME/downloads && cd $ANDROID_HOME/downloads
+curl -L -C - --progress-bar -O https://dl.google.com/android/repository/android-ndk-r27c-linux.zip        # 664 MB
+curl -L -C - --progress-bar -O https://dl.google.com/android/repository/platform-37.0_r02.zip             # 67 MB
+curl -L -C - --progress-bar -O https://dl.google.com/android/repository/build-tools_r36_linux.zip         # 64 MB
+curl -L -C - --progress-bar -O https://dl.google.com/android/repository/platform-tools_r37.0.2-linux.zip  # 10 MB
+
+# Compare the zips with Google's checksums. Every line should end in OK.
+sha1sum -c <<'EOF'
+090e8083a715fdb1a3e402d0763c388abb03fb4e  android-ndk-r27c-linux.zip
+ed8ebf7f8822a4de5686d427f237d2fa30ff7410  platform-37.0_r02.zip
+b0b6376977657e8ad9b969bacf4093601da2c6fb  build-tools_r36_linux.zip
+736a08af10515674e40d8b754fe87390d698da2b  platform-tools_r37.0.2-linux.zip
+EOF
+
+# Unzip each one to the folder the SDK expects. This prints nothing, and the NDK may take a few minutes.
+install_zip() {
+  rm -rf "$2" unpacked
+  mkdir -p "$(dirname "$2")"
+  unzip -q "$1" -d unpacked && mv unpacked/* "$2" && rmdir unpacked
+}
+install_zip android-ndk-r27c-linux.zip $NDK_HOME
+install_zip platform-37.0_r02.zip $ANDROID_HOME/platforms/android-37.0
+install_zip build-tools_r36_linux.zip $ANDROID_HOME/build-tools/36.0.0
+install_zip platform-tools_r37.0.2-linux.zip $ANDROID_HOME/platform-tools
+cd ~ && rm -rf $ANDROID_HOME/downloads
+
 yes | sdkmanager --licenses
-sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
 ```
 
 Check the setup:
 
 ```bash
 java -version          # 17.x
-sdkmanager --list_installed
+sdkmanager --list_installed   # should list all four packages
 ls $NDK_HOME           # should exist
 node -v && cargo -V
 ```
+
+If a package is missing from that list, install it with `sdkmanager` instead, for example
+`sdkmanager "platforms;android-37.0" "build-tools;36.0.0"`.
+
+The generated Android project sets these versions: `compileSdk = 37`, and its Android Gradle
+Plugin (9.3.1) expects build-tools 36.0.0. They can change when the Tauri CLI is upgraded and
+`android:init` is run again.
 
 ### 3.2 Copy the project into Linux
 
@@ -180,30 +213,9 @@ keyAlias=tasks
 storeFile=/home/<your-linux-user>/tasks-release.jks
 ```
 
-In `~/todo/app/src-tauri/gen/android/app/build.gradle.kts`, add these imports at the top:
-
-```kotlin
-import java.io.FileInputStream
-import java.util.Properties
-```
-
-Then add this inside `android { … }`:
-
-```kotlin
-signingConfigs {
-    create("release") {
-        val props = Properties().apply { load(FileInputStream(rootProject.file("keystore.properties"))) }
-        keyAlias = props["keyAlias"] as String
-        keyPassword = props["password"] as String
-        storeFile = file(props["storeFile"] as String)
-        storePassword = props["password"] as String
-    }
-}
-buildTypes { getByName("release") { signingConfig = signingConfigs.getByName("release") } }
-```
-
-If `build.gradle.kts` already has a `buildTypes { getByName("release") { … } }` block, add the
-`signingConfig = …` line inside it rather than making a second block.
+You don't need to edit `build.gradle.kts`. `npm run android:build` runs
+`app/scripts/android-signing.mjs`, which adds the signing config to that generated file.
+It also replaces any signing config you added by hand.
 
 Back up `~/tasks-release.jks` somewhere safe. Updates to an installed APK have to be signed with the same key.
 

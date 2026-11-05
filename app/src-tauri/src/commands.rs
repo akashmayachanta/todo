@@ -355,12 +355,12 @@ pub fn app_quick_hide(window: WebviewWindow) {
     let _ = window;
 }
 
-/// The taskbar icon with today's count drawn on it, as `size`² RGBA pixels; none for the plain icon.
+/// Today's count as a taskbar badge, in `size`² RGBA pixels; none removes the badge.
 #[tauri::command]
-pub fn app_set_taskbar_icon(app: AppHandle, size: u32, rgba: Option<Vec<u8>>) -> Res<()> {
+pub fn app_set_taskbar_badge(app: AppHandle, size: u32, rgba: Option<Vec<u8>>) -> Res<()> {
     #[cfg(windows)]
     {
-        crate::widgets::set_taskbar_icon(&app, size, rgba).map_err(|e| fail(500, e))
+        crate::widgets::set_taskbar_badge(&app, size, rgba).map_err(|e| fail(500, e))
     }
     #[cfg(not(windows))]
     {

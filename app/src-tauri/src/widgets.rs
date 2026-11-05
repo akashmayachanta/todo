@@ -5,8 +5,8 @@
 //! - Pins (`pin-<kind>[-<id>]`): small always-on-top windows showing one list.
 //!   They are remembered in config.json. Closing one unpins it; quitting the app
 //!   doesn't, because a quit doesn't send the close request.
-//! - The taskbar count: the number is drawn into the taskbar icon itself, because
-//!   Windows only ever puts an overlay icon at the bottom right.
+//! - The taskbar count: a badge on the main window's taskbar button. Windows decides
+//!   where it goes. Setting the window's own icon doesn't work: the taskbar ignores it.
 //!
 //! Each window loads a route under /widget (app/src/routes/widget). Tauri deadlocks
 //! creating a window from a sync command on Windows, so commands that do are async.
@@ -197,44 +197,39 @@ pub fn close_windows(app: &AppHandle) {
 
 // ── The taskbar count ────────────────────────────────────────────────────────
 
-/// Sets the main window's big icon, which the taskbar shows, from RGBA pixels the
-/// page drew (app/src/app/taskbar.ts). None goes back to the app's own icon.
+/// The badge set last. Hiding the window to the tray removes its taskbar button and
+/// the badge with it, so this is what goes back on.
 #[cfg(windows)]
-pub fn set_taskbar_icon(app: &AppHandle, size: u32, rgba: Option<Vec<u8>>) -> Result<(), String> {
-    use std::sync::Mutex;
-    use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
-    use windows::Win32::UI::WindowsAndMessaging::{CreateIcon, DestroyIcon, SendMessageW, HICON, ICON_BIG, WM_SETICON};
+static BADGE: std::sync::Mutex<Option<tauri::image::Image<'static>>> = std::sync::Mutex::new(None);
 
-    /// The icon set last, destroyed once it's replaced.
-    static CURRENT: Mutex<isize> = Mutex::new(0);
+/// How long Windows gets to bring a taskbar button back before the badge is set on it.
+#[cfg(windows)]
+const BADGE_RESTORE_DELAY: std::time::Duration = std::time::Duration::from_millis(500);
 
+/// Sets the main window's taskbar badge from RGBA pixels the page drew
+/// (app/src/app/taskbar.ts). None removes it.
+#[cfg(windows)]
+pub fn set_taskbar_badge(app: &AppHandle, size: u32, rgba: Option<Vec<u8>>) -> Result<(), String> {
+    *lock(&BADGE) = rgba.map(|pixels| tauri::image::Image::new_owned(pixels, size, size));
+    show_taskbar_badge(app)
+}
+
+#[cfg(windows)]
+fn show_taskbar_badge(app: &AppHandle) -> Result<(), String> {
     let window = app.get_webview_window("main").ok_or("The main window is gone")?;
-    let hwnd = HWND(window.hwnd().map_err(|e| e.to_string())?.0);
+    let badge = lock(&BADGE).clone();
+    window.set_overlay_icon(badge).map_err(|e| e.to_string())
+}
 
-    let icon = match rgba {
-        None => HICON::default(),
-        Some(mut pixels) => {
-            if pixels.len() != (size * size * 4) as usize {
-                return Err(format!("Expected {size}x{size} RGBA pixels"));
-            }
-            // CreateIcon takes BGRA, and an AND mask that is the inverted alpha.
-            let mut mask = Vec::with_capacity(pixels.len() / 4);
-            for px in pixels.chunks_exact_mut(4) {
-                px.swap(0, 2);
-                mask.push(px[3].wrapping_sub(u8::MAX));
-            }
-            unsafe { CreateIcon(None, size as i32, size as i32, 1, 32, mask.as_ptr(), pixels.as_ptr()) }
-                .map_err(|e| e.to_string())?
-        }
-    };
-    unsafe {
-        SendMessageW(hwnd, WM_SETICON, Some(WPARAM(ICON_BIG as usize)), Some(LPARAM(icon.0 as isize)));
+/// Puts the badge back once the main window has its taskbar button again.
+#[cfg(windows)]
+pub fn restore_taskbar_badge(app: &AppHandle) {
+    if lock(&BADGE).is_none() {
+        return;
     }
-    let previous = std::mem::replace(&mut *lock(&CURRENT), icon.0 as isize);
-    if previous != 0 {
-        unsafe {
-            let _ = DestroyIcon(HICON(previous as _));
-        }
-    }
-    Ok(())
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(BADGE_RESTORE_DELAY);
+        let _ = show_taskbar_badge(&app);
+    });
 }

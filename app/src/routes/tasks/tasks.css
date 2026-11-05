@@ -734,6 +734,7 @@ html.sort-active * {
   text-decoration: line-through;
 }
 
+.task-parent,
 .task-note {
   font-size: var(--text-xs);
   color: var(--text-muted);

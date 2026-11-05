@@ -222,9 +222,9 @@ On Windows the app also has:
   or in a task's menu opens a small always-on-top window for that list or task. Close
   it to unpin. Pins and their positions stay on this device (`config.json`,
   and the window-state plugin's file) and reopen at startup.
-- **Today's count on the taskbar.** The same number as the pane, so overdue tasks
-  count too. Windows only puts overlay icons at the bottom right, so the number is
-  drawn into the taskbar icon itself, at the top right.
+- **Today's count on the taskbar.** A badge with the same number as the pane, so
+  overdue tasks count too. Windows decides where it goes, and it needs "Show badges
+  on taskbar apps" turned on.
 - **Start at login** (`tauri-plugin-autostart`). It starts with `--minimized`,
   straight to the tray.
 - **Reminders.** A Rust loop checks `remind_at` every 30 s and shows a Windows

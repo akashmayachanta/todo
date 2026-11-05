@@ -33,7 +33,7 @@
 		type AddDefaults, type Bucket, type DateViewGroup, type GroupCtx,
 	} from '$lib/components/tasks/taskFilters';
 	import {
-		PROJECT_COLORS, byDue, byPosition, completionPatch, durationTotals, loadLayouts, placeName, projectColor, saveLayouts,
+		PROJECT_COLORS, byDue, byPosition, completionPatch, durationTotals, loadLayouts, parentFinder, placeName, projectColor, saveLayouts, shownWhenDue, taskRoots,
 		shiftInstant, type TaskLayout, type TaskSettings, type TaskView,
 	} from '$lib/components/tasks/shared';
 	import type { PinTarget } from '$lib/components/tasks/pins';
@@ -155,6 +155,7 @@
 		return map;
 	});
 	const subtasksOf = (id: string) => subtaskMap.get(id) ?? [];
+	let parentOf = $derived(parentFinder(tasks));
 
 	let open = $derived(tasks.filter((t) => !t.completed_at));
 	let topLevel = $derived(open.filter((t) => t.parent_id === null));
@@ -185,6 +186,17 @@
 	let inboxTasks = $derived(topLevel.filter((t) => t.project_id === null).sort(byPosition));
 	let overdue = $derived(dated.filter((t) => t.due_date! < today).sort(byDue));
 	let todayTasks = $derived(dated.filter((t) => t.due_date === today).sort(byDue));
+	/**
+	 * What Today lists: due subtasks under their parents, once each, so a parent with
+	 * anything overdue sits in Overdue. With subtasks turned off, every due task on its own.
+	 */
+	let overdueRows = $derived(settings.showSubtasks ? taskRoots(overdue, parentOf) : overdue);
+	let todayRows = $derived.by(() => {
+		if (!settings.showSubtasks) return todayTasks;
+		const inOverdue = new Set(overdueRows.map((t) => t.id));
+		return taskRoots(todayTasks, parentOf).filter((t) => !inOverdue.has(t.id));
+	});
+	let dueSubtasks = $derived(shownWhenDue(today));
 	let upcomingDays = $derived.by(() => {
 		const days: { date: string; tasks: Task[] }[] = [];
 		// Upcoming starts tomorrow: today's tasks are in Today.
@@ -197,7 +209,7 @@
 	});
 	let later = $derived(dated.filter((t) => t.due_date! > lastUpcoming).sort(byDue));
 
-	/** A filter's open tasks (subtasks too, flat, like Today), the details its rows show, and what a task added there gets. */
+	/** A filter's open tasks (subtasks too, flat, like Upcoming), the details its rows show, and what a task added there gets. */
 	let filterTest = $derived(filter ? compileFilter(filter.criteria, groupCtx) : null);
 	let filterTasks = $derived(filterTest ? open.filter(filterTest).sort(byDue) : []);
 	let filterFields = $derived(filter ? new Set(filter.fields) : null);
@@ -261,7 +273,7 @@
 	let buckets = $derived.by((): Bucket[] | null => {
 		if (groupBy === 'date' || groupBy === 'none' || layout === 'calendar') return null;
 		const source = view === 'filter' ? filterTasks
-			: view === 'today' ? [...overdue, ...todayTasks]
+			: view === 'today' ? [...overdueRows, ...todayRows]
 			: view === 'upcoming' ? dated.filter((t) => t.due_date! > today)
 			: null;
 		if (!source) return null;
@@ -330,8 +342,8 @@
 		}
 		if (view === 'today') {
 			const cols: Column[] = [];
-			if (overdue.length) cols.push({ key: 'overdue', title: 'Overdue', tasks: overdue, overdue: true, drop: null, add: null });
-			cols.push({ key: `date:${today}`, title: todayHeading(today), tasks: todayTasks, drop: { due_date: today }, add: { key: 'main', defaults: { due_date: today } } });
+			if (overdue.length) cols.push({ key: 'overdue', title: 'Overdue', tasks: overdueRows, overdue: true, drop: null, add: null });
+			cols.push({ key: `date:${today}`, title: todayHeading(today), tasks: todayRows, drop: { due_date: today }, add: { key: 'main', defaults: { due_date: today } } });
 			return cols;
 		}
 		if (view === 'upcoming') {
@@ -514,8 +526,11 @@
 
 	/** A task and the subtasks listed under it, in the views that nest them. */
 	function withSubtasks(list: Task[]): Task[] {
-		if (!((view === 'inbox' || view === 'project') && settings.showSubtasks)) return list;
-		return list.flatMap((t) => [t, ...subtasksOf(t.id).filter((s) => settings.showDoneSubtasks || !s.completed_at)]);
+		if (!((view === 'inbox' || view === 'project' || view === 'today') && settings.showSubtasks)) return list;
+		return list.flatMap((t) => [
+			t,
+			...subtasksOf(t.id).filter((s) => (settings.showDoneSubtasks || !s.completed_at) && (view !== 'today' || dueSubtasks(t, s))),
+		]);
 	}
 
 	/** The tasks of the view in the order they are shown, for the modal's up / down. */
@@ -526,7 +541,7 @@
 		else if (layout === 'board' || buckets) list = withSubtasks(columns.flatMap((c) => c.tasks));
 		else if (view === 'filter') list = filterTasks;
 		else if (view === 'inbox') list = withSubtasks(inboxTasks);
-		else if (view === 'today') list = [...overdue, ...todayTasks];
+		else if (view === 'today') list = withSubtasks([...overdueRows, ...todayRows]);
 		else if (view === 'upcoming') list = [...upcomingDays.flatMap((d) => d.tasks), ...later];
 		else list = withSubtasks([...uncategorised, ...projectCategories.flatMap((c) => inCategory(c.id))]);
 		return completedShown && layout !== 'calendar' ? [...list, ...completed] : list;
@@ -1014,9 +1029,11 @@
 {#snippet row(task: Task, nested: boolean, withPlace: boolean, sorted = false)}
 	<TaskRow
 		{task}
+		parent={parentOf(task)}
 		sort={sorted ? sortApi : null}
 		{subtasksOf}
-		nested={nested && settings.showSubtasks}
+		nested={(nested || (view === 'today' && !task.completed_at)) && settings.showSubtasks}
+		subtaskFilter={view === 'today' ? dueSubtasks : null}
 		showDoneSubtasks={settings.showDoneSubtasks}
 		showNote={settings.showNotes}
 		{now}
@@ -1353,13 +1370,13 @@
 				{/if}
 			{:else if view === 'today'}
 				{#if overdue.length}
-					{@render group('Overdue', overdue, { overdue: true })}
+					{@render group('Overdue', overdueRows, { overdue: true })}
 				{/if}
 				<section class="task-group">
 					{#if overdue.length}
-						<h2 class="task-group-head">{todayHeading(today)} <span class="task-group-count">{todayTasks.length}</span></h2>
+						<h2 class="task-group-head">{todayHeading(today)} <span class="task-group-count">{todayRows.length}</span></h2>
 					{/if}
-					{#each todayTasks as task (task.id)}
+					{#each todayRows as task (task.id)}
 						{@render row(task, false, true)}
 					{/each}
 					{@render adder('main', { due_date: today })}

@@ -138,6 +138,31 @@ export function placeName(task: Pick<Task, 'project_id' | 'category_id'>, projec
 	return category ? `${project.name} / ${category.name}` : project.name;
 }
 
+/** Finds a subtask's parent among `tasks`; null for a top-level task. */
+export function parentFinder(tasks: Task[]): (task: Task) => Task | null {
+	const byId = new Map(tasks.map((t) => [t.id, t]));
+	return (task) => (task.parent_id ? byId.get(task.parent_id) ?? null : null);
+}
+
+/** The top-level tasks to list so these tasks show in their hierarchy, in the order they're first reached. */
+export function taskRoots(list: Task[], parentOf: (task: Task) => Task | null): Task[] {
+	const roots = new Map<string, Task>();
+	for (const task of list) {
+		const root = parentOf(task) ?? task;
+		if (!roots.has(root.id)) roots.set(root.id, root);
+	}
+	return [...roots.values()];
+}
+
+/**
+ * Which subtasks a date view lists under a task: all of them when the task itself is
+ * due, or only the due ones when it's there just for those.
+ */
+export function shownWhenDue(date: string): (parent: Task, subtask: Task) => boolean {
+	const due = (t: Task) => !!t.due_date && t.due_date <= date;
+	return (parent, subtask) => due(parent) || due(subtask);
+}
+
 /** A task's own minutes plus those of its open subtasks. */
 export function taskMinutes(task: Task, subtasks: Task[]): number {
 	let total = task.duration_minutes ?? 0;

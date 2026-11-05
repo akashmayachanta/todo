@@ -180,16 +180,15 @@ fn fire_due(app: &AppHandle, st: &Arc<AppState>) {
     }
 }
 
-/// `remind_at` in local time: the toast's header ("15:00") and its line ("Today 15:00").
+/// `remind_at` in local time, for the toast: "Today 15:00".
 /// Only reminders under a day old show, so the day is today or yesterday.
 #[cfg(windows)]
-fn toast_time(remind_at: &str) -> Option<(String, String)> {
+fn toast_time(remind_at: &str) -> Option<String> {
     use chrono::{Local, TimeZone};
 
     let at = Local.timestamp_millis_opt(tasks_core::time::instant_ms(remind_at)?).single()?;
     let day = if at.date_naive() == Local::now().date_naive() { "Today" } else { "Yesterday" };
-    let time = at.format("%H:%M").to_string();
-    Some((time.clone(), format!("{day} {time}")))
+    Some(format!("{day} {}", at.format("%H:%M")))
 }
 
 #[cfg(windows)]
@@ -197,17 +196,16 @@ fn xml_escape(text: &str) -> String {
     text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&apos;")
 }
 
-/// The toast's XML. Toasts sharing a header group under it in the notification centre.
+/// The toast's XML.
 #[cfg(windows)]
 fn toast_xml(id: &str, title: &str, remind_at: &str) -> Option<String> {
-    let (time, line) = toast_time(remind_at)?;
+    let line = toast_time(remind_at)?;
     let title = xml_escape(title);
     let open = xml_escape(&format!("{TOAST_LINK}open/{id}"));
     let snooze = xml_escape(&format!("{TOAST_LINK}snooze/{id}/{remind_at}"));
     let complete = xml_escape(&format!("{TOAST_LINK}complete/{id}/{remind_at}"));
     Some(format!(
         r#"<toast scenario="reminder" launch="{open}" activationType="protocol">
-  <header id="{time}" title="{time}" arguments="{TOAST_LINK}open" activationType="protocol"/>
   <visual><binding template="ToastGeneric"><text>{title}</text><text>{line}</text></binding></visual>
   <actions>
     <action content="Snooze" arguments="{snooze}" activationType="protocol"/>

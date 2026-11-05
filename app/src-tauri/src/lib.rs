@@ -102,11 +102,14 @@ fn desktop_setup(app: &mut tauri::App) -> tauri::Result<()> {
     // Closing the window hides it to the tray; reminders and sync keep running.
     if let Some(w) = app.get_webview_window("main") {
         let hide = w.clone();
-        w.on_window_event(move |event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+        w.on_window_event(move |event| match event {
+            tauri::WindowEvent::CloseRequested { api, .. } => {
                 api.prevent_close();
                 let _ = hide.hide();
             }
+            #[cfg(windows)]
+            tauri::WindowEvent::Focused(true) => widgets::restore_taskbar_badge(hide.app_handle()),
+            _ => {}
         });
     }
     widgets::setup(app.handle())
@@ -228,7 +231,7 @@ pub fn run() {
             commands::app_pin_open,
             commands::app_pin_close,
             commands::app_quick_hide,
-            commands::app_set_taskbar_icon,
+            commands::app_set_taskbar_badge,
             commands::app_ask_notification_permission,
         ])
         .run(tauri::generate_context!())

@@ -16,15 +16,20 @@
 	 * `showDoneSubtasks`). A click opens it; Alt+click (or the pencil) edits it in place,
 	 * where the page's `editor` takes the row's place. With `sort`, a grip moves it. `compact`
 	 * is for a pinned window: no edit or delete, and without them it can leave out `ondelete`.
+	 * `parent` names a subtask's task where the subtask isn't listed under it.
+	 * `subtaskFilter` narrows the subtasks listed under it (Today).
 	 */
 	let {
-		task, subtasksOf, nested = false, showDoneSubtasks = false, showNote = true, place = null, fields = null, now,
+		task, parent = null, subtasksOf, nested = false, subtaskFilter = null, showDoneSubtasks = false, showNote = true, place = null, fields = null, now,
 		editingId = null, editor, sort = null, compact = false, ontoggle, onopen, onedit, ondelete,
 	}: {
 		task: Task;
+		/** The task this subtask belongs to, when the list doesn't already show it. */
+		parent?: Task | null;
 		/** Every subtask of a task, done ones too. */
 		subtasksOf: (id: string) => Task[];
 		nested?: boolean;
+		subtaskFilter?: ((parent: Task, subtask: Task) => boolean) | null;
 		showDoneSubtasks?: boolean;
 		/** The first line of the description under the title. */
 		showNote?: boolean;
@@ -51,6 +56,7 @@
 	let due = $derived(shows('due') ? describeDue(task, now) : null);
 	let done = $derived(!!task.completed_at);
 	let name = $derived(plainText(task.title));
+	let parentName = $derived(parent ? plainText(parent.title) : '');
 	let noteShown = $derived(fields ? fields.has('description') : showNote);
 	let note = $derived(noteShown ? task.description?.split('\n').find((l) => l.trim()) ?? '' : '');
 	/** Its own duration plus its open subtasks'; left out when it is only its own and the due time already shows it as a range. */
@@ -60,7 +66,9 @@
 	let repeat = $derived(shows('repeat') ? task.recurrence : null);
 	let reminder = $derived(shows('reminder') ? task.remind_at : null);
 	let subtaskCount = $derived(shows('subtasks') && subtasks.length > 0);
-	let shownSubtasks = $derived(showDoneSubtasks ? subtasks : openSubtasks);
+	let shownSubtasks = $derived(
+		(showDoneSubtasks ? subtasks : openSubtasks).filter((s) => !subtaskFilter || subtaskFilter(task, s)),
+	);
 	let editing = $derived(!!editor && editingId === task.id);
 
 	function onMainClick(e: MouseEvent) {
@@ -96,6 +104,7 @@
 				<button type="button" class="task-open" aria-label="Open {name}"></button>
 				<!-- A subtask stays on one line; the task itself shows its full title when opened. -->
 				<span class="task-title" class:task-title-one={!!task.parent_id} title={task.parent_id ? name : undefined}><LinkedText text={task.title} /></span>
+				{#if parentName}<span class="task-parent" title={parentName}>Subtask of {parentName}</span>{/if}
 				{#if note}<span class="task-note"><LinkedText text={note} /></span>{/if}
 				{#if due || reminder || repeat || duration || subtaskCount || task.location || place}
 					<span class="task-meta">

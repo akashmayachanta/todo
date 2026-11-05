@@ -1,7 +1,7 @@
 import type { Task, TaskCategory, TaskFilter, TaskIn, TaskProject } from '$lib/api';
 import { plainText } from '$lib/links';
 import { addDays } from '$lib/taskParse';
-import { byDue, byPosition, projectColor } from './shared';
+import { byDue, byPosition, parentFinder, projectColor, shownWhenDue, taskRoots } from './shared';
 import { compileFilter, filterDefaults, type AddDefaults, type GroupCtx } from './taskFilters';
 
 /**
@@ -40,6 +40,10 @@ export interface PinView {
 	tasks: Task[];
 	/** Their subtasks are listed under them. */
 	nested: boolean;
+	/** Narrows the subtasks listed under a task. */
+	subtaskFilter?: (parent: Task, subtask: Task) => boolean;
+	/** The number in the title bar, when it isn't the open tasks listed. */
+	count?: number;
 	/** What a task added here starts with. */
 	defaults: AddDefaults;
 	/** New tasks are subtasks of this one. */
@@ -58,8 +62,18 @@ export function pinView(target: PinTarget, data: PinData): PinView {
 	switch (target.kind) {
 		case 'inbox':
 			return { ...base, title: 'Inbox', tasks: top.filter((t) => t.project_id === null).sort(byPosition), nested: true };
-		case 'today':
-			return { ...base, title: 'Today', tasks: dated.filter((t) => t.due_date! <= today).sort(byDue), defaults: { due_date: today } };
+		case 'today': {
+			const due = dated.filter((t) => t.due_date! <= today).sort(byDue);
+			return {
+				...base,
+				title: 'Today',
+				tasks: taskRoots(due, parentFinder(tasks)),
+				nested: true,
+				subtaskFilter: shownWhenDue(today),
+				count: due.length,
+				defaults: { due_date: today },
+			};
+		}
 		case 'upcoming':
 			return { ...base, title: 'Upcoming', tasks: dated.filter((t) => t.due_date! > today).sort(byDue), defaults: { due_date: addDays(today, 1) } };
 		case 'project': {

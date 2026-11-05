@@ -6,7 +6,7 @@
 	import QuickAdd from '$lib/components/tasks/QuickAdd.svelte';
 	import TaskRow from '$lib/components/tasks/TaskRow.svelte';
 	import { pinFromLabel, pinNewTask, pinView, type PinView } from '$lib/components/tasks/pins';
-	import { byPosition, completionPatch } from '$lib/components/tasks/shared';
+	import { byPosition, completionPatch, parentFinder } from '$lib/components/tasks/shared';
 	import { toast } from '$lib/stores/toast';
 	import { askReminderPermission } from '$lib/stores/taskReminders';
 	import { ymd } from '$lib/taskParse';
@@ -20,7 +20,7 @@
 	 * Its label says what it shows. Tasks can be ticked and added here; clicking one opens
 	 * it in the main window, and closing the window unpins it.
 	 */
-	const DUE_ONLY = new Set(['due'] as const);
+	const ROW_FIELDS = new Set(['due', 'duration'] as const);
 
 	const target = pinFromLabel(getCurrentWindow().label);
 
@@ -37,7 +37,7 @@
 	let view = $derived<PinView | null>(
 		target && loaded ? pinView(target, { tasks, pinnedTask, projects, categories, filters, today }) : null,
 	);
-	let openCount = $derived(view?.tasks.filter((t) => !t.completed_at).length ?? 0);
+	let openCount = $derived(view?.count ?? view?.tasks.filter((t) => !t.completed_at).length ?? 0);
 
 	let subtaskMap = $derived.by(() => {
 		const map = new Map<string, Task[]>();
@@ -49,6 +49,7 @@
 		return map;
 	});
 	const subtasksOf = (id: string) => subtaskMap.get(id) ?? [];
+	let parentOf = $derived(parentFinder(tasks));
 
 	async function load() {
 		try {
@@ -123,11 +124,13 @@
 			{#each view.tasks as task (task.id)}
 				<TaskRow
 					{task}
+					parent={parentOf(task)}
 					{subtasksOf}
 					{now}
 					nested={view.nested}
+					subtaskFilter={view.subtaskFilter}
 					showNote={false}
-					fields={DUE_ONLY}
+					fields={ROW_FIELDS}
 					compact
 					ontoggle={toggle}
 					onopen={open}

@@ -27,10 +27,10 @@ The README explains how the app works. This file is just the steps.
 cd C:\Drive\Vault\todo
 cargo build --release -p tasks-server
 copy .env.example .env                 # edit if needed; the defaults work
-.\target\release\tasks-server.exe      # listens on 0.0.0.0:8091/tasks-api
+.\target\release\tasks-server.exe      # or double-click it; starts in the tray on 0.0.0.0:8091/tasks-api
 ```
 
-Check it from another terminal:
+Check it:
 
 ```powershell
 curl http://localhost:8091/tasks-api/health
@@ -41,6 +41,8 @@ The phone needs HTTPS to reach the server, so run a tunnel too:
 ```powershell
 ngrok http 8091                        # note the https://xxxx.ngrok.app address
 ```
+
+Use **Exit** on the tray icon before rebuilding, or Windows won't let the build replace the exe.
 
 ---
 

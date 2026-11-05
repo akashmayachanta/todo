@@ -10,6 +10,7 @@ the server keeps them in step across devices.
 │   │                    "client") the device side of sync over HTTP
 │   └── migrations/      the tasks DB's numbered SQL migrations
 ├── server/              tasks-server: accounts, the REST API, /sync for devices
+│   ├── icons/           the server's logo: icon.svg is the source of icon.ico
 │   └── migrations/      accounts.db's numbered SQL migrations
 └── app/                 Tauri 2 app (Windows .exe/.msi, Android .apk)
     ├── src/             SvelteKit: the Tasks UI (lib/, routes/tasks) and the shell
@@ -38,8 +39,8 @@ the server keeps them in step across devices.
   Manager, or the app's private storage on Android. Passwords are stored as
   Argon2id hashes; tokens as SHA-256 hashes.
 - `TASKS_ALLOW_SIGNUP=false` closes registration once your accounts exist.
-- On the server, `tasks-server user add|passwd|disable|enable|list` manages
-  accounts. A disabled user can't sign in, and all their devices are refused.
+  Registering is the only way to make an account, and there's no way yet to
+  reset a forgotten password.
 - `GET /auth/devices` lists a user's devices, and
   `POST /auth/devices/<id>/revoke` signs one out.
 
@@ -119,12 +120,24 @@ is loaded.
 ```powershell
 cargo build --release -p tasks-server
 copy .env.example .env                        # then edit it
-.\target\release\tasks-server.exe             # serve (the default command)
-.\target\release\tasks-server.exe help
+.\target\release\tasks-server.exe             # or double-click it
 ```
 
-Settings come from the environment, or a `.env` in the working folder or next
-to the exe. `TASKS_ENV_FILE` names a different file. See `.env.example`:
+It runs as an icon next to the clock, with no console window. Hover over the
+icon to see this PC's IP and the port. Right-click it for:
+
+- **Start with Windows** starts it at sign-in. It's a per-user setting, so it
+  needs no admin rights, and it remembers the exe's current path: turn it on
+  again if you move the exe.
+- **Exit** stops the server.
+
+It works in the exe's folder, or in the repo root when the exe is in
+`target\release` or `target\debug`, so it finds the same `.env` and `data\`
+folder however it was started. If the server can't start, for example because
+the port is in use, it shows a message box and exits.
+
+Settings come from the environment, or a `.env` in that folder or next to the
+exe. `TASKS_ENV_FILE` names a different file. See `.env.example`:
 
 | Key | Default | Use |
 |---|---|---|
@@ -134,17 +147,19 @@ to the exe. `TASKS_ENV_FILE` names a different file. See `.env.example`:
 | `TASKS_DATA_DIR` | `data` | accounts.db and the user DBs |
 | `TASKS_ALLOW_SIGNUP` | `true` | Whether the app's Register works |
 
-`RUST_LOG=debug` gives more logging.
+The log is `tasks-server.log` in the data folder and starts over once it passes
+5 MB. `RUST_LOG=debug` gives more logging.
 
 To reach it from a phone, expose it over HTTPS, e.g. `ngrok http 8091`, and
 use the ngrok address as the server address in the app.
 
 ### Moving existing tasks DBs in
 
-A tasks DB from the old setup (`user_<n>.db`) works as is. Copy it into
-`TASKS_DATA_DIR`, then make its owner with that id:
-`tasks-server user add <name> --id <n>`. Delete each app's `tasks.db` first if
-it synced with a different server, so it doesn't push old rows back.
+A tasks DB from the old setup works as is. Accounts get ids in the order they
+register, and account `<n>` uses `user_<n>.db`: the first uses `user_1.db`. So
+register the owner, use **Exit** on the tray icon, and copy the DB over that
+account's file in `TASKS_DATA_DIR`. Delete each app's `tasks.db` first if it
+synced with a different server, so it doesn't push old rows back.
 
 ### API
 

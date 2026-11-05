@@ -1,0 +1,3 @@
+// Id 1 is what src/tray.rs loads for the tray icon (ICON_RESOURCE).
+1 ICON "icons\\icon.ico"
+1 24 "tasks-server.manifest"

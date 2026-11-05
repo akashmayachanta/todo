@@ -149,8 +149,7 @@ impl Accounts {
 
     // ── Users ────────────────────────────────────────────────────────────────
 
-    /// A new user; `id` picks the user id (and so the user_<id>.db it uses).
-    pub fn add_user(&self, username: &str, password: &str, id: Option<i64>) -> Result<User, ApiError> {
+    pub fn add_user(&self, username: &str, password: &str) -> Result<User, ApiError> {
         let username = check_username(username)?;
         check_password(password)?;
         let hash = hash_password(password)?;
@@ -160,40 +159,11 @@ impl Accounts {
         if taken {
             return Err(ApiError::new(StatusCode::CONFLICT, format!("There is already a user '{username}'")));
         }
-        if let Some(id) = id {
-            let used: bool = conn.query_row("SELECT EXISTS (SELECT 1 FROM users WHERE id = ?1)", [id], |r| r.get(0))?;
-            if used || id < 1 {
-                return Err(ApiError::new(StatusCode::CONFLICT, format!("User id {id} is taken or not valid")));
-            }
-        }
         conn.execute(
-            "INSERT INTO users (id, username, password_hash, created_at) VALUES (?1, ?2, ?3, ?4)",
-            params![id, username, hash, created_at],
+            "INSERT INTO users (username, password_hash, created_at) VALUES (?1, ?2, ?3)",
+            params![username, hash, created_at],
         )?;
         Ok(User { id: conn.last_insert_rowid(), username: username.to_string(), created_at, disabled_at: None })
-    }
-
-    pub fn set_password(&self, username: &str, password: &str) -> Result<(), ApiError> {
-        check_password(password)?;
-        let hash = hash_password(password)?;
-        let changed = self.lock().execute("UPDATE users SET password_hash = ?1 WHERE username = ?2", params![hash, username.trim()])?;
-        if changed == 0 {
-            return Err(no_user(username));
-        }
-        Ok(())
-    }
-
-    /// Disabling also refuses the user's device tokens; enabling lets them back in.
-    pub fn set_disabled(&self, username: &str, disabled: bool) -> Result<(), ApiError> {
-        let at = disabled.then(tasks_core::time::now_iso);
-        let changed = self.lock().execute(
-            "UPDATE users SET disabled_at = CASE WHEN ?1 IS NULL THEN NULL ELSE COALESCE(disabled_at, ?1) END WHERE username = ?2",
-            params![at, username.trim()],
-        )?;
-        if changed == 0 {
-            return Err(no_user(username));
-        }
-        Ok(())
     }
 
     pub fn list_users(&self) -> Result<Vec<User>, ApiError> {
@@ -232,7 +202,7 @@ impl Accounts {
 
     /// Signs up: a new user, signed in on this device.
     pub fn register(&self, username: &str, password: &str, device_name: &str) -> Result<(User, Device, String), ApiError> {
-        let user = self.add_user(username, password, None)?;
+        let user = self.add_user(username, password)?;
         let (device, token) = self.new_device(user.id, device_name)?;
         Ok((user, device, token))
     }
@@ -307,10 +277,6 @@ impl Accounts {
     }
 }
 
-fn no_user(username: &str) -> ApiError {
-    ApiError::new(StatusCode::NOT_FOUND, format!("No user '{}'", username.trim()))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -324,7 +290,7 @@ mod tests {
     #[test]
     fn sign_in_gives_a_token_that_disabling_and_revoking_refuse() {
         let (_dir, a) = accounts();
-        let user = a.add_user("akash", "correct horse", None).unwrap();
+        let user = a.add_user("akash", "correct horse").unwrap();
         assert!(a.login("akash", "wrong password", "PC").is_err());
         assert!(a.login("nobody", "correct horse", "PC").is_err());
 
@@ -332,10 +298,11 @@ mod tests {
         assert_eq!(a.check(&token).unwrap().unwrap().user_id, user.id);
         assert!(a.check("dt_not-a-token").unwrap().is_none());
 
-        a.set_disabled("akash", true).unwrap();
+        // Nothing here disables anyone now, but an older accounts.db can hold disabled users.
+        a.lock().execute("UPDATE users SET disabled_at = 'now' WHERE id = ?1", [user.id]).unwrap();
         assert!(a.check(&token).unwrap().is_none());
         assert!(a.login("akash", "correct horse", "PC").is_err());
-        a.set_disabled("akash", false).unwrap();
+        a.lock().execute("UPDATE users SET disabled_at = NULL WHERE id = ?1", [user.id]).unwrap();
         assert!(a.check(&token).unwrap().is_some());
 
         assert!(a.revoke(user.id, &device.id).unwrap());
@@ -351,14 +318,12 @@ mod tests {
     }
 
     #[test]
-    fn users_are_unique_and_can_pick_their_id() {
+    fn users_are_unique_and_get_ids_in_order() {
         let (_dir, a) = accounts();
-        assert_eq!(a.add_user("one", "password1", Some(5)).unwrap().id, 5);
-        assert!(a.add_user("ONE", "password1", None).is_err());
-        assert!(a.add_user("two", "password1", Some(5)).is_err());
-        assert!(a.add_user("three", "short", None).is_err());
-        a.set_password("one", "password2").unwrap();
-        assert!(a.login("one", "password2", "PC").is_ok());
+        assert_eq!(a.add_user("one", "password1").unwrap().id, 1);
+        assert!(a.add_user("ONE", "password1").is_err());
+        assert!(a.add_user("three", "short").is_err());
+        assert_eq!(a.add_user("two", "password1").unwrap().id, 2);
     }
 
     /// A throwaway folder, removed afterwards.

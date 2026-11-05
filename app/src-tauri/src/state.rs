@@ -31,6 +31,8 @@ pub struct Pin {
     pub id: Option<String>,
 }
 
+// Pins are windows, so only the desktop's widgets.rs uses these.
+#[cfg(desktop)]
 impl Pin {
     /// The window's label, which is how the page knows what it shows.
     pub fn label(&self) -> String {

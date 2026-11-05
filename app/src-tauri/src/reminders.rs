@@ -37,6 +37,56 @@ pub fn register_toast_app(app: &AppHandle, data_dir: &std::path::Path) -> std::i
     key.set_value("IconUri", &icon.to_string_lossy().into_owned())
 }
 
+/// Points a per-user Start Menu shortcut at this exe, carrying the toast app ID.
+/// Toasts take their name and icon from it: the registry entry above alone still
+/// showed the raw ID and no icon. Written on every start so it follows the exe if
+/// it moves. Skipped for exes in target\, which the notification plugin doesn't
+/// send under the app ID, so a test build can't take over the shortcut.
+#[cfg(windows)]
+pub fn write_start_menu_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    use tauri::Manager;
+    use windows::core::{Interface, HSTRING, PWSTR};
+    use windows::Win32::Storage::EnhancedStorage::PKEY_AppUserModel_ID;
+    use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, IPersistFile, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
+    };
+    use windows::Win32::System::Variant::VT_LPWSTR;
+    use windows::Win32::UI::Shell::PropertiesSystem::IPropertyStore;
+    use windows::Win32::UI::Shell::{IShellLinkW, ShellLink};
+
+    let exe = std::env::current_exe()?;
+    let folder = exe.parent().and_then(|d| d.parent()).and_then(|d| d.file_name());
+    if folder.is_some_and(|name| name == "target") {
+        return Ok(());
+    }
+    let programs = app.path().data_dir()?.join(r"Microsoft\Windows\Start Menu\Programs");
+    let shortcut = programs.join(format!("{}.lnk", app.package_info().name));
+
+    // The ID must be a VT_LPWSTR. The string outlives the SetValue call, which copies it.
+    let mut id: Vec<u16> = app.config().identifier.encode_utf16().chain([0]).collect();
+    let mut value = PROPVARIANT::default();
+
+    // SAFETY: COM is used on this thread only, after CoInitializeEx, and `value`
+    // is plain data pointing at `id`, so it needs no PropVariantClear.
+    unsafe {
+        // Already initialized on the app's main thread, which is fine.
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)?;
+        link.SetPath(&HSTRING::from(exe.as_os_str()))?;
+        link.SetIconLocation(&HSTRING::from(exe.as_os_str()), 0)?;
+
+        (*value.Anonymous.Anonymous).vt = VT_LPWSTR;
+        (*value.Anonymous.Anonymous).Anonymous.pwszVal = PWSTR(id.as_mut_ptr());
+        let store: IPropertyStore = link.cast()?;
+        store.SetValue(&PKEY_AppUserModel_ID, &value)?;
+        store.Commit()?;
+
+        link.cast::<IPersistFile>()?.Save(&HSTRING::from(shortcut.as_os_str()), true)?;
+    }
+    Ok(())
+}
+
 /// Called after each sync and edit. Windows needs nothing here: its loop reads the DB.
 #[cfg(desktop)]
 pub fn refresh(_app: &AppHandle, _st: &Arc<AppState>) {}

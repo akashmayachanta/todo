@@ -39,3 +39,10 @@ keyring = { version = "3", features = ["windows-native"] }
 [target.'cfg(windows)'.dependencies]
 # Registers the app's toast identity (reminders.rs).
 winreg = "0.56"
+# Writes the Start Menu shortcut toasts take their name and icon from (reminders.rs).
+windows = { version = "0.62", features = [
+  "Win32_Storage_EnhancedStorage",
+  "Win32_System_Com_StructuredStorage",
+  "Win32_System_Variant",
+  "Win32_UI_Shell_PropertiesSystem",
+] }

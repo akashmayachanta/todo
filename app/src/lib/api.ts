@@ -56,7 +56,7 @@ export interface TaskIn {
 	duration_minutes?: number | null; location?: string | null; remind_at?: string | null; recurrence?: string | null; position?: number;
 }
 /** Only the fields sent change; null clears one. */
-export type TaskPatch = Partial<Omit<Task, 'id' | 'parent_id' | 'created_at' | 'updated_at'>> & {
+export type TaskPatch = Partial<Omit<Task, 'id' | 'created_at' | 'updated_at'>> & {
 	/** With the next due_date, when a repeating task's occurrence is ticked: logged for Karma. */
 	completes_occurrence?: boolean;
 };

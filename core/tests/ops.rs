@@ -72,6 +72,139 @@ fn a_rename_keeps_the_category_in_its_place() {
     assert_eq!(renamed.position, first.position);
 }
 
+// ── Reordering ───────────────────────────────────────────────────────────────
+
+fn order(conn: &Connection, ids: &[&str]) -> tasks_core::Result<Vec<Task>> {
+    let ids: Vec<String> = ids.iter().map(|s| s.to_string()).collect();
+    ops::reorder_tasks(conn, &Ctx::device("device-a"), &ids)
+}
+
+#[test]
+fn reordering_writes_only_the_rows_that_change() {
+    let (conn, ctx) = setup();
+    let a = task(&conn, &ctx, json!({ "title": "A" }));
+    let b = task(&conn, &ctx, json!({ "title": "B" }));
+    let c = task(&conn, &ctx, json!({ "title": "C" }));
+    conn.execute("UPDATE tasks SET dirty = 0", []).unwrap();
+
+    let out = order(&conn, &[&a.id, &c.id, &b.id]).unwrap();
+
+    assert_eq!(out.iter().map(|t| t.title.as_str()).collect::<Vec<_>>(), ["A", "C", "B"]);
+    assert!(out[0].position < out[1].position && out[1].position < out[2].position);
+    let dirty: Vec<String> = sync::dirty_rows(&conn, 10)
+        .unwrap()
+        .iter()
+        .map(|r| r.row["title"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(dirty.len(), 2);
+    assert!(!dirty.contains(&"A".to_string()));
+}
+
+#[test]
+fn reordering_gives_tasks_sharing_a_position_their_own() {
+    let (conn, ctx) = setup();
+    let a = task(&conn, &ctx, json!({ "title": "A" }));
+    let b = task(&conn, &ctx, json!({ "title": "B" }));
+    conn.execute("UPDATE tasks SET position = 7", []).unwrap();
+
+    let out = order(&conn, &[&b.id, &a.id]).unwrap();
+
+    assert_eq!((out[0].position, out[1].position), (7, 8));
+}
+
+#[test]
+fn only_siblings_can_be_reordered_together() {
+    let (conn, ctx) = setup();
+    let p = project(&conn, &ctx, "P");
+    let cat = category(&conn, &ctx, &p.id, "Cat");
+    let inbox = task(&conn, &ctx, json!({ "title": "Inbox" }));
+    let in_project = task(&conn, &ctx, json!({ "title": "Project", "project_id": p.id }));
+    let in_category = task(&conn, &ctx, json!({ "title": "Category", "project_id": p.id, "category_id": cat.id }));
+    let sub = task(&conn, &ctx, json!({ "title": "Sub", "parent_id": in_project.id }));
+    let other_sub = task(&conn, &ctx, json!({ "title": "Other", "parent_id": in_category.id }));
+
+    assert!(order(&conn, &[&inbox.id, &in_project.id]).is_err());
+    assert!(order(&conn, &[&in_project.id, &in_category.id]).is_err());
+    assert!(order(&conn, &[&in_project.id, &sub.id]).is_err());
+    assert!(order(&conn, &[&sub.id, &other_sub.id]).is_err());
+    assert!(order(&conn, &[&inbox.id, &inbox.id]).is_err());
+    assert!(order(&conn, &["no-such-task"]).is_err());
+    assert!(order(&conn, &[]).unwrap().is_empty());
+}
+
+// ── Moving a subtask to another task ─────────────────────────────────────────
+
+#[test]
+fn a_subtask_moves_to_another_task_and_takes_its_place() {
+    let (conn, ctx) = setup();
+    let p = project(&conn, &ctx, "P");
+    let cat = category(&conn, &ctx, &p.id, "Cat");
+    let from_task = task(&conn, &ctx, json!({ "title": "From" }));
+    let to_task = task(&conn, &ctx, json!({ "title": "To", "project_id": p.id, "category_id": cat.id }));
+    let existing = task(&conn, &ctx, json!({ "title": "Existing", "parent_id": to_task.id }));
+    let sub = task(&conn, &ctx, json!({ "title": "Sub", "parent_id": from_task.id }));
+
+    let moved = ops::update_task(&conn, &ctx, &sub.id, from(json!({ "parent_id": to_task.id }))).unwrap();
+
+    assert_eq!(moved.parent_id.as_deref(), Some(to_task.id.as_str()));
+    assert_eq!(moved.project_id.as_deref(), Some(p.id.as_str()));
+    assert_eq!(moved.category_id.as_deref(), Some(cat.id.as_str()));
+    assert!(moved.position > existing.position);
+}
+
+#[test]
+fn only_a_subtask_moves_and_only_under_a_top_level_task() {
+    let (conn, ctx) = setup();
+    let a = task(&conn, &ctx, json!({ "title": "A" }));
+    let b = task(&conn, &ctx, json!({ "title": "B" }));
+    let sub = task(&conn, &ctx, json!({ "title": "Sub", "parent_id": a.id }));
+    let other = task(&conn, &ctx, json!({ "title": "Other", "parent_id": b.id }));
+
+    let try_move = |id: &str, value: serde_json::Value| ops::update_task(&conn, &ctx, id, from(json!({ "parent_id": value })));
+    assert!(try_move(&a.id, json!(b.id)).is_err(), "a task can't become a subtask");
+    assert!(try_move(&sub.id, json!(other.id)).is_err(), "no subtasks of subtasks");
+    assert!(try_move(&sub.id, json!(sub.id)).is_err(), "not under itself");
+    assert!(try_move(&sub.id, json!(null)).is_err(), "a subtask can't become a task");
+    assert!(try_move(&sub.id, json!("no-such-task")).is_err());
+    assert_eq!(ops::get_task(&conn, &sub.id).unwrap().parent_id.as_deref(), Some(a.id.as_str()));
+    // Its own parent again is no change.
+    let before = ops::get_task(&conn, &sub.id).unwrap().position;
+    assert_eq!(try_move(&sub.id, json!(a.id)).unwrap().position, before);
+}
+
+// ── Search ───────────────────────────────────────────────────────────────────
+
+fn search(conn: &Connection, term: &str, completed: bool) -> Vec<String> {
+    let q = from(json!({ "q": term, "completed": completed, "limit": 50 }));
+    ops::list_tasks(conn, &q).unwrap().into_iter().map(|t| t.title).collect()
+}
+
+#[test]
+fn search_finds_done_tasks_only_when_asked() {
+    let (conn, ctx) = setup();
+    task(&conn, &ctx, json!({ "title": "Open report" }));
+    let done = task(&conn, &ctx, json!({ "title": "Done report" }));
+    let tick: TaskPatch = from(json!({ "completed_at": "2026-11-05T10:00:00Z" }));
+    ops::update_task(&conn, &ctx, &done.id, tick).unwrap();
+
+    assert_eq!(search(&conn, "REPORT", false), ["Open report"]);
+    assert_eq!(search(&conn, "report", true), ["Done report"]);
+}
+
+#[test]
+fn search_matches_percent_and_underscore_literally() {
+    let (conn, ctx) = setup();
+    task(&conn, &ctx, json!({ "title": "Reach 100% coverage" }));
+    task(&conn, &ctx, json!({ "title": "Reach 100 users" }));
+    task(&conn, &ctx, json!({ "title": "file_name" }));
+    task(&conn, &ctx, json!({ "title": "filename" }));
+    task(&conn, &ctx, json!({ "title": r"back\slash" }));
+
+    assert_eq!(search(&conn, "100%", false), ["Reach 100% coverage"]);
+    assert_eq!(search(&conn, "file_n", false), ["file_name"]);
+    assert_eq!(search(&conn, r"k\s", false), [r"back\slash"]);
+}
+
 // ── The subtask limit ────────────────────────────────────────────────────────
 
 #[test]

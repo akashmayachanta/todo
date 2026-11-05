@@ -1,0 +1,98 @@
+/* The app's small windows: the quick add popup and the pins. */
+
+/* The popup's window is see-through around its card, and frameless. */
+html.widget-transparent,
+html.widget-transparent body {
+  background: transparent !important;
+}
+
+.widget-quick {
+  display: flex;
+  align-items: flex-start;
+  height: 100vh;
+  padding: var(--space-md);
+  overflow: hidden;
+}
+
+.widget-quick-card {
+  width: 100%;
+  padding: var(--space-xs) var(--space-sm);
+  border: var(--rule-hair) solid var(--clr-border-light);
+  border-radius: var(--radius-card);
+  background-color: var(--bg-card);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.35);
+}
+
+.widget-quick-card .quick-add {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.widget-quick-added {
+  padding: var(--space-sm) var(--space-xs);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+
+/* ── A pin ────────────────────────────────────────────────────────────────── */
+.widget-pin {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background-color: var(--bg-card);
+  border: var(--rule-hair) solid var(--clr-border-light);
+}
+
+.widget-pin-bar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 0.25rem 0.25rem 0.25rem var(--space-sm);
+  border-bottom: var(--rule-hair) solid var(--clr-border);
+  background-color: var(--bg-hover);
+  cursor: grab;
+  user-select: none;
+}
+
+/* The bar is the handle: what's on it mustn't take the press. */
+.widget-pin-bar > :not(button) {
+  pointer-events: none;
+}
+
+.widget-pin-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.widget-pin-count {
+  flex-shrink: 0;
+  font-family: var(--font-outlier);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.widget-pin-list {
+  flex: 1;
+  min-height: 0;
+  padding: 0 var(--space-sm) var(--space-xs);
+  overflow-y: auto;
+}
+
+.widget-pin-list .task-add {
+  padding-top: var(--space-xs);
+}
+
+.widget-pin-empty {
+  padding: var(--space-md) 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}

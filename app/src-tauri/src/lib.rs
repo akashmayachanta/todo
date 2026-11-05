@@ -5,6 +5,8 @@ mod commands;
 mod reminders;
 mod state;
 mod syncer;
+#[cfg(desktop)]
+mod widgets;
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -13,13 +15,14 @@ use tauri::{Emitter, Manager};
 
 use state::AppState;
 
-/// Tells the page to open the quick add (Alt+N, or the tray menu).
+/// Tells the main page to open its own quick add dialog: Alt+N while it's in front.
+/// From anywhere else Alt+N brings up the popup instead (widgets.rs).
 pub const EVENT_QUICK_ADD: &str = "tasks://quick-add";
 /// Tells the page to open a task (a tapped notification).
 pub const EVENT_OPEN_TASK: &str = "tasks://open-task";
 
 #[cfg(desktop)]
-fn show_main(app: &tauri::AppHandle) {
+pub(crate) fn show_main(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
         let _ = w.show();
@@ -34,14 +37,13 @@ fn desktop_setup(app: &mut tauri::App) -> tauri::Result<()> {
     use tauri_plugin_autostart::ManagerExt;
     use tauri_plugin_global_shortcut::{Builder as ShortcutBuilder, ShortcutState};
 
-    // Alt+N anywhere: the app comes up with the quick add open.
+    // Alt+N anywhere: the quick add popup, on its own.
     let shortcuts = ShortcutBuilder::new()
         .with_shortcuts(["alt+n"])
         .map(|b| {
             b.with_handler(|app, _shortcut, event| {
                 if event.state == ShortcutState::Pressed {
-                    show_main(app);
-                    let _ = app.emit(EVENT_QUICK_ADD, ());
+                    widgets::quick_add(app);
                 }
             })
             .build()
@@ -72,10 +74,7 @@ fn desktop_setup(app: &mut tauri::App) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id.as_ref() {
             "open" => show_main(app),
-            "add" => {
-                show_main(app);
-                let _ = app.emit(EVENT_QUICK_ADD, ());
-            }
+            "add" => widgets::quick_add(app),
             "sync" => {
                 if let Some(st) = app.try_state::<Arc<AppState>>() {
                     st.wake.notify_one();
@@ -110,7 +109,7 @@ fn desktop_setup(app: &mut tauri::App) -> tauri::Result<()> {
             }
         });
     }
-    Ok(())
+    widgets::setup(app.handle())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -131,7 +130,13 @@ pub fn run() {
             .plugin(tauri_plugin_autostart::init(
                 tauri_plugin_autostart::MacosLauncher::LaunchAgent,
                 Some(vec!["--minimized"]),
-            ));
+            ))
+            .plugin(
+                tauri_plugin_window_state::Builder::default()
+                    .with_state_flags(widgets::PIN_STATE)
+                    .with_denylist(widgets::UNTRACKED_WINDOWS)
+                    .build(),
+            );
     }
 
     builder
@@ -212,12 +217,18 @@ pub fn run() {
             commands::tasks_create,
             commands::tasks_update,
             commands::tasks_delete,
+            commands::tasks_reorder,
             commands::app_status,
             commands::app_sign_in,
             commands::app_sign_out,
             commands::app_sync_now,
             commands::app_force_sync,
             commands::app_take_open_task,
+            commands::app_show_task,
+            commands::app_pin_open,
+            commands::app_pin_close,
+            commands::app_quick_hide,
+            commands::app_set_taskbar_icon,
             commands::app_ask_notification_permission,
         ])
         .run(tauri::generate_context!())

@@ -2,8 +2,10 @@
 	import type { Snippet } from 'svelte';
 	import type { Task, TaskRowField } from '$lib/api';
 	import { plainText } from '$lib/links';
+	import type { SortApi } from '$lib/sortable';
 	import { describeDue, formatDuration } from '$lib/taskParse';
 	import LinkedText from './LinkedText.svelte';
+	import TaskGrip from './TaskGrip.svelte';
 	import TaskRow from './TaskRow.svelte';
 	import { taskMinutes } from './shared';
 
@@ -12,11 +14,12 @@
 	 * else it has (due, reminder, recurrence, subtasks done/total, location, where it lives).
 	 * With `nested`, its open subtasks are listed under it (its done ones too with
 	 * `showDoneSubtasks`). A click opens it; Alt+click (or the pencil) edits it in place,
-	 * where the page's `editor` takes the row's place.
+	 * where the page's `editor` takes the row's place. With `sort`, a grip moves it. `compact`
+	 * is for a pinned window: no edit or delete, and without them it can leave out `ondelete`.
 	 */
 	let {
 		task, subtasksOf, nested = false, showDoneSubtasks = false, showNote = true, place = null, fields = null, now,
-		editingId = null, editor, ontoggle, onopen, onedit, ondelete,
+		editingId = null, editor, sort = null, compact = false, ontoggle, onopen, onedit, ondelete,
 	}: {
 		task: Task;
 		/** Every subtask of a task, done ones too. */
@@ -33,10 +36,13 @@
 		/** The task being edited in place, if any. */
 		editingId?: string | null;
 		editor?: Snippet<[Task]>;
+		/** Rearranging by the grip; it passes down to the subtasks listed under it. */
+		sort?: SortApi | null;
+		compact?: boolean;
 		ontoggle: (task: Task) => void;
 		onopen: (task: Task) => void;
 		onedit?: (task: Task) => void;
-		ondelete: (task: Task) => void;
+		ondelete?: (task: Task) => void;
 	} = $props();
 
 	let subtasks = $derived(task.parent_id === null ? subtasksOf(task.id) : []);
@@ -67,11 +73,12 @@
 	}
 </script>
 
-<div class="task-item">
+<div class="task-item" data-sort-id={sort ? task.id : undefined} data-sort-kind={sort ? (task.parent_id ? 'sub' : 'top') : undefined}>
 	{#if editing && editor}
 		{@render editor(task)}
 	{:else}
-		<div class="task-row" class:task-row-done={done}>
+		<div class="task-row" class:task-row-done={done} class:task-row-compact={compact}>
+			{#if sort}<TaskGrip id={task.id} kind={task.parent_id ? 'sub' : 'top'} {name} {sort} />{/if}
 			<button
 				type="button"
 				class="task-check"
@@ -131,23 +138,25 @@
 				{/if}
 			</div>
 
+			{#if !compact}
 			<div class="task-actions">
 				{#if onedit}
 					<button type="button" class="tasks-icon-btn" onclick={() => onedit(task)} title="Edit here (Alt+click)" aria-label="Edit {name}">
 						<svg aria-hidden="true" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
 					</button>
 				{/if}
-				<button type="button" class="tasks-icon-btn tasks-icon-btn-danger" onclick={() => ondelete(task)} title="Delete" aria-label="Delete {name}">
+				<button type="button" class="tasks-icon-btn tasks-icon-btn-danger" onclick={() => ondelete?.(task)} title="Delete" aria-label="Delete {name}">
 					<svg aria-hidden="true" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
 				</button>
 			</div>
+			{/if}
 		</div>
 	{/if}
 
 	{#if nested && shownSubtasks.length}
 		<div class="task-subtasks">
 			{#each shownSubtasks as sub (sub.id)}
-				<TaskRow task={sub} {subtasksOf} {showNote} {fields} {now} {editingId} {editor} {ontoggle} {onopen} {onedit} {ondelete} />
+				<TaskRow task={sub} {subtasksOf} {showNote} {fields} {now} {editingId} {editor} {sort} {compact} {ontoggle} {onopen} {onedit} {ondelete} />
 			{/each}
 		</div>
 	{/if}

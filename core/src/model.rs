@@ -146,9 +146,18 @@ pub struct TaskIn {
     pub position: Option<i64>,
 }
 
+/// Sibling task ids, in the order they should be shown.
+#[derive(Clone, Debug, Deserialize)]
+pub struct TaskOrder {
+    pub ids: Vec<String>,
+}
+
 /// Only the fields sent are changed; null clears one.
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct TaskPatch {
+    /// Moves a subtask to another task. A task can't become a subtask this way, or a subtask a task.
+    #[serde(default, deserialize_with = "double")]
+    pub parent_id: Option<Option<String>>,
     #[serde(default, deserialize_with = "double")]
     pub title: Option<Option<String>>,
     #[serde(default, deserialize_with = "double")]
@@ -227,7 +236,7 @@ pub struct TaskQuery {
     pub inbox: bool,
     #[serde(default)]
     pub limit: Option<i64>,
-    /// Search the open tasks' titles and descriptions (global search).
+    /// Search titles and descriptions (global search): open tasks, or done ones with `completed`.
     #[serde(default)]
     pub q: Option<String>,
 }

@@ -7,10 +7,12 @@
 	import { askReminderPermission } from '$lib/stores/taskReminders';
 	import { toast } from '$lib/stores/toast';
 	import { linkParts, plainText } from '$lib/links';
+	import type { SortApi } from '$lib/sortable';
 	import { firstOccurrence, formatDuration, normalizeRecurrence, parseQuickAdd, pastedLines, ymd, type QuickAdd } from '$lib/taskParse';
 	import LinkedText from './LinkedText.svelte';
 	import SmartTaskInput from './SmartTaskInput.svelte';
 	import SmartTips from './SmartTips.svelte';
+	import TaskGrip from './TaskGrip.svelte';
 	import { dueAtOf, finishPatch, patchChips, smartPatch, smartTitle, titleEdit } from './smartEdit';
 	import { PRIORITY_OPTIONS, SUBTASK_MAX, defaultReminder, projectColor, subtaskLimit } from './shared';
 
@@ -21,7 +23,7 @@
 	 * "/Category", "every monday", "!30m" typed into them set those fields. The arrows in
 	 * the head (or k / j) step to the previous and next task of the view.
 	 */
-	let { task, parent = null, subtasks, projects, categories, onprev = null, onnext = null, onpatch, ontoggle, onaddsubtask, onopen, ondelete, onclose }: {
+	let { task, parent = null, subtasks, projects, categories, onprev = null, onnext = null, sort = null, onpin = null, onpatch, ontoggle, onaddsubtask, onopen, ondelete, onclose }: {
 		task: Task;
 		/** The task this is a subtask of. */
 		parent?: Task | null;
@@ -31,6 +33,10 @@
 		/** Step to the previous / next task of the view; null at either end. */
 		onprev?: (() => void) | null;
 		onnext?: (() => void) | null;
+		/** Rearranging its subtasks by their grips. */
+		sort?: SortApi | null;
+		/** Pins it to the desktop; null where there are no pins. */
+		onpin?: ((task: Task) => void) | null;
 		onpatch: (task: Task, patch: TaskPatch) => Promise<void>;
 		ontoggle: (task: Task) => void;
 		onaddsubtask: (parent: Task, data: Omit<TaskIn, 'parent_id' | 'project_id' | 'category_id'>) => Promise<void>;
@@ -296,6 +302,7 @@
 
 	function onMenu(id: string) {
 		if (id === 'delete') ondelete(task);
+		else if (id === 'pin') onpin?.(task);
 		else if (id === 'copy') {
 			navigator.clipboard?.writeText(location.href).catch(() => { /* nothing to copy to */ });
 		}
@@ -350,7 +357,11 @@
 				<DropdownMenu
 					triggerClass="tasks-icon-btn"
 					ariaLabel="Task actions"
-					items={[{ id: 'copy', label: 'Copy link to task' }, { id: 'delete', label: 'Delete task', danger: true }]}
+					items={[
+						{ id: 'copy', label: 'Copy link to task' },
+						...(onpin ? [{ id: 'pin', label: 'Pin to desktop' }] : []),
+						{ id: 'delete', label: 'Delete task', danger: true },
+					]}
 					onselect={onMenu}
 				>
 					{#snippet icon()}
@@ -434,7 +445,8 @@
 						{/if}
 						{#each subtasks as sub (sub.id)}
 							{@const subName = plainText(sub.title)}
-							<div class="task-modal-sub" class:task-row-done={!!sub.completed_at}>
+							<div class="task-modal-sub" class:task-row-done={!!sub.completed_at} data-sort-id={sort ? sub.id : undefined} data-sort-kind={sort ? 'sub' : undefined}>
+								{#if sort}<TaskGrip id={sub.id} kind="sub" name={subName} {sort} />{/if}
 								<button
 									type="button"
 									class="task-check task-check-sm"

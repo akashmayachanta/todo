@@ -71,8 +71,11 @@
 		const before = value.slice(0, caret);
 		const m = /(^|\s)([#/])([^#/\n]*)$/.exec(before);
 		if (!m || dismissedAt === before) return null;
-		const query = m[3].toLowerCase();
+		const query = m[3].toLowerCase().trimStart();
 		const start = before.length - m[3].length - 1;
+		// "#Work / Back" is still the category; "and / or" is just a slash.
+		const afterProject = tokens.some((t) => t.kind === 'project' && !t.unknown && t.end <= start && !value.slice(t.end, start).trim());
+		if (m[2] === '/' && /^\s/.test(m[3]) && !afterProject) return null;
 		if (m[2] === '#') {
 			const items = [
 				...projects
@@ -92,12 +95,10 @@
 	});
 
 	/**
-	 * The categories `#` offers, the current project's first, each with text that the
-	 * parser reads back as that category: `#Backend`, `#Work /Backend` when another
-	 * project or category has its name, or `/Backend` when the line already names a project.
+	 * The categories `#` offers, the current project's first. Picking one shows where
+	 * it is, `#Work / Backend`, or just `/Backend` when the line already names a project.
 	 */
 	function hashCategories(query: string, start: number) {
-		const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 		const named = tokens.some((t) => t.kind === 'project' && !t.unknown && t.start !== start);
 		const inScope = (c: TaskCategory) => c.project_id === scopeProjectId;
 		return categories
@@ -105,11 +106,10 @@
 			.sort((a, b) => Number(inScope(b)) - Number(inScope(a)))
 			.map((c) => {
 				const p = projects.find((x) => x.id === c.project_id);
-				const clash = categories.filter((x) => same(x.name, c.name)).length > 1 || projects.some((x) => same(x.name, c.name));
 				return {
 					id: c.id,
 					label: p ? `${p.name} / ${c.name}` : c.name,
-					insert: named ? `/${c.name}` : clash && p ? `#${p.name} /${c.name}` : `#${c.name}`,
+					insert: named ? `/${c.name}` : p ? `#${p.name} / ${c.name}` : `#${c.name}`,
 					color: projectColor(p?.color),
 				};
 			});

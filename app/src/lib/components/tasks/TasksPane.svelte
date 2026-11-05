@@ -5,6 +5,7 @@
 	import DropdownMenu from '$lib/components/DropdownMenu.svelte';
 	import { getPaneFooter, getPaneHeader } from '$lib/paneHeader';
 	import { formatDuration } from '$lib/taskParse';
+	import TaskSearchBox from './TaskSearchBox.svelte';
 	import TodayIcon from './TodayIcon.svelte';
 	import { projectColor, type TaskSettings, type TaskView } from './shared';
 
@@ -16,8 +17,8 @@
 	 * Move up / Move down in their menu. On phones it is the Browse tab.
 	 */
 	let {
-		projects, categories, filters, counts, minutes, view, projectId, filterId, settings, today, browsing = false,
-		onaddproject, oneditproject, ondeleteproject, onreorderprojects, onaddfilter, oneditfilter, ondeletefilter,
+		projects, categories, filters, counts, minutes, view, projectId, filterId, settings, today, query = '', browsing = false,
+		onsearch, onaddproject, oneditproject, ondeleteproject, onreorderprojects, onaddfilter, oneditfilter, ondeletefilter,
 	}: {
 		projects: TaskProject[];
 		categories: TaskCategory[];
@@ -34,8 +35,11 @@
 		settings: TaskSettings;
 		/** Today, `YYYY-MM-DD`, for the Today icon. */
 		today: string;
+		/** The search on screen. */
+		query?: string;
 		/** Phones: the pane is the Browse tab, shown in place of the list. */
 		browsing?: boolean;
+		onsearch: (text: string) => void;
 		onaddproject: () => void;
 		oneditproject: (project: TaskProject) => void;
 		ondeleteproject: (project: TaskProject) => void;
@@ -44,6 +48,13 @@
 		oneditfilter: (filter: TaskFilter) => void;
 		ondeletefilter: (filter: TaskFilter) => void;
 	} = $props();
+
+	let search = $state<TaskSearchBox | null>(null);
+
+	/** Ctrl+K. */
+	export function focusSearch() {
+		search?.focus();
+	}
 
 	const VIEWS = [
 		{ key: 'inbox',    label: 'Inbox',    icon: 'M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4' },
@@ -148,6 +159,7 @@
 	{#if header}
 		<div class="tasks-pane-top">{@render header()}</div>
 	{/if}
+	<TaskSearchBox bind:this={search} {query} {onsearch} class="tasks-pane-search" />
 	<div class="tasks-pane-lists">
 		<div class="tasks-pane-views">
 			{#each VIEWS as v}

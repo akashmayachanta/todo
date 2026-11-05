@@ -13,7 +13,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tasks_core::sync::{self, PullResponse, PushRequest, PushResponse};
-use tasks_core::{ops, Category, CategoryIn, Completions, Ctx, Filter, FilterIn, Project, ProjectIn, ProjectOrder, Task, TaskIn, TaskPatch, TaskQuery};
+use tasks_core::{ops, Category, CategoryIn, Completions, Ctx, Filter, FilterIn, Project, ProjectIn, ProjectOrder, Task, TaskIn, TaskOrder, TaskPatch, TaskQuery};
 
 use crate::auth::{AuthUser, Device};
 use crate::error::{ApiError, ApiResult};
@@ -72,6 +72,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(&p("/filters/{id}"), post(update_filter))
         .route(&p("/filters/{id}/delete"), post(delete_filter))
         .route(&p("/completions"), get(list_completions))
+        .route(&p("/reorder"), post(reorder_tasks))
         .route(&p("/auth/login"), post(login))
         .route(&p("/auth/register"), post(register))
         .route(&p("/auth/me"), get(me))
@@ -98,6 +99,10 @@ async fn list_projects(State(s): St, u: AuthUser) -> ApiResult<Json<Vec<Project>
 async fn create_project(State(s): St, u: AuthUser, Body(input): Body<ProjectIn>) -> ApiResult<(StatusCode, Json<Project>)> {
     let item = s.store.run(u.user_id, move |c| ops::create_project(c, &Ctx::server(), input)).await?;
     Ok((StatusCode::CREATED, Json(item)))
+}
+
+async fn reorder_tasks(State(s): St, u: AuthUser, Body(order): Body<TaskOrder>) -> ApiResult<Json<Vec<Task>>> {
+    Ok(Json(s.store.run(u.user_id, move |c| ops::reorder_tasks(c, &Ctx::server(), &order.ids)).await?))
 }
 
 async fn reorder_projects(State(s): St, u: AuthUser, Body(order): Body<ProjectOrder>) -> ApiResult<Json<Vec<Project>>> {

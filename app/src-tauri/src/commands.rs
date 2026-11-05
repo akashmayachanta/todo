@@ -13,9 +13,9 @@ use tasks_core::client::{diagnose, Client, ClientError, ServerInfo};
 use tasks_core::{
     ops, Category, CategoryIn, Completions, Ctx, Filter, FilterIn, Project, ProjectIn, Task, TaskIn, TaskPatch, TaskQuery,
 };
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, State, WebviewWindow};
 
-use crate::state::{lock, AppConfig, AppState, SyncStatus, FIRST_SYNC_KEY};
+use crate::state::{lock, AppConfig, AppState, Pin, SyncStatus, FIRST_SYNC_KEY};
 
 type St<'a> = State<'a, Arc<AppState>>;
 type Res<T> = Result<T, String>;
@@ -154,6 +154,11 @@ pub fn tasks_delete(st: St, id: String) -> Res<Ok> {
     db(&st, true, |c, x| ops::delete_task(c, x, &id)).map(|_| OK)
 }
 
+#[tauri::command]
+pub fn tasks_reorder(st: St, ids: Vec<String>) -> Res<Vec<Task>> {
+    db(&st, true, |c, x| ops::reorder_tasks(c, x, &ids))
+}
+
 // ── The app: setup, sign-in, sync ────────────────────────────────────────────
 
 #[derive(Serialize)]
@@ -236,7 +241,15 @@ async fn finish_sign_in(app: &AppHandle, st: &Arc<AppState>, server: ServerInfo,
     // The token first: if it can't be saved, nothing local is wiped.
     st.set_token(&token).map_err(|e| fail(500, e))?;
     adopt_user(st, user_id)?;
-    st.save_config(AppConfig { server: Some(server), username, user_id: Some(user_id) }).map_err(|e| fail(500, e))?;
+    // Pins point at this account's lists, so another account starts without them.
+    let previous = lock(&st.config).clone();
+    let pins = if previous.user_id == Some(user_id) { previous.pins } else { Vec::new() };
+    st.save_config(AppConfig { server: Some(server), username, user_id: Some(user_id), pins }).map_err(|e| fail(500, e))?;
+    #[cfg(desktop)]
+    {
+        crate::widgets::close_windows(app);
+        crate::widgets::reopen_pins(app);
+    }
     // The page may still show another account's tasks.
     let _ = app.emit(crate::syncer::EVENT_CHANGED, 0);
     crate::syncer::set_status(app, st, SyncStatus { state: "syncing", ..Default::default() });
@@ -275,6 +288,8 @@ pub async fn app_sign_in(
 #[tauri::command]
 pub fn app_sign_out(app: AppHandle, st: St) -> AppStatus {
     st.clear_token();
+    #[cfg(desktop)]
+    crate::widgets::close_windows(&app);
     let pending = tasks_core::sync::pending_count(&lock(&st.db)).unwrap_or(0);
     crate::syncer::set_status(&app, &st, SyncStatus { state: "signed_out", pending, ..Default::default() });
     status_of(&st)
@@ -296,6 +311,62 @@ pub fn app_force_sync(st: St) {
 #[tauri::command]
 pub fn app_take_open_task(st: St) -> Option<String> {
     lock(&st.open_task).take()
+}
+
+/// Opens a task in the main window, from a pin.
+#[tauri::command]
+pub fn app_show_task(app: AppHandle, id: String) {
+    #[cfg(desktop)]
+    crate::show_main(&app);
+    let _ = app.emit(crate::EVENT_OPEN_TASK, id);
+}
+
+// ── The desktop's extra windows; none of them exist on Android ───────────────
+
+/// Pins a list or a task to the desktop. Async: see widgets.rs.
+#[tauri::command]
+pub async fn app_pin_open(app: AppHandle, kind: String, id: Option<String>) -> Res<()> {
+    #[cfg(desktop)]
+    {
+        crate::widgets::pin_open(&app, Pin { kind, id }).map_err(|e| fail(422, e))
+    }
+    #[cfg(mobile)]
+    {
+        let _ = (app, Pin { kind, id });
+        Err(fail(400, "Pins are only on the desktop"))
+    }
+}
+
+/// Closes the calling pin window, which unpins it.
+#[tauri::command]
+pub fn app_pin_close(window: WebviewWindow) {
+    #[cfg(desktop)]
+    let _ = window.close();
+    #[cfg(mobile)]
+    let _ = window;
+}
+
+/// Hides the quick add popup; it stays loaded for next time.
+#[tauri::command]
+pub fn app_quick_hide(window: WebviewWindow) {
+    #[cfg(desktop)]
+    let _ = window.hide();
+    #[cfg(mobile)]
+    let _ = window;
+}
+
+/// The taskbar icon with today's count drawn on it, as `size`² RGBA pixels; none for the plain icon.
+#[tauri::command]
+pub fn app_set_taskbar_icon(app: AppHandle, size: u32, rgba: Option<Vec<u8>>) -> Res<()> {
+    #[cfg(windows)]
+    {
+        crate::widgets::set_taskbar_icon(&app, size, rgba).map_err(|e| fail(500, e))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (app, size, rgba);
+        Result::Ok(())
+    }
 }
 
 #[tauri::command]

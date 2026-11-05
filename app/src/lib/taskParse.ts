@@ -298,8 +298,8 @@ function hasDay(c: chrono.ParsedComponents): boolean {
 
 /**
  * Reads a quick-add line. `#Name` picks a project or a category and `/Category` a
- * category, for where the task goes (names may have spaces; the longest match
- * wins, and a project wins a tie), `p1`–`p4` the priority,
+ * category, for where the task goes, and `#Project / Category` both (names may have
+ * spaces; the longest match wins, and a project wins a tie), `p1`–`p4` the priority,
  * `every …` a recurrence, `!5pm` or `!tomorrow 9am` a reminder at that time,
  * `!30m` / `!1h` / `!1d` a reminder that long before the due time (or from now
  * when there is no due date), and any other date phrase chrono understands the
@@ -327,7 +327,7 @@ export function parseQuickAdd(
 		tokens.push({ kind, start, end, text: text.slice(start, end), ...(unknown ? { unknown } : {}) });
 
 	// Projects first, then categories, so the order of the tokens doesn't matter.
-	const places: { at: number; rest: string; hash: boolean; project: TaskProject | null }[] = [];
+	const places: { at: number; gap: number; rest: string; hash: boolean; project: TaskProject | null }[] = [];
 	for (const m of text.matchAll(/(^|\s)#(?=\S)/g)) {
 		const at = m.index! + m[1].length;
 		const rest = text.slice(at + 1);
@@ -335,30 +335,32 @@ export function parseQuickAdd(
 		const category = longestName(rest, categories);
 		// #Name is whichever name is longer; a project wins a tie.
 		if (!project || (category && category.name.length > project.name.length)) {
-			places.push({ at, rest, hash: true, project });
+			places.push({ at, gap: 0, rest, hash: true, project });
 		} else if (out.project_id === null) {
 			out.project_id = project.id;
 			add('project', at, at + 1 + project.name.length);
 		}
 	}
-	for (const m of text.matchAll(/(^|\s)\/(?=\p{L})/gu)) {
+	// "#Work / Backend" is read like "#Work /Backend"; anywhere else a spaced slash is just a slash.
+	for (const m of text.matchAll(/(^|\s)\/(\s?)(?=\p{L})/gu)) {
 		const at = m.index! + m[1].length;
-		places.push({ at, rest: text.slice(at + 1), hash: false, project: null });
+		if (m[2] && !tokens.some((t) => t.kind === 'project' && !t.unknown && t.end <= at && !text.slice(t.end, at).trim())) continue;
+		places.push({ at, gap: m[2].length, rest: text.slice(at + 1 + m[2].length), hash: false, project: null });
 	}
 	places.sort((a, b) => a.at - b.at);
 
 	let unknownCategory: { start: number; end: number } | null = null;
-	for (const { at, rest, hash, project } of places) {
+	for (const { at, gap, rest, hash, project } of places) {
 		// In the named or current project first; everywhere only when no project is named.
 		const inProject = out.project_id ?? contextProjectId;
 		const pool = inProject !== null ? categories.filter((c) => c.project_id === inProject) : categories;
 		const category = longestName(rest, pool) ?? (out.project_id === null ? longestName(rest, categories) : null);
-		const end = at + 1 + rest.split(/\s/)[0].length;
+		const end = at + 1 + gap + rest.split(/\s/)[0].length;
 		if (category) {
 			if (out.category_id !== null) continue;
 			out.category_id = category.id;
 			out.project_id ??= category.project_id;
-			add('category', at, at + 1 + category.name.length);
+			add('category', at, at + 1 + gap + category.name.length);
 		} else if (hash) {
 			if (!project) add('project', at, end, true);
 		} else if (!unknownCategory) {

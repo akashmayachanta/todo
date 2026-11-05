@@ -12,11 +12,13 @@
 	import { taskSettings } from '$lib/stores/taskSettings';
 	import { onTasksChanged } from '$lib/tasks/client';
 	import { plainText } from '$lib/links';
-	import { addDays, dayLabel, daysBetween, formatDuration, fromYmd, nextOccurrence, todayHeading, ymd } from '$lib/taskParse';
+	import { sorting, type SortApi, type SortDrop, type SortKind } from '$lib/sortable';
+	import { addDays, dayLabel, daysBetween, formatDuration, fromYmd, todayHeading, ymd } from '$lib/taskParse';
 	import DropdownMenu from '$lib/components/DropdownMenu.svelte';
 	import TasksPane from '$lib/components/tasks/TasksPane.svelte';
 	import QuickAdd from '$lib/components/tasks/QuickAdd.svelte';
 	import TaskRow from '$lib/components/tasks/TaskRow.svelte';
+	import TaskSearchBox from '$lib/components/tasks/TaskSearchBox.svelte';
 	import TodayIcon from '$lib/components/tasks/TodayIcon.svelte';
 	import TaskDetail from '$lib/components/tasks/TaskDetail.svelte';
 	import TaskInlineEdit from '$lib/components/tasks/TaskInlineEdit.svelte';
@@ -31,9 +33,12 @@
 		type AddDefaults, type Bucket, type DateViewGroup, type GroupCtx,
 	} from '$lib/components/tasks/taskFilters';
 	import {
-		PROJECT_COLORS, byDue, byPosition, durationTotals, loadLayouts, placeName, projectColor, saveLayouts,
+		PROJECT_COLORS, byDue, byPosition, completionPatch, durationTotals, loadLayouts, placeName, projectColor, saveLayouts,
 		shiftInstant, type TaskLayout, type TaskSettings, type TaskView,
 	} from '$lib/components/tasks/shared';
+	import type { PinTarget } from '$lib/components/tasks/pins';
+	import { setTaskbarCount } from '$shell/taskbar';
+	import { isDesktop, pinToDesktop } from '$shell/widgets';
 	import './tasks.css';
 
 	const UPCOMING_DAYS = 14;
@@ -89,15 +94,18 @@
 	let categoryName = $state('');
 	/** The category being moved to another project. */
 	let movingCategory = $state<TaskCategory | null>(null);
+	let pane = $state<TasksPane | null>(null);
 
 	// ── Where we are (kept in the URL) ─────────────────────────────────────────
 
 	let params = $derived(page.url.searchParams);
 	let projectId = $derived(params.get('project') || null);
 	let filterId = $derived(projectId ? null : params.get('filter') || null);
+	let searchQuery = $derived(projectId || filterId ? '' : params.get('q') ?? '');
 	let view = $derived.by((): TaskView => {
 		if (projectId) return 'project';
 		if (filterId) return 'filter';
+		if (searchQuery) return 'search';
 		const v = params.get('view');
 		// With no view in the URL, the one picked in Settings ("Open on").
 		return v === 'inbox' || v === 'upcoming' || v === 'today' || v === 'karma' ? v : settings.startView;
@@ -110,16 +118,18 @@
 	let project = $derived(projects.find((p) => p.id === projectId) ?? null);
 	let filter = $derived(filters.find((f) => f.id === filterId) ?? null);
 	let today = $derived(ymd(now));
+	let tomorrow = $derived(addDays(today, 1));
 	let groupCtx = $derived<GroupCtx>({ projects, categories, today });
 
-	function go(query: Record<string, string | number | null>) {
+	function go(query: Record<string, string | number | null>, replaceState = false) {
 		const q = new URLSearchParams();
 		for (const [k, v] of Object.entries(query)) if (v !== null) q.set(k, String(v));
 		const s = q.toString();
-		goto(`${resolve('/tasks' as any)}${s ? `?${s}` : ''}`, { noScroll: true, keepFocus: true });
+		goto(`${resolve('/tasks' as any)}${s ? `?${s}` : ''}`, { noScroll: true, keepFocus: true, replaceState });
 	}
 
 	function here(): Record<string, string | number | null> {
+		if (view === 'search') return { q: searchQuery };
 		return projectId ? { project: projectId } : filterId ? { filter: filterId } : { view };
 	}
 
@@ -149,7 +159,7 @@
 	let open = $derived(tasks.filter((t) => !t.completed_at));
 	let topLevel = $derived(open.filter((t) => t.parent_id === null));
 	let dated = $derived(open.filter((t) => t.due_date));
-	let lastUpcoming = $derived(addDays(today, UPCOMING_DAYS - 1));
+	let lastUpcoming = $derived(addDays(today, UPCOMING_DAYS));
 
 	let counts = $derived.by(() => {
 		const byProject: Record<string, number> = {};
@@ -164,7 +174,7 @@
 			filters: byFilter,
 			inbox: topLevel.filter((t) => t.project_id === null).length,
 			today: dated.filter((t) => t.due_date! <= today).length,
-			upcoming: dated.filter((t) => t.due_date! >= today && t.due_date! <= lastUpcoming).length,
+			upcoming: dated.filter((t) => t.due_date! > today && t.due_date! <= lastUpcoming).length,
 			projects: byProject,
 			categories: byCategory,
 		};
@@ -177,7 +187,8 @@
 	let todayTasks = $derived(dated.filter((t) => t.due_date === today).sort(byDue));
 	let upcomingDays = $derived.by(() => {
 		const days: { date: string; tasks: Task[] }[] = [];
-		for (let i = 0; i < UPCOMING_DAYS; i++) {
+		// Upcoming starts tomorrow: today's tasks are in Today.
+		for (let i = 1; i <= UPCOMING_DAYS; i++) {
 			const date = addDays(today, i);
 			const list = dated.filter((t) => t.due_date === date).sort(byDue);
 			if (list.length) days.push({ date, tasks: list });
@@ -202,15 +213,13 @@
 	);
 	let drawerParent = $derived(drawerTask?.parent_id ? tasks.find((t) => t.id === drawerTask!.parent_id) ?? null : null);
 
-	/** "Today · Thu 5 Nov", or "6 Nov" over "Tomorrow · Friday" or "Saturday". */
+	/** "6 Nov" over "Tomorrow · Friday" or "Saturday". */
 	function dayHeading(date: string) {
-		const rel = daysBetween(today, date);
-		if (rel === 0) return { title: todayHeading(today), sub: '' };
 		const d = fromYmd(date);
 		const weekday = d.toLocaleDateString(undefined, { weekday: 'long' });
 		return {
 			title: d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }),
-			sub: rel === 1 ? `Tomorrow · ${weekday}` : weekday,
+			sub: daysBetween(today, date) === 1 ? `Tomorrow · ${weekday}` : weekday,
 		};
 	}
 
@@ -223,7 +232,7 @@
 
 	let layoutKey = $derived(view === 'project' ? `project:${projectId}` : view === 'filter' ? `filter:${filterId}` : view);
 	/** Today has no calendar: it is one day (and the overdue ones). */
-	let layoutOptions = $derived<readonly TaskLayout[]>(view === 'today' ? ['list', 'board'] : ['list', 'board', 'calendar']);
+	let layoutOptions = $derived<readonly TaskLayout[]>(view === 'search' ? ['list'] : view === 'today' ? ['list', 'board'] : ['list', 'board', 'calendar']);
 	let layout = $derived.by((): TaskLayout => {
 		const l = layouts[layoutKey];
 		return l && layoutOptions.includes(l) ? l : 'list';
@@ -246,14 +255,14 @@
 	});
 
 	/** What a task added in this view starts with, before its bucket's own values. */
-	let baseDefaults = $derived<AddDefaults>(view === 'filter' ? filterBase : { due_date: today });
+	let baseDefaults = $derived<AddDefaults>(view === 'filter' ? filterBase : { due_date: view === 'upcoming' ? tomorrow : today });
 
 	/** The view's tasks in buckets, or null when it isn't grouped (or is a calendar). */
 	let buckets = $derived.by((): Bucket[] | null => {
 		if (groupBy === 'date' || groupBy === 'none' || layout === 'calendar') return null;
 		const source = view === 'filter' ? filterTasks
 			: view === 'today' ? [...overdue, ...todayTasks]
-			: view === 'upcoming' ? dated.filter((t) => t.due_date! >= today)
+			: view === 'upcoming' ? dated.filter((t) => t.due_date! > today)
 			: null;
 		if (!source) return null;
 		return groupTasks(source, groupBy, groupCtx, { allPriorities: layout === 'board' })
@@ -327,7 +336,7 @@
 		}
 		if (view === 'upcoming') {
 			const cols: Column[] = [];
-			for (let i = 0; i < UPCOMING_DAYS; i++) {
+			for (let i = 1; i <= UPCOMING_DAYS; i++) {
 				const date = addDays(today, i);
 				const head = dayHeading(date);
 				cols.push({
@@ -381,6 +390,11 @@
 	// ── Board drag and drop ────────────────────────────────────────────────────
 
 	function cardDragStart(e: DragEvent, task: Task) {
+		// Its grip is being dragged, to reorder within the column.
+		if (sorting()) {
+			e.preventDefault();
+			return;
+		}
 		dragging = task;
 		e.dataTransfer?.setData('text/plain', String(task.id));
 		if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
@@ -421,6 +435,81 @@
 		if (Object.keys(patch).length) patchTask(task, patch);
 	}
 
+	// ── Rearranging by the grip ────────────────────────────────────────────────
+
+	const topSiblings = (projectId: string | null, categoryId: string | null) =>
+		topLevel.filter((t) => t.project_id === projectId && t.category_id === categoryId).sort(byPosition);
+
+	/**
+	 * Puts a task where it was dropped. A task dropped in another category joins it, and
+	 * a subtask dropped under another task moves to it. Shown at once, put back on failure.
+	 */
+	async function dropTask(d: SortDrop) {
+		const task = tasks.find((t) => t.id === d.id);
+		const target = d.targetId ? tasks.find((t) => t.id === d.targetId) ?? null : null;
+		if (!task) return;
+
+		let moved: Task;
+		let list: Task[];
+		let patch: TaskPatch | null = null;
+		if (d.kind === 'sub') {
+			const parentId = d.into ? d.targetId : target?.parent_id;
+			const parent = tasks.find((t) => t.id === parentId);
+			if (!parent) return;
+			if (parent.id !== task.parent_id) patch = { parent_id: parent.id };
+			moved = { ...task, parent_id: parent.id, project_id: parent.project_id, category_id: parent.category_id };
+			list = subtasksOf(parent.id);
+		} else {
+			const categoryId = d.zone !== null ? (d.zone === 'none' ? null : d.zone) : target?.category_id ?? null;
+			if (categoryId !== task.category_id) patch = { category_id: categoryId };
+			moved = { ...task, category_id: categoryId };
+			list = topSiblings(task.project_id, categoryId);
+		}
+
+		const others = list.filter((t) => t.id !== task.id);
+		const at = target && !d.into ? others.findIndex((t) => t.id === target.id) + (d.after ? 1 : 0) : others.length;
+		const ordered = [...others.slice(0, at), moved, ...others.slice(at)];
+		const ids = ordered.map((t) => t.id);
+		if (!patch && ids.every((id, i) => id === list[i]?.id)) return;
+
+		const before = tasks;
+		const slots = ordered.map((t) => t.position).sort((a, b) => a - b);
+		const next = new Map<string, Task>();
+		let last = -Infinity;
+		ordered.forEach((t, i) => {
+			last = Math.max(slots[i], last + 1);
+			next.set(t.id, { ...t, position: last });
+		});
+		tasks = tasks.map((t) => next.get(t.id) ?? t);
+
+		try {
+			if (patch) await api.tasks.update(task.id, patch);
+			const saved = new Map((await api.tasks.reorder(ids)).map((t) => [t.id, t]));
+			tasks = tasks.map((t) => saved.get(t.id) ?? t);
+			// A task's subtasks follow it to another category.
+			if (patch) await reloadTasks();
+		} catch (e) {
+			tasks = before;
+			toast.error(errorDetail(e));
+			await reloadTasks();
+		}
+	}
+
+	/** The arrow keys on a grip: a place up or down among the tasks shown with it. */
+	function stepTask(id: string, kind: SortKind, by: -1 | 1) {
+		const task = tasks.find((t) => t.id === id);
+		if (!task) return;
+		const list = kind === 'sub'
+			? subtasksOf(task.parent_id!).filter((s) => !!s.completed_at === !!task.completed_at)
+			: topSiblings(task.project_id, task.category_id);
+		const other = list[list.findIndex((t) => t.id === id) + by];
+		if (other) dropTask({ id, kind, targetId: other.id, after: by === 1, into: false, zone: null });
+	}
+
+	const sortApi: SortApi = { ondrop: dropTask, onstep: stepTask };
+	/** Lists in manual order have grips; Today, Upcoming, filters and search sort themselves. */
+	let sortable = $derived(view === 'inbox' || view === 'project');
+
 	// ── Stepping through tasks in the modal ────────────────────────────────────
 
 	/** A task and the subtasks listed under it, in the views that nest them. */
@@ -431,6 +520,7 @@
 
 	/** The tasks of the view in the order they are shown, for the modal's up / down. */
 	let navOrder = $derived.by((): Task[] => {
+		if (view === 'search') return [...searchOpen, ...searchDone];
 		let list: Task[];
 		if (layout === 'calendar') list = [...calendarTasks].sort(byDue).concat(calendarUndated ?? []);
 		else if (layout === 'board' || buckets) list = withSubtasks(columns.flatMap((c) => c.tasks));
@@ -459,8 +549,72 @@
 	let heading = $derived(
 		view === 'project' ? project?.name ?? 'Project'
 			: view === 'filter' ? filter?.name ?? 'Filter'
-			: view === 'inbox' ? 'Inbox' : view === 'today' ? 'Today' : view === 'karma' ? 'Karma' : 'Upcoming',
+			: view === 'inbox' ? 'Inbox' : view === 'today' ? 'Today' : view === 'karma' ? 'Karma' : view === 'search' ? 'Search' : 'Upcoming',
 	);
+
+	// ── Search ─────────────────────────────────────────────────────────────────
+
+	const SEARCH_OPEN_LIMIT = 200;
+	const SEARCH_DONE_LIMIT = 100;
+
+	let searchOpen = $state<Task[]>([]);
+	let searchDone = $state<Task[]>([]);
+	/** Where to go back to when the search is cleared. */
+	let beforeSearch: Record<string, string | number | null> = {};
+	/** Bumped on each search, so a slow one already typed past is dropped. */
+	let searchLoad = 0;
+
+	async function loadSearch() {
+		const q = searchQuery;
+		const n = ++searchLoad;
+		if (!q) {
+			searchOpen = [];
+			searchDone = [];
+			return;
+		}
+		const [found, done] = await Promise.all([
+			api.tasks.list({ q, limit: SEARCH_OPEN_LIMIT }),
+			api.tasks.list({ q, completed: true, limit: SEARCH_DONE_LIMIT }),
+		]);
+		if (n !== searchLoad) return;
+		searchOpen = found;
+		searchDone = done;
+	}
+
+	$effect(() => {
+		void searchQuery;
+		loadSearch().catch((e) => toast.error(errorDetail(e)));
+	});
+
+	function runSearch(text: string) {
+		const q = text.trim();
+		if (q) {
+			if (view !== 'search') beforeSearch = browsing ? { view: 'browse' } : here();
+			go({ q }, true);
+		} else if (view === 'search') {
+			go(beforeSearch, true);
+		}
+	}
+
+	// ── Pins ───────────────────────────────────────────────────────────────────
+
+	/** What the header's pin button pins, on the desktop. */
+	let pinTarget = $derived.by((): PinTarget | null => {
+		if (!isDesktop) return null;
+		if (view === 'inbox' || view === 'today' || view === 'upcoming') return { kind: view, id: null };
+		if (view === 'project' && project) return { kind: 'project', id: project.id };
+		if (view === 'filter' && filter) return { kind: 'filter', id: filter.id };
+		return null;
+	});
+
+	function pin(target: PinTarget) {
+		pinToDesktop(target).catch((e) => toast.error(errorDetail(e)));
+	}
+
+	// Today's count on the Windows taskbar, the same number as the pane.
+	$effect(() => {
+		if (!loading && !error) setTaskbarCount(counts.today);
+	});
 
 	// ── Loading ────────────────────────────────────────────────────────────────
 
@@ -481,6 +635,7 @@
 		try {
 			tasks = await api.tasks.list();
 			if (completedShown) await loadCompleted();
+			if (view === 'search') await loadSearch();
 		} catch (e) {
 			toast.error(errorDetail(e));
 		}
@@ -540,6 +695,8 @@
 	function replace(updated: Task) {
 		tasks = tasks.map((t) => (t.id === updated.id ? updated : t));
 		completed = completed.map((t) => (t.id === updated.id ? updated : t));
+		searchOpen = searchOpen.map((t) => (t.id === updated.id ? updated : t));
+		searchDone = searchDone.map((t) => (t.id === updated.id ? updated : t));
 		if (extraTask?.id === updated.id) extraTask = updated;
 	}
 
@@ -548,7 +705,8 @@
 		if (view === 'inbox') return task.project_id === null;
 		if (view === 'filter') return filterTest?.(task) ?? false;
 		if (view === 'today') return !!task.due_date && task.due_date <= today;
-		return !!task.due_date && task.due_date >= today;
+		if (view === 'search') return false;
+		return !!task.due_date && task.due_date > today;
 	}
 
 	async function addTask(data: TaskIn) {
@@ -591,27 +749,14 @@
 
 	async function toggleTask(task: Task) {
 		try {
-			if (task.completed_at) {
-				replace(await api.tasks.update(task.id, { completed_at: null }));
-				completed = completed.filter((t) => t.id !== task.id);
-				await reloadTasks();
+			const patch = completionPatch(task, now);
+			replace(await api.tasks.update(task.id, patch));
+			if (patch.completes_occurrence) {
+				toast.success(`Next: ${dayLabel(patch.due_date!, now)}`);
 				return;
 			}
-			const next = task.recurrence && task.due_date ? nextOccurrence(task.recurrence, task.due_date, now) : null;
-			if (next) {
-				// A repeating task moves to its next date; its reminder moves by as many days.
-				const shift = daysBetween(task.due_date!, next);
-				replace(await api.tasks.update(task.id, {
-					due_date: next,
-					remind_at: task.remind_at ? shiftInstant(task.remind_at, shift) : null,
-					completes_occurrence: true,
-				}));
-				toast.success(`Next: ${dayLabel(next, now)}`);
-				return;
-			}
-			const done = await api.tasks.update(task.id, { completed_at: new Date().toISOString() });
-			replace(done);
-			if (task.parent_id === null) toast.success(`Completed "${plainText(task.title)}"`);
+			if (task.completed_at) completed = completed.filter((t) => t.id !== task.id);
+			else if (task.parent_id === null) toast.success(`Completed "${plainText(task.title)}"`);
 			await reloadTasks();
 		} catch (e) {
 			toast.error(errorDetail(e));
@@ -625,6 +770,8 @@
 			await api.tasks.delete(task.id);
 			tasks = tasks.filter((t) => t.id !== task.id && t.parent_id !== task.id);
 			completed = completed.filter((t) => t.id !== task.id);
+			searchOpen = searchOpen.filter((t) => t.id !== task.id);
+			searchDone = searchDone.filter((t) => t.id !== task.id);
 			if (taskId === task.id) closeTask();
 			toast.success('Task deleted');
 		} catch (e) {
@@ -743,6 +890,8 @@
 			categoryName = c.name;
 		} else if (id === 'move') {
 			movingCategory = c;
+		} else if (id === 'pin') {
+			pin({ kind: 'category', id: c.id });
 		} else {
 			deleteCategory(c);
 		}
@@ -793,10 +942,17 @@
 
 	function mainAddKey() {
 		if (buckets) return buckets.find((b) => b.drop)?.key ?? 'main';
-		return view === 'upcoming' ? `date:${today}` : 'main';
+		return view === 'upcoming' ? `date:${tomorrow}` : 'main';
 	}
 
 	function onKeydown(e: KeyboardEvent) {
+		if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') {
+			if (projectDialog || filterDialog || movingCategory) return;
+			e.preventDefault();
+			if (taskId) closeTask();
+			pane?.focusSearch();
+			return;
+		}
 		if (e.key === 'Escape' && projectDialog) {
 			projectDialog = null;
 			return;
@@ -808,7 +964,7 @@
 		if (e.key !== 'q' || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
 		const el = e.target as HTMLElement | null;
 		if (el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName))) return;
-		if (projectDialog || filterDialog || movingCategory || taskId || view === 'karma') return;
+		if (projectDialog || filterDialog || movingCategory || taskId || view === 'karma' || view === 'search') return;
 		e.preventDefault();
 		addingAt = mainAddKey();
 	}
@@ -823,7 +979,7 @@
 			return { project_id: projectId, category_id: cat?.id ?? null };
 		}
 		if (view === 'filter') return filterBase;
-		return view === 'today' || view === 'upcoming' ? { due_date: today } : {};
+		return view === 'today' ? { due_date: today } : view === 'upcoming' ? { due_date: tomorrow } : {};
 	}
 
 	onMount(() => {
@@ -839,6 +995,7 @@
 		const stopChanged = onTasksChanged(async () => {
 			await loadAll();
 			if (completedShown) loadCompleted().catch(() => {});
+			if (view === 'search') loadSearch().catch(() => {});
 		});
 		// Keeps "Today" and the overdue marks right past midnight and as times go by.
 		const clock = setInterval(() => (now = new Date()), 60_000);
@@ -847,15 +1004,17 @@
 			dropContext();
 			stopListening();
 			stopChanged();
+			setTaskbarCount(0);
 		};
 	});
 </script>
 
 <svelte:window onkeydown={onKeydown} />
 
-{#snippet row(task: Task, nested: boolean, withPlace: boolean)}
+{#snippet row(task: Task, nested: boolean, withPlace: boolean, sorted = false)}
 	<TaskRow
 		{task}
+		sort={sorted ? sortApi : null}
 		{subtasksOf}
 		nested={nested && settings.showSubtasks}
 		showDoneSubtasks={settings.showDoneSubtasks}
@@ -936,6 +1095,7 @@
 				items={[
 					{ id: 'rename', label: 'Rename' },
 					...(projects.length > 1 ? [{ id: 'move', label: 'Move to project…' }] : []),
+					...(isDesktop ? [{ id: 'pin', label: 'Pin to desktop' }] : []),
 					{ id: 'delete', label: 'Delete category', danger: true },
 				]}
 				onselect={(id) => onCategoryMenu(c, id)}
@@ -974,6 +1134,9 @@
 
 <div class="tasks-page" class:tasks-page-browsing={browsing}>
 	<TasksPane
+		bind:this={pane}
+		query={searchQuery}
+		onsearch={runSearch}
 		{projects}
 		{categories}
 		{filters}
@@ -995,7 +1158,7 @@
 	/>
 
 	<div class="tasks-main">
-		<div class="tasks-content" class:tasks-content-wide={layout !== 'list'}>
+		<div class="tasks-content" class:tasks-content-wide={layout !== 'list'} data-sort-scope={layout === 'list' ? 'list' : undefined}>
 			<header class="tasks-head">
 				<div class="min-w-0">
 					<h1 class="page-title tasks-title">
@@ -1010,16 +1173,23 @@
 						<p class="page-subtitle">{fromYmd(today).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</p>
 					{:else if view === 'karma'}
 						<p class="page-subtitle">Your progress: tasks completed against your daily and weekly goals</p>
+					{:else if view === 'search'}
+						<p class="page-subtitle">{searchOpen.length} open, {searchDone.length} completed for "{searchQuery}"</p>
 					{/if}
 				</div>
 				<div class="tasks-head-actions">
 					{#if !loading && !error && groupShown}
 						<GroupMenu value={groupBy} options={groupOptions} onchange={setGroup} />
 					{/if}
-					{#if !loading && !error && view !== 'karma'}
+					{#if !loading && !error && view !== 'karma' && view !== 'search'}
 						<LayoutToggle {layout} options={layoutOptions} onchange={setLayout} />
 					{/if}
-					{#if view !== 'karma'}<SmartTips />{/if}
+					{#if view !== 'karma' && view !== 'search'}<SmartTips />{/if}
+					{#if pinTarget}
+						<button type="button" class="tasks-icon-btn" onclick={() => pin(pinTarget!)} title="Pin to desktop" aria-label="Pin to desktop">
+							<svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M12 17v5M7 17h10l-1.5-4.5V6a2 2 0 00-2-2h-3a2 2 0 00-2 2v6.5L7 17z" /></svg>
+						</button>
+					{/if}
 					{#if filter}
 						<DropdownMenu
 							triggerClass="tasks-icon-btn"
@@ -1047,6 +1217,11 @@
 				</div>
 			</header>
 
+			{#if view === 'search'}
+				<!-- Phones: the pane with its box is gone once there are results, so this one takes over. -->
+				<TaskSearchBox query={searchQuery} onsearch={runSearch} class="tasks-search-phone" autofocus />
+			{/if}
+
 			{#if loading}
 				<div class="flex items-center gap-3 text-[var(--text-muted)]"><div class="spinner"></div>Loading…</div>
 			{:else if error}
@@ -1058,6 +1233,21 @@
 					weeklyGoal={settings.weeklyGoal}
 					ongoals={(dailyGoal, weeklyGoal) => changeSettings({ ...settings, dailyGoal, weeklyGoal })}
 				/>
+			{:else if view === 'search'}
+				{#each searchOpen as task (task.id)}
+					{@render row(task, false, true)}
+				{/each}
+				{#if searchDone.length}
+					<section class="task-group">
+						<h2 class="task-group-head">Completed <span class="task-group-count">{searchDone.length}</span></h2>
+						{#each searchDone as task (task.id)}
+							{@render row(task, false, true)}
+						{/each}
+					</section>
+				{/if}
+				{#if !searchOpen.length && !searchDone.length}
+					<p class="tasks-empty">No tasks match "{searchQuery}".</p>
+				{/if}
 			{:else if view === 'project' && !project}
 				<p class="tasks-empty">This project doesn't exist any more.</p>
 			{:else if view === 'filter' && !filter}
@@ -1070,6 +1260,8 @@
 							class="task-col"
 							class:task-col-over={dropOver === col.key}
 							aria-label={col.title}
+							data-sort-scope={col.key}
+							data-sort-zone={view === 'project' ? col.category?.id ?? 'none' : undefined}
 							ondragover={(e) => colDragOver(e, col)}
 							ondragleave={(e) => colDragLeave(e, col)}
 							ondrop={(e) => colDrop(e, col)}
@@ -1089,7 +1281,7 @@
 										ondragstart={(e) => cardDragStart(e, task)}
 										ondragend={cardDragEnd}
 									>
-										{@render row(task, view === 'inbox' || view === 'project', view !== 'inbox' && view !== 'project')}
+										{@render row(task, sortable, !sortable, sortable)}
 									</div>
 								{/each}
 								{#if col.add}{@render adder(col.add.key, col.add.defaults)}{/if}
@@ -1153,7 +1345,7 @@
 				{/if}
 			{:else if view === 'inbox'}
 				{#each inboxTasks as task (task.id)}
-					{@render row(task, true, false)}
+					{@render row(task, true, false, true)}
 				{/each}
 				{@render adder('main', {})}
 				{#if !inboxTasks.length && addingAt !== 'main'}
@@ -1176,12 +1368,22 @@
 					<p class="tasks-empty">Nothing due today.</p>
 				{/if}
 			{:else if view === 'upcoming'}
+				{#if !upcomingDays.some((d) => d.date === tomorrow)}
+					{@const head = dayHeading(tomorrow)}
+					<section class="task-group">
+						<h2 class="task-group-head">
+							{head.title}
+							<span class="task-group-sub">{head.sub}</span>
+						</h2>
+						{@render adder(`date:${tomorrow}`, { due_date: tomorrow })}
+					</section>
+				{/if}
 				{#each upcomingDays as day (day.date)}
 					{@const head = dayHeading(day.date)}
 					<section class="task-group">
 						<h2 class="task-group-head">
 							{head.title}
-							{#if head.sub}<span class="task-group-sub">{head.sub}</span>{/if}
+							<span class="task-group-sub">{head.sub}</span>
 							<span class="task-group-count">{day.tasks.length}</span>
 						</h2>
 						{#each day.tasks as task (task.id)}
@@ -1190,27 +1392,23 @@
 						{@render adder(`date:${day.date}`, { due_date: day.date })}
 					</section>
 				{/each}
-				{#if !upcomingDays.some((d) => d.date === today)}
-					<section class="task-group">
-						<h2 class="task-group-head">{todayHeading(today)}</h2>
-						{@render adder(`date:${today}`, { due_date: today })}
-					</section>
-				{/if}
 				{#if later.length}
 					{@render group('Later', later)}
 				{/if}
 			{:else if project}
-				{#each uncategorised as task (task.id)}
-					{@render row(task, true, false)}
-				{/each}
-				{@render adder('main', { project_id: project.id })}
+				<div data-sort-zone="none">
+					{#each uncategorised as task (task.id)}
+						{@render row(task, true, false, true)}
+					{/each}
+					{@render adder('main', { project_id: project.id })}
+				</div>
 
 				{#each projectCategories as c (c.id)}
 					{@const list = inCategory(c.id)}
-					<section class="task-group" id="task-cat-{c.id}">
+					<section class="task-group" id="task-cat-{c.id}" data-sort-zone={c.id}>
 						{@render categoryHead(c, list.length)}
 						{#each list as task (task.id)}
-							{@render row(task, true, false)}
+							{@render row(task, true, false, true)}
 						{/each}
 						{@render adder(`cat:${c.id}`, { project_id: project.id, category_id: c.id })}
 					</section>
@@ -1235,7 +1433,7 @@
 	<!-- Phones: the views along the bottom, like the pane on wider screens. -->
 	<nav class="tasks-tabbar" aria-label="Views">
 		{#each TABS as t (t.key)}
-			{@const here = t.key === 'browse' ? browsing || view === 'project' || view === 'filter' : !browsing && view === t.key}
+			{@const here = t.key === 'browse' ? browsing || view === 'project' || view === 'filter' || view === 'search' : !browsing && view === t.key}
 			<a href="?view={t.key}" class="tasks-tab" aria-current={here ? 'page' : undefined}>
 				{#if t.key === 'today'}
 					<TodayIcon date={today} strokeWidth={here ? 2.1 : 1.75} />
@@ -1257,6 +1455,8 @@
 		{categories}
 		onprev={neighbours.prev ? () => openTask(neighbours.prev!) : null}
 		onnext={neighbours.next ? () => openTask(neighbours.next!) : null}
+		sort={drawerTask.completed_at ? null : sortApi}
+		onpin={isDesktop ? (t) => pin({ kind: 'task', id: t.id }) : null}
 		onpatch={patchTask}
 		ontoggle={toggleTask}
 		onaddsubtask={addSubtask}

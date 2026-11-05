@@ -34,18 +34,21 @@ time = "0.3"
 tauri-plugin-autostart = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-single-instance = "2"
+tauri-plugin-window-state = "2"
 keyring = { version = "3", features = ["windows-native"] }
 
 [target.'cfg(windows)'.dependencies]
 # Registers the app's toast identity (reminders.rs).
 winreg = "0.56"
 # Writes the Start Menu shortcut toasts take their name and icon from, and shows
-# the toasts themselves (reminders.rs).
+# the toasts themselves (reminders.rs). Draws the count on the taskbar icon (widgets.rs).
 windows = { version = "0.62", features = [
   "Data_Xml_Dom",
   "UI_Notifications",
+  "Win32_Foundation",
   "Win32_Storage_EnhancedStorage",
   "Win32_System_Com_StructuredStorage",
   "Win32_System_Variant",
   "Win32_UI_Shell_PropertiesSystem",
+  "Win32_UI_WindowsAndMessaging",
 ] }

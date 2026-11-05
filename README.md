@@ -178,6 +178,7 @@ Every route is under `TASKS_API_BASE_PATH`. Errors come back as
 - `GET /auth/me`, `GET /auth/devices`, `POST /auth/devices/{id}/revoke`
 - `GET /?completed=&project_id=&inbox=&limit=`, plus `q=` to search
 - `POST /`, `GET`/`POST /{id}`, `POST /{id}/delete`
+- `/reorder` takes `{ids}` of sibling tasks in their new order
 - `/projects`, `/projects/reorder`, `/projects/{id}`, `/projects/{id}/delete`
 - `/categories`, `/filters`, with the same `{id}` and `{id}/delete` forms
 - `GET /completions?since=`
@@ -214,7 +215,16 @@ On Windows the app also has:
 
 - **A tray icon.** Its menu has Open, Quick add, Sync now, Start at login and
   Quit. Closing the window hides it to the tray.
-- **Alt+N anywhere.** It brings the app up with the quick add open.
+- **A quick add popup.** `Alt+N` from any app shows a small window on its own,
+  without bringing up the main window. If the main window is in front, its own
+  dialog opens instead, because it knows which project you're in.
+- **Pins.** The pin button in a page's header, "Pin to desktop" in a category's menu
+  or in a task's menu opens a small always-on-top window for that list or task. Close
+  it to unpin. Pins and their positions stay on this device (`config.json`,
+  and the window-state plugin's file) and reopen at startup.
+- **Today's count on the taskbar.** The same number as the pane, so overdue tasks
+  count too. Windows only puts overlay icons at the bottom right, so the number is
+  drawn into the taskbar icon itself, at the top right.
 - **Start at login** (`tauri-plugin-autostart`). It starts with `--minimized`,
   straight to the tray.
 - **Reminders.** A Rust loop checks `remind_at` every 30 s and shows a Windows

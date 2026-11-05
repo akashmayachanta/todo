@@ -7,6 +7,7 @@
 //!   Its title shows at most 255 characters; a task's stored title at most 500.
 //! - A time needs a date; clearing the date clears the time.
 //! - Moving a category moves its tasks; moving a task moves its subtasks.
+//! - A subtask can move to another task; it takes that task's project and category.
 //! - Completing a task completes its open subtasks (they aren't logged).
 //! - Karma: a tick adds a completion, an untick deletes the task's latest one,
 //!   and ticking one occurrence of a repeating task (completes_occurrence)
@@ -398,8 +399,10 @@ pub fn delete_filter(conn: &Connection, ctx: &Ctx, id: &str) -> Result<()> {
 /// inbox, the tasks with no project). An open task comes with all its
 /// subtasks, done ones too, so the page can count them. `completed` returns
 /// the completed tasks instead, newest first, up to limit (default 200).
-/// `q` searches the open tasks' titles and descriptions instead (global
-/// search): soonest due first, then priority, up to limit (default 5).
+/// `q` searches titles and descriptions instead (global search): the open
+/// tasks soonest due first, then priority, or with `completed` the done ones
+/// newest first, up to limit (default 5). The term is matched literally, so
+/// "100%" finds "100%".
 pub fn list_tasks(conn: &Connection, q: &TaskQuery) -> Result<Vec<Task>> {
     if let Some(limit) = q.limit {
         if !(1..=1000).contains(&limit) {
@@ -410,11 +413,19 @@ pub fn list_tasks(conn: &Connection, q: &TaskQuery) -> Result<Vec<Task>> {
     let mut args: Vec<SqlValue> = Vec::new();
 
     if let Some(term) = q.q.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        let like = format!("%{}%", term.to_lowercase());
-        sql.push_str(
-            " AND t.completed_at IS NULL AND (lower(t.title) LIKE ?1 OR lower(COALESCE(t.description, '')) LIKE ?1)
-              ORDER BY t.due_date IS NULL, t.due_date, t.priority, t.id LIMIT ?2",
-        );
+        let escaped = term.to_lowercase().replace('\\', r"\\").replace('%', r"\%").replace('_', r"\_");
+        let like = format!("%{escaped}%");
+        sql.push_str(if q.completed {
+            " AND t.completed_at IS NOT NULL"
+        } else {
+            " AND t.completed_at IS NULL"
+        });
+        sql.push_str(r" AND (lower(t.title) LIKE ?1 ESCAPE '\' OR lower(COALESCE(t.description, '')) LIKE ?1 ESCAPE '\')");
+        sql.push_str(if q.completed {
+            " ORDER BY t.completed_at DESC, t.id DESC LIMIT ?2"
+        } else {
+            " ORDER BY t.due_date IS NULL, t.due_date, t.priority, t.id LIMIT ?2"
+        });
         args.push(SqlValue::Text(like));
         args.push(SqlValue::Integer(q.limit.unwrap_or(5)));
         let mut stmt = conn.prepare(&sql)?;
@@ -551,6 +562,37 @@ pub fn create_task(conn: &Connection, ctx: &Ctx, input: TaskIn) -> Result<Task> 
     get_task(conn, &id)
 }
 
+/// Puts sibling tasks (same parent, project and category) in the order given,
+/// using the positions they already hold so tasks left out stay where they are.
+/// Only the rows that change are written, which keeps sync traffic small.
+pub fn reorder_tasks(conn: &Connection, ctx: &Ctx, ids: &[String]) -> Result<Vec<Task>> {
+    let tasks = ids.iter().map(|id| get_task(conn, id)).collect::<Result<Vec<_>>>()?;
+    let Some(first) = tasks.first() else {
+        return Ok(Vec::new());
+    };
+    if ids.iter().enumerate().any(|(i, id)| ids[..i].contains(id)) {
+        return Err(Error::BadRequest("A task is listed twice".into()));
+    }
+    let siblings = |t: &Task| {
+        t.parent_id == first.parent_id && t.project_id == first.project_id && t.category_id == first.category_id
+    };
+    if !tasks.iter().all(siblings) {
+        return Err(Error::BadRequest("Only tasks in the same list can be reordered together".into()));
+    }
+    let mut slots: Vec<i64> = tasks.iter().map(|t| t.position).collect();
+    slots.sort_unstable();
+    let mut last = None;
+    for (task, slot) in tasks.iter().zip(slots) {
+        // Rows that shared a position get their own.
+        let position = last.map_or(slot, |l: i64| slot.max(l + 1));
+        last = Some(position);
+        if task.position != position {
+            set_columns(conn, ctx, "tasks", &task.id, vec![("position", SqlValue::Integer(position))])?;
+        }
+    }
+    ids.iter().map(|id| get_task(conn, id)).collect()
+}
+
 /// Its subtasks go with it.
 pub fn delete_task(conn: &Connection, ctx: &Ctx, id: &str) -> Result<()> {
     get_task(conn, id)?;
@@ -628,6 +670,27 @@ pub fn update_task(conn: &Connection, ctx: &Ctx, id: &str, patch: TaskPatch) -> 
     }
 
     let mut changes: Vec<(&str, SqlValue)> = Vec::new();
+    match p.parent_id.take() {
+        None => {}
+        Some(_) if item.parent_id.is_none() => {
+            return Err(Error::BadRequest("Only a subtask can move to another task".into()));
+        }
+        Some(None) => return Err(Error::BadRequest("A subtask needs a parent task".into())),
+        Some(Some(new_parent)) if Some(&new_parent) == item.parent_id.as_ref() => {}
+        Some(Some(new_parent)) => {
+            let parent = get_task(conn, &new_parent)?;
+            if parent.parent_id.is_some() {
+                return Err(Error::BadRequest("Subtasks can't have subtasks".into()));
+            }
+            // It goes last under its new parent and takes that task's place.
+            if p.position.is_none() {
+                p.position = Some(Some(next_position(conn, "tasks", "parent_id = ?1", &[&new_parent])?));
+            }
+            changes.push(("parent_id", SqlValue::Text(new_parent)));
+            changes.push(("project_id", text(parent.project_id)));
+            changes.push(("category_id", text(parent.category_id)));
+        }
+    }
     if item.parent_id.is_some() {
         // A subtask stays where its parent is.
         p.project_id = None;

@@ -16,7 +16,8 @@
 	import { isQuickAddShortcut, openQuickAdd, quickAdd } from '$lib/stores/taskQuickAdd';
 	import { applyTheme, followSystemTheme } from '$lib/stores/theme';
 	import { setPaneFooter, setPaneHeader } from '$lib/paneHeader';
-	import { call, tauriTasksClient, type AppStatus, type SyncStatus } from '$shell/tauriClient';
+	import { getCurrentWindow } from '@tauri-apps/api/window';
+	import { EVENT_LOCAL_CHANGED, call, tauriTasksClient, type AppStatus, type SyncStatus } from '$shell/tauriClient';
 	import Setup from '$shell/Setup.svelte';
 	import FirstSync from '$shell/FirstSync.svelte';
 	import AccountMenu from '$shell/AccountMenu.svelte';
@@ -28,6 +29,10 @@
 	setTasksClient(tauriTasksClient);
 
 	let { children } = $props();
+
+	// The popup and the pins are pages of their own, without the app around them.
+	// Anything that only makes sense once (a tapped task, Alt+N) stays with the main window.
+	const widget = window.location.pathname.startsWith('/widget');
 
 	let status = $state<AppStatus | null>(null);
 	// The sign-in screen, opened from Settings → Account (signed in already).
@@ -65,18 +70,25 @@
 	onMount(() => {
 		applyTheme();
 		const stopTheme = followSystemTheme();
-		call<AppStatus>('app_status').then((s) => (status = s));
-		call<string | null>('app_take_open_task').then((id) => id && openTask(id));
-		call('app_ask_notification_permission').catch(() => {});
-
 		const stops = [
-			listen<SyncStatus>('tasks://sync', (e) => {
-				if (status) status = { ...status, sync: e.payload, configured: e.payload.state !== 'signed_out' && status.configured };
-			}),
 			listen('tasks://changed', () => tasksChanged()),
-			listen('tasks://quick-add', () => openQuickAdd()),
-			listen<string>('tasks://open-task', (e) => openTask(e.payload)),
+			// Another window (a pin, the popup, the main one) wrote something.
+			listen<string>(EVENT_LOCAL_CHANGED, (e) => {
+				if (e.payload !== getCurrentWindow().label) tasksChanged();
+			}),
 		];
+		if (!widget) {
+			call<AppStatus>('app_status').then((s) => (status = s));
+			call<string | null>('app_take_open_task').then((id) => id && openTask(id));
+			call('app_ask_notification_permission').catch(() => {});
+			stops.push(
+				listen<SyncStatus>('tasks://sync', (e) => {
+					if (status) status = { ...status, sync: e.payload, configured: e.payload.state !== 'signed_out' && status.configured };
+				}),
+				listen('tasks://quick-add', () => openQuickAdd()),
+				listen<string>('tasks://open-task', (e) => openTask(e.payload)),
+			);
+		}
 
 		// Sync as soon as the network comes back, or the app comes back to the front
 		// (Android resumes it), instead of waiting for the next retry. The page loads
@@ -91,6 +103,7 @@
 
 		// Alt+N while the window has focus (the global shortcut covers the rest of Windows); Ctrl+, Settings.
 		function onKey(e: KeyboardEvent) {
+			if (widget) return;
 			if (isQuickAddShortcut(e)) {
 				e.preventDefault();
 				openQuickAdd();
@@ -122,6 +135,10 @@
 	{/if}
 {/snippet}
 
+{#if widget}
+	{@render children()}
+	<ToastHost />
+{:else}
 <div class="app-shell">
 	{#if status && (!status.configured || showSetup)}
 		<!-- First run (or signed out): signing in is required, and needs the network once. -->
@@ -168,3 +185,4 @@
 <ToastHost />
 <ConfirmDialog />
 <QuickAddDialog />
+{/if}

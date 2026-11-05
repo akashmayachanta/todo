@@ -1,6 +1,7 @@
 /**
  * The app-wide quick add: a dialog in the root layout that adds a task from any
- * page. Alt+N (while the window has focus) or the Tasks pane's "Add task" opens it.
+ * page. Alt+N (while the main window has focus) or the Tasks pane's "Add task" opens
+ * it. From any other app, Alt+N shows the popup instead (routes/widget/quick).
  * The Tasks page tells it where a new task should go by default (the project or
  * day being viewed) and hears about each task it adds, so its list stays current.
  */

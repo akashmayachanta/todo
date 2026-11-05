@@ -31,6 +31,7 @@ list the build commands they need to run.
 | `app/src/lib/` | Tasks UI: `components/tasks/`, smart parsing in `taskParse.ts`, links in `links.ts` |
 | `app/src/app/` | App shell, imported as `$shell`: setup, settings, sync status |
 | `app/src/routes/tasks/` | The main page and `tasks.css` |
+| `app/src/routes/widget/` | The desktop's small windows: the quick add popup and pins (`src-tauri/src/widgets.rs`) |
 | `app/src-tauri/` | Tauri 2 Rust side: local DB commands, sync loop (`syncer.rs`), reminders, tray |
 | `app/scripts/` | Node helpers for icons and the Android project |
 
@@ -61,6 +62,13 @@ list the build commands they need to run.
 - Both are green `#14532d`: Windows from `icons-src/icon.svg`, Android from `icons-src/icon-android*`.
   `npm run icons` regenerates both, and re-encodes `icon.icns` even when nothing changed.
 - Android builds use `scripts/android-icons.mjs` to copy the icons in.
+
+**Windows' small windows**
+- Each window has its own copy of the tasks. Writes in `tauriClient.ts` emit
+  `tasks://local-changed` so the others reload; `tasks://changed` only fires after a sync.
+- A pin's label says what it shows (`pin-project-<id>`). Closing one unpins it, so
+  anything else that removes the window must use `destroy()`.
+- Creating a window from a sync command deadlocks on Windows, so those commands are async.
 
 **Android**
 - It is built in WSL from a Linux copy at `~/todo`. `build-android.sh` syncs code there

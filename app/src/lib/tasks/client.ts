@@ -9,7 +9,7 @@ export interface TaskListOptions {
 	completed?: boolean;
 	project_id?: string | null;
 	inbox?: boolean;
-	/** Search the open tasks' titles and descriptions (global search). */
+	/** Search titles and descriptions (global search): open tasks, or done ones with `completed`. */
 	q?: string;
 	limit?: number;
 }
@@ -47,6 +47,8 @@ export interface TasksClient {
 	update(id: string, patch: TaskPatch): Promise<Task>;
 	/** Its subtasks go with it. */
 	delete(id: string): Promise<void>;
+	/** Sibling tasks in the new order; returns them in that order. */
+	reorder(ids: string[]): Promise<Task[]>;
 }
 
 let current: TasksClient | null = null;

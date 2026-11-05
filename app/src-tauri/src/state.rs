@@ -18,6 +18,38 @@ pub struct AppConfig {
     pub server: Option<ServerInfo>,
     pub username: Option<String>,
     pub user_id: Option<i64>,
+    /// The lists and tasks pinned to the desktop. They stay on this device and don't sync.
+    #[serde(default)]
+    pub pins: Vec<Pin>,
+}
+
+/// One pinned window. `kind` is inbox, today or upcoming with no id, or project,
+/// category, filter or task with one (app/src/lib/components/tasks/pins.ts).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Pin {
+    pub kind: String,
+    pub id: Option<String>,
+}
+
+impl Pin {
+    /// The window's label, which is how the page knows what it shows.
+    pub fn label(&self) -> String {
+        match &self.id {
+            Some(id) => format!("pin-{}-{id}", self.kind),
+            None => format!("pin-{}", self.kind),
+        }
+    }
+
+    pub fn is_valid(&self) -> bool {
+        match &self.id {
+            None => matches!(self.kind.as_str(), "inbox" | "today" | "upcoming"),
+            Some(id) => {
+                matches!(self.kind.as_str(), "project" | "category" | "filter" | "task")
+                    && !id.is_empty()
+                    && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+            }
+        }
+    }
 }
 
 /// Shown by the status chip.

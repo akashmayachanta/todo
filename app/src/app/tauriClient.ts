@@ -4,6 +4,8 @@
 // the server's, so errorDetail() reads both the same way.
 
 import { invoke } from '@tauri-apps/api/core';
+import { emit } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { TasksClient } from '$lib/tasks/client';
 
 export interface ServerInfo {
@@ -38,27 +40,38 @@ export async function call<T>(cmd: string, args?: Record<string, unknown>): Prom
 	}
 }
 
+/** Told to the other windows when this one writes, with this window's label. */
+export const EVENT_LOCAL_CHANGED = 'tasks://local-changed';
+
+/** A write. The pins and the main window each keep their own copy of the tasks, and
+ *  `tasks://changed` only fires after a sync, so a write tells the others itself. */
+async function write<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+	const out = await call<T>(cmd, args);
+	emit(EVENT_LOCAL_CHANGED, getCurrentWindow().label).catch(() => { /* the others catch up on the next sync */ });
+	return out;
+}
+
 const done = () => undefined;
 
 export const tauriTasksClient: TasksClient = {
 	projects: {
 		list: () => call('tasks_projects_list'),
-		create: (data) => call('tasks_projects_create', { data }),
-		update: (id, data) => call('tasks_projects_update', { id, data }),
-		delete: (id) => call('tasks_projects_delete', { id }).then(done),
-		reorder: (ids) => call('tasks_projects_reorder', { ids }),
+		create: (data) => write('tasks_projects_create', { data }),
+		update: (id, data) => write('tasks_projects_update', { id, data }),
+		delete: (id) => write('tasks_projects_delete', { id }).then(done),
+		reorder: (ids) => write('tasks_projects_reorder', { ids }),
 	},
 	categories: {
 		list: (projectId) => call('tasks_categories_list', { project: projectId ?? null }),
-		create: (data) => call('tasks_categories_create', { data }),
-		update: (id, data) => call('tasks_categories_update', { id, data }),
-		delete: (id) => call('tasks_categories_delete', { id }).then(done),
+		create: (data) => write('tasks_categories_create', { data }),
+		update: (id, data) => write('tasks_categories_update', { id, data }),
+		delete: (id) => write('tasks_categories_delete', { id }).then(done),
 	},
 	filters: {
 		list: () => call('tasks_filters_list'),
-		create: (data) => call('tasks_filters_create', { data }),
-		update: (id, data) => call('tasks_filters_update', { id, data }),
-		delete: (id) => call('tasks_filters_delete', { id }).then(done),
+		create: (data) => write('tasks_filters_create', { data }),
+		update: (id, data) => write('tasks_filters_update', { id, data }),
+		delete: (id) => write('tasks_filters_delete', { id }).then(done),
 	},
 	list: (opts = {}) =>
 		call('tasks_list', {
@@ -72,7 +85,8 @@ export const tauriTasksClient: TasksClient = {
 		}),
 	get: (id) => call('tasks_get', { id }),
 	completions: (since) => call('tasks_completions', { since }),
-	create: (data) => call('tasks_create', { data }),
-	update: (id, patch) => call('tasks_update', { id, patch }),
-	delete: (id) => call('tasks_delete', { id }).then(done),
+	create: (data) => write('tasks_create', { data }),
+	update: (id, patch) => write('tasks_update', { id, patch }),
+	delete: (id) => write('tasks_delete', { id }).then(done),
+	reorder: (ids) => write('tasks_reorder', { ids }),
 };

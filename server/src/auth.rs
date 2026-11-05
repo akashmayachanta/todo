@@ -166,6 +166,17 @@ impl Accounts {
         Ok(User { id: conn.last_insert_rowid(), username: username.to_string(), created_at, disabled_at: None })
     }
 
+    /// Replaces a forgotten password. Devices already signed in stay signed in.
+    pub fn set_password(&self, username: &str, password: &str) -> Result<(), ApiError> {
+        check_password(password)?;
+        let hash = hash_password(password)?;
+        let changed = self.lock().execute("UPDATE users SET password_hash = ?1 WHERE username = ?2", params![hash, username.trim()])?;
+        if changed == 0 {
+            return Err(no_user(username));
+        }
+        Ok(())
+    }
+
     pub fn list_users(&self) -> Result<Vec<User>, ApiError> {
         let conn = self.lock();
         let mut stmt = conn.prepare("SELECT id, username, created_at, disabled_at FROM users ORDER BY id")?;
@@ -277,6 +288,10 @@ impl Accounts {
     }
 }
 
+fn no_user(username: &str) -> ApiError {
+    ApiError::new(StatusCode::NOT_FOUND, format!("No user '{}'", username.trim()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -324,6 +339,21 @@ mod tests {
         assert!(a.add_user("ONE", "password1").is_err());
         assert!(a.add_user("three", "short").is_err());
         assert_eq!(a.add_user("two", "password1").unwrap().id, 2);
+    }
+
+    #[test]
+    fn resetting_a_password_replaces_it_and_keeps_devices_signed_in() {
+        let (_dir, a) = accounts();
+        let (user, _, token) = a.register("akash", "old password", "PC").unwrap();
+
+        assert!(a.set_password("akash", "short").is_err());
+        assert!(a.set_password("nobody", "new password").is_err());
+        assert!(a.login("akash", "old password", "PC").is_ok());
+
+        a.set_password("AKASH", "new password").unwrap();
+        assert!(a.login("akash", "old password", "PC").is_err());
+        assert!(a.login("akash", "new password", "PC").is_ok());
+        assert_eq!(a.check(&token).unwrap().unwrap().user_id, user.id);
     }
 
     /// A throwaway folder, removed afterwards.

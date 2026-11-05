@@ -23,7 +23,7 @@ the server keeps them in step across devices.
 
 - **Server.** It keeps `accounts.db` (users and device tokens) and one SQLite DB
   per user, `user_<id>.db`, in `TASKS_DATA_DIR`. It listens on `TASKS_PORT`
-  (8091) under `TASKS_API_BASE_PATH` (`/tasks-api`). Put it behind ngrok, or any
+  (8050) under `TASKS_API_BASE_PATH` (`/tasks-api`). Put it behind ngrok, or any
   HTTPS proxy, to reach it from your phone.
 - **Apps.** Each device has its own `tasks.db`. The UI calls Tauri commands that
   run the same `tasks-core` rules locally. A background loop syncs with the
@@ -39,8 +39,9 @@ the server keeps them in step across devices.
   Manager, or the app's private storage on Android. Passwords are stored as
   Argon2id hashes; tokens as SHA-256 hashes.
 - `TASKS_ALLOW_SIGNUP=false` closes registration once your accounts exist.
-  Registering is the only way to make an account, and there's no way yet to
-  reset a forgotten password.
+  Registering is the only way to make an account.
+- A forgotten password is reset on the server PC, with **Reset a password…** on
+  the [tray icon](#server). There's no way to do it over the network.
 - `GET /auth/devices` lists a user's devices, and
   `POST /auth/devices/<id>/revoke` signs one out.
 
@@ -129,6 +130,10 @@ icon to see this PC's IP and the port. Right-click it for:
 - **Start with Windows** starts it at sign-in. It's a per-user setting, so it
   needs no admin rights, and it remembers the exe's current path: turn it on
   again if you move the exe.
+- **Reset a password…** opens a small window that lists the usernames and asks
+  for a username and a new password. Devices already signed in stay signed in.
+  `tasks-server.exe reset-password` opens the same window, even when the server
+  isn't running.
 - **Exit** stops the server.
 
 It works in the exe's folder, or in the repo root when the exe is in
@@ -142,7 +147,7 @@ exe. `TASKS_ENV_FILE` names a different file. See `.env.example`:
 | Key | Default | Use |
 |---|---|---|
 | `TASKS_HOST` | `0.0.0.0` | Address |
-| `TASKS_PORT` | 8091 | Port |
+| `TASKS_PORT` | 8050 | Port |
 | `TASKS_API_BASE_PATH` | `/tasks-api` | Route prefix; empty for the root |
 | `TASKS_DATA_DIR` | `data` | accounts.db and the user DBs |
 | `TASKS_ALLOW_SIGNUP` | `true` | Whether the app's Register works |
@@ -150,7 +155,7 @@ exe. `TASKS_ENV_FILE` names a different file. See `.env.example`:
 The log is `tasks-server.log` in the data folder and starts over once it passes
 5 MB. `RUST_LOG=debug` gives more logging.
 
-To reach it from a phone, expose it over HTTPS, e.g. `ngrok http 8091`, and
+To reach it from a phone, expose it over HTTPS, e.g. `ngrok http 8050`, and
 use the ngrok address as the server address in the app.
 
 ### Moving existing tasks DBs in
@@ -177,7 +182,7 @@ Every route is under `TASKS_API_BASE_PATH`. Errors come back as
 - `/sync/push`, `/sync/pull`, `/health`
 
 ```bash
-B=http://localhost:8091/tasks-api
+B=http://localhost:8050/tasks-api
 T=$(curl -s -X POST $B/auth/register -H "Content-Type: application/json" \
      -d '{"username":"me","password":"a long password","device_name":"curl"}' | jq -r .token)
 curl -H "Authorization: Bearer $T" $B/projects

@@ -48,7 +48,7 @@ impl Config {
 
         Config {
             host: var("TASKS_HOST", "0.0.0.0"),
-            port: var("TASKS_PORT", "8091").parse().unwrap_or(8091),
+            port: var("TASKS_PORT", "8050").parse().unwrap_or(8050),
             base_path,
             data_dir,
             allow_signup: !matches!(var("TASKS_ALLOW_SIGNUP", "true").to_ascii_lowercase().as_str(), "false" | "0" | "no" | "off"),

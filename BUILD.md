@@ -27,19 +27,19 @@ The README explains how the app works. This file is just the steps.
 cd C:\Drive\Vault\todo
 cargo build --release -p tasks-server
 copy .env.example .env                 # edit if needed; the defaults work
-.\target\release\tasks-server.exe      # or double-click it; starts in the tray on 0.0.0.0:8091/tasks-api
+.\target\release\tasks-server.exe      # or double-click it; starts in the tray on 0.0.0.0:8050/tasks-api
 ```
 
 Check it:
 
 ```powershell
-curl http://localhost:8091/tasks-api/health
+curl http://localhost:8050/tasks-api/health
 ```
 
 The phone needs HTTPS to reach the server, so run a tunnel too:
 
 ```powershell
-ngrok http 8091                        # note the https://xxxx.ngrok.app address
+ngrok http 8050                        # note the https://xxxx.ngrok.app address
 ```
 
 Use **Exit** on the tray icon before rebuilding, or Windows won't let the build replace the exe.
@@ -77,7 +77,7 @@ The MSI is skipped because WiX is slow and MSI installs usually need admin. Run 
 ### Test on Windows
 
 - [ ] Install with the NSIS setup.exe and open **Tasks**.
-- [ ] Enter the server address `http://localhost:8091`, then **Register** a user (password of 8+ characters).
+- [ ] Enter the server address `http://localhost:8050`, then **Register** a user (password of 8+ characters).
 - [ ] "Getting your tasks…" finishes, and the sync chip shows *synced*.
 - [ ] Add a task, then edit it and complete it. The chip goes to *syncing*, then back to *synced*.
 - [ ] Close the window. It hides to the tray. Tray → Open brings it back.

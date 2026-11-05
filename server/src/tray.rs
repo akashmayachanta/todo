@@ -1,18 +1,22 @@
 //! The Windows program: the server as an icon in the notification area, with no
 //! console window. Hover over it for the address to reach it on, and right-click
-//! it for "Start with Windows" and "Exit".
+//! it for "Start with Windows", "Reset a password…" and "Exit".
 //!
 //! The log goes to tasks-server.log in the data folder.
 
 use std::fs::{self, OpenOptions};
+use std::io;
 use std::net::{IpAddr, UdpSocket};
-use std::path::Path;
+use std::os::windows::io::IntoRawHandle;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::Mutex;
 use std::time::Duration;
 
 use tokio::sync::oneshot;
 use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIconBuilder, TrayIconEvent};
+use windows_sys::Win32::System::Console::{AllocConsole, SetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     DispatchMessageW, GetMessageW, GetSystemMetrics, MessageBoxW, TranslateMessage, MB_ICONERROR, MB_OK, MSG, SM_CXSMICON,
 };
@@ -33,14 +37,54 @@ pub fn main() {
     }
 }
 
-fn run() -> Result<(), String> {
+/// `tasks-server reset-password`: the password reset, in a console window of its
+/// own, since this program doesn't have one.
+pub fn reset_password_window() -> ! {
+    if let Err(message) = enter_app_root().and_then(|_| open_console()) {
+        message_box(&message);
+        std::process::exit(1);
+    }
+    std::process::exit(crate::reset_password(&Config::load()));
+}
+
+/// Moves to the folder to work in and returns this program's path. Windows
+/// starts this from an unrelated folder (at sign-in) or from target\release (a
+/// double-click). Without this it would miss the .env and quietly start on a
+/// new, empty data folder.
+fn enter_app_root() -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| format!("Could not find this program's path: {e}"))?;
-    // Windows starts this from an unrelated folder (at sign-in) or from
-    // target\release (a double-click). Without this it would miss the .env and
-    // quietly start on a new, empty data folder.
     if let Some(root) = app_root(&exe) {
         let _ = std::env::set_current_dir(root);
     }
+    Ok(exe)
+}
+
+/// Opens a console window and points standard input and output at it. They're
+/// set by hand because a process started from the tray is given empty standard
+/// handles, and AllocConsole may leave those in place.
+fn open_console() -> Result<(), String> {
+    if unsafe { AllocConsole() } == 0 {
+        return Err(format!("Could not open a console window: {}", io::Error::last_os_error()));
+    }
+    let open = |name: &str| {
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(name)
+            .map(IntoRawHandle::into_raw_handle)
+            .map_err(|e| format!("Could not open a console window: {e}"))
+    };
+    let (input, output) = (open("CONIN$")?, open("CONOUT$")?);
+    unsafe {
+        SetStdHandle(STD_INPUT_HANDLE, input);
+        SetStdHandle(STD_OUTPUT_HANDLE, output);
+        SetStdHandle(STD_ERROR_HANDLE, output);
+    }
+    Ok(())
+}
+
+fn run() -> Result<(), String> {
+    let exe = enter_app_root()?;
     let config = Config::load();
     init_logging(&config);
     let (host, port) = (config.host.clone(), config.port);
@@ -61,9 +105,10 @@ fn run() -> Result<(), String> {
 
     let startup_command = format!("\"{}\"", exe.display());
     let startup_item = CheckMenuItem::new("Start with Windows", true, startup::is_enabled(&startup_command), None);
+    let reset_item = MenuItem::new("Reset a password…", true, None);
     let exit_item = MenuItem::new("Exit", true, None);
     let menu = Menu::new();
-    menu.append_items(&[&startup_item, &PredefinedMenuItem::separator(), &exit_item])
+    menu.append_items(&[&startup_item, &reset_item, &PredefinedMenuItem::separator(), &exit_item])
         .map_err(|e| format!("Could not build the tray menu: {e}"))?;
 
     // The small icon size follows the display scale.
@@ -97,6 +142,12 @@ fn run() -> Result<(), String> {
                     message_box(&format!("Could not change the startup setting: {e}"));
                 }
                 startup_item.set_checked(startup::is_enabled(&startup_command));
+            }
+            if event.id() == reset_item.id() {
+                // A separate process, so this message loop keeps running and the window closes on its own.
+                if let Err(e) = Command::new(&exe).arg(crate::RESET_PASSWORD_ARG).spawn() {
+                    message_box(&format!("Could not open the password reset: {e}"));
+                }
             }
         }
         // The IP can change while this runs, and at sign-in the network may not be up yet.

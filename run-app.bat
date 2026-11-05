@@ -5,7 +5,7 @@ rem
 rem   run-app.bat            the app only
 rem   run-app.bat --server   also starts tasks-server in the tray; its own
 rem                          window just shows the build. Use Exit on the icon
-rem                          to stop it. (http://localhost:8091, data in .\data)
+rem                          to stop it. (http://localhost:8050, data in .\data)
 setlocal
 
 if /i "%~1"=="--server" (

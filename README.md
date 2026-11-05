@@ -15,7 +15,7 @@ the server keeps them in step across devices.
 └── app/                 Tauri 2 app (Windows .exe/.msi, Android .apk)
     ├── src/             SvelteKit: the Tasks UI (lib/, routes/tasks) and the shell
     │                    (app/: setup, first sync, sync chip, Tauri TasksClient)
-    ├── icons-src/       the icons' sources (green for Windows, black for Android);
+    ├── icons-src/       the icons' sources (green on both Windows and Android);
     │                    `npm run icons` makes every size from them
     └── src-tauri/       Rust: local tasks.db, commands, sync loop, reminders, tray
 ```

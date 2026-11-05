@@ -297,13 +297,14 @@ function hasDay(c: chrono.ParsedComponents): boolean {
 }
 
 /**
- * Reads a quick-add line. `#Project` and `/Category` pick where the task goes
- * (names may have spaces; the longest match wins), `p1`–`p4` the priority,
+ * Reads a quick-add line. `#Name` picks a project or a category and `/Category` a
+ * category, for where the task goes (names may have spaces; the longest match
+ * wins, and a project wins a tie), `p1`–`p4` the priority,
  * `every …` a recurrence, `!5pm` or `!tomorrow 9am` a reminder at that time,
  * `!30m` / `!1h` / `!1d` a reminder that long before the due time (or from now
  * when there is no due date), and any other date phrase chrono understands the
- * due date and time. `contextProjectId` is where a `/Category` is looked for
- * first when no `#Project` is given. `contextDate` is the day a time alone
+ * due date and time. `contextProjectId` is where a category is looked for
+ * first when no project is named. `contextDate` is the day a time alone
  * ("5pm") falls on, e.g. the Upcoming group or calendar day being added to;
  * without one a time alone is today (or tomorrow once it has passed).
  */
@@ -325,33 +326,43 @@ export function parseQuickAdd(
 	const add = (kind: TokenKind, start: number, end: number, unknown = false) =>
 		tokens.push({ kind, start, end, text: text.slice(start, end), ...(unknown ? { unknown } : {}) });
 
-	// #Project, then /Category within it.
-	let unknownCategory: { start: number; end: number } | null = null;
-	for (const m of text.matchAll(/(^|\s)([#/])(?=\S)/g)) {
+	// Projects first, then categories, so the order of the tokens doesn't matter.
+	const places: { at: number; rest: string; hash: boolean; project: TaskProject | null }[] = [];
+	for (const m of text.matchAll(/(^|\s)#(?=\S)/g)) {
 		const at = m.index! + m[1].length;
 		const rest = text.slice(at + 1);
-		if (m[2] === '#') {
-			const project = longestName(rest, projects);
-			if (project && out.project_id === null) {
-				out.project_id = project.id;
-				add('project', at, at + 1 + project.name.length);
-			} else if (!project) {
-				add('project', at, at + 1 + rest.split(/\s/)[0].length, true);
-			}
+		const project = longestName(rest, projects);
+		const category = longestName(rest, categories);
+		// #Name is whichever name is longer; a project wins a tie.
+		if (!project || (category && category.name.length > project.name.length)) {
+			places.push({ at, rest, hash: true, project });
+		} else if (out.project_id === null) {
+			out.project_id = project.id;
+			add('project', at, at + 1 + project.name.length);
 		}
 	}
 	for (const m of text.matchAll(/(^|\s)\/(?=\p{L})/gu)) {
 		const at = m.index! + m[1].length;
-		const rest = text.slice(at + 1);
+		places.push({ at, rest: text.slice(at + 1), hash: false, project: null });
+	}
+	places.sort((a, b) => a.at - b.at);
+
+	let unknownCategory: { start: number; end: number } | null = null;
+	for (const { at, rest, hash, project } of places) {
+		// In the named or current project first; everywhere only when no project is named.
 		const inProject = out.project_id ?? contextProjectId;
 		const pool = inProject !== null ? categories.filter((c) => c.project_id === inProject) : categories;
 		const category = longestName(rest, pool) ?? (out.project_id === null ? longestName(rest, categories) : null);
-		if (category && out.category_id === null) {
+		const end = at + 1 + rest.split(/\s/)[0].length;
+		if (category) {
+			if (out.category_id !== null) continue;
 			out.category_id = category.id;
 			out.project_id ??= category.project_id;
 			add('category', at, at + 1 + category.name.length);
-		} else if (!category && !unknownCategory) {
-			unknownCategory = { start: at, end: at + 1 + rest.split(/\s/)[0].length };
+		} else if (hash) {
+			if (!project) add('project', at, end, true);
+		} else if (!unknownCategory) {
+			unknownCategory = { start: at, end };
 		}
 	}
 	if (unknownCategory) add('category', unknownCategory.start, unknownCategory.end, true);
@@ -534,6 +545,16 @@ export function dayLabel(date: string, now = new Date()): string {
 	if (diff > 1 && diff < 7) return d.toLocaleDateString(undefined, { weekday: 'short' });
 	const sameYear = d.getFullYear() === now.getFullYear();
 	return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) });
+}
+
+/** "Thu 5 Nov", in the order the user's locale writes it. */
+export function shortDate(date: string): string {
+	return fromYmd(date).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }).replace(/,/g, '');
+}
+
+/** A section heading for today: "Today · Thu 5 Nov". */
+export function todayHeading(today: string): string {
+	return `Today · ${shortDate(today)}`;
 }
 
 /** The due label of a task, with its time, and whether it is overdue; null when it has no date. */

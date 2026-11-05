@@ -7,7 +7,7 @@
 	/**
 	 * The smart task line, shared by the quick add and the task drawer: the parts the
 	 * parent read as date, priority, place, recurrence or reminder (`tokens`) are tinted
-	 * in a mirror behind the input, and `#` / `/` offer the projects and categories.
+	 * in a mirror behind the input, `#` offers the projects and categories, and `/` the categories.
 	 * Enter calls `onenter`, Esc `onescape` (when given), unless a suggestion list is open.
 	 */
 	let {
@@ -74,19 +74,46 @@
 		const query = m[3].toLowerCase();
 		const start = before.length - m[3].length - 1;
 		if (m[2] === '#') {
-			const items = projects
-				.filter((p) => p.name.toLowerCase().includes(query))
-				.map((p) => ({ id: p.id, label: p.name, insert: p.name, color: projectColor(p.color) }));
+			const items = [
+				...projects
+					.filter((p) => p.name.toLowerCase().includes(query))
+					.map((p) => ({ id: p.id, label: p.name, insert: `#${p.name}`, color: projectColor(p.color) })),
+				...hashCategories(query, start),
+			];
 			return items.length ? { start, trigger: '#', items: items.slice(0, 8) } : null;
 		}
 		const items = categories
 			.filter((c) => (scopeProjectId === null || c.project_id === scopeProjectId) && c.name.toLowerCase().includes(query))
 			.map((c) => {
 				const p = projects.find((x) => x.id === c.project_id);
-				return { id: c.id, label: scopeProjectId === null && p ? `${p.name} / ${c.name}` : c.name, insert: c.name, color: projectColor(p?.color) };
+				return { id: c.id, label: scopeProjectId === null && p ? `${p.name} / ${c.name}` : c.name, insert: `/${c.name}`, color: projectColor(p?.color) };
 			});
 		return items.length ? { start, trigger: '/', items: items.slice(0, 8) } : null;
 	});
+
+	/**
+	 * The categories `#` offers, the current project's first, each with text that the
+	 * parser reads back as that category: `#Backend`, `#Work /Backend` when another
+	 * project or category has its name, or `/Backend` when the line already names a project.
+	 */
+	function hashCategories(query: string, start: number) {
+		const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+		const named = tokens.some((t) => t.kind === 'project' && !t.unknown && t.start !== start);
+		const inScope = (c: TaskCategory) => c.project_id === scopeProjectId;
+		return categories
+			.filter((c) => c.name.toLowerCase().includes(query) && (!named || inScope(c)))
+			.sort((a, b) => Number(inScope(b)) - Number(inScope(a)))
+			.map((c) => {
+				const p = projects.find((x) => x.id === c.project_id);
+				const clash = categories.filter((x) => same(x.name, c.name)).length > 1 || projects.some((x) => same(x.name, c.name));
+				return {
+					id: c.id,
+					label: p ? `${p.name} / ${c.name}` : c.name,
+					insert: named ? `/${c.name}` : clash && p ? `#${p.name} /${c.name}` : `#${c.name}`,
+					color: projectColor(p?.color),
+				};
+			});
+	}
 
 	$effect(() => {
 		// Keep the highlighted item in range as the list narrows.
@@ -107,7 +134,7 @@
 	function pickSuggestion(i: number) {
 		if (!suggest || !input) return;
 		const item = suggest.items[i];
-		const insert = `${suggest.trigger}${item.insert} `;
+		const insert = `${item.insert} `;
 		const after = value.slice(caret).replace(/^\S*/, '').replace(/^\s/, '');
 		value = value.slice(0, suggest.start) + insert + after;
 		const pos = suggest.start + insert.length;
@@ -151,7 +178,7 @@
 	/>
 
 	{#if suggest}
-		<div class="quick-add-suggest" role="listbox" aria-label={suggest.trigger === '#' ? 'Projects' : 'Categories'}>
+		<div class="quick-add-suggest" role="listbox" aria-label={suggest.trigger === '#' ? 'Projects and categories' : 'Categories'}>
 			{#each suggest.items as item, i (item.id)}
 				<!-- Focus stays in the input; options take pointer input only. -->
 				<!-- svelte-ignore a11y_click_events_have_key_events -->

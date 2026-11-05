@@ -4,6 +4,7 @@
 //!
 //! - A task with no project is in the Inbox.
 //! - A subtask is one level deep and shares its parent's project and category.
+//!   Its title shows at most 255 characters; a task's stored title at most 500.
 //! - A time needs a date; clearing the date clears the time.
 //! - Moving a category moves its tasks; moving a task moves its subtasks.
 //! - Completing a task completes its open subtasks (they aren't logged).
@@ -273,18 +274,23 @@ pub fn create_category(conn: &Connection, ctx: &Ctx, input: CategoryIn) -> Resul
     get_category(conn, &id)
 }
 
-/// A category moves with its tasks.
+/// A category moves with its tasks and their subtasks, and goes last in the
+/// new project unless a position is given.
 pub fn update_category(conn: &Connection, ctx: &Ctx, id: &str, input: CategoryIn) -> Result<Category> {
     let item = get_category(conn, id)?;
     check_title("name", &input.name)?;
+    let mut position = input.position.flatten();
     if input.project_id != item.project_id {
         get_project(conn, &input.project_id)?;
         for task in live_ids(conn, "tasks", "category_id = ?1", &[&id])? {
             set_columns(conn, ctx, "tasks", &task, vec![("project_id", SqlValue::Text(input.project_id.clone()))])?;
         }
+        if position.unwrap_or(0) == 0 {
+            position = Some(next_position(conn, "task_categories", "project_id = ?1", &[&input.project_id])?);
+        }
     }
     let mut changes = vec![("project_id", SqlValue::Text(input.project_id)), ("name", SqlValue::Text(input.name))];
-    if let Some(Some(position)) = input.position {
+    if let Some(position) = position {
         changes.push(("position", SqlValue::Integer(position)));
     }
     set_columns(conn, ctx, "task_categories", id, changes)?;
@@ -478,6 +484,9 @@ pub fn reminders_between(conn: &Connection, from: &str, to: &str) -> Result<Vec<
 
 pub fn create_task(conn: &Connection, ctx: &Ctx, input: TaskIn) -> Result<Task> {
     check_title("title", &input.title)?;
+    if input.parent_id.is_some() {
+        check_subtask_title(&input.title)?;
+    }
     let priority = input.priority.unwrap_or(4);
     check_priority(priority)?;
     if let Some(d) = &input.due_date {
@@ -570,6 +579,10 @@ pub fn update_task(conn: &Connection, ctx: &Ctx, id: &str, patch: TaskPatch) -> 
     }
     if let Some(Some(t)) = &p.title {
         check_title("title", t)?;
+        // Only a changed title: an older, longer subtask can still be saved as it is.
+        if item.parent_id.is_some() && *t != item.title {
+            check_subtask_title(t)?;
+        }
     }
     if matches!(p.priority, Some(None)) {
         p.priority = Some(Some(4));

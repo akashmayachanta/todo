@@ -58,7 +58,7 @@ list the build commands they need to run.
   last round worked; another device's edits can take up to 2 minutes to arrive.
 
 **Icons**
-- Windows is green (`icons-src/icon.svg`), Android is black (`icons-src/icon-android*`).
+- Both are green `#14532d`: Windows from `icons-src/icon.svg`, Android from `icons-src/icon-android*`.
   `npm run icons` regenerates both, and re-encodes `icon.icns` even when nothing changed.
 - Android builds use `scripts/android-icons.mjs` to copy the icons in.
 

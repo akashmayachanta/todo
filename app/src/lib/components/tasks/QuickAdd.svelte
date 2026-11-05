@@ -9,7 +9,7 @@
 	/**
 	 * One line that becomes a task: "Call bank tomorrow 5pm p1 #Home !30m". The parts read as
 	 * date, priority, place, recurrence or reminder are highlighted in the line and shown as
-	 * chips under it. `#` and `/` offer the projects and categories. Enter adds, Esc cancels.
+	 * chips under it. `#` offers the projects and categories, `/` the categories. Enter adds, Esc cancels.
 	 */
 	let { projects, categories, defaults = {}, onadd, oncancel }: {
 		projects: TaskProject[];
@@ -78,7 +78,7 @@
 		{projects}
 		{categories}
 		{scopeProjectId}
-		placeholder="Task name, e.g. Call bank tomorrow 5pm p1 #Project /Category !30m"
+		placeholder="Task name, e.g. Call bank tomorrow 5pm p1 #Project or #Category !30m"
 		ariaLabel="New task"
 		onenter={submit}
 		onescape={oncancel}

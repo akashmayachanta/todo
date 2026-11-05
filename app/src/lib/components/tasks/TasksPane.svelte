@@ -5,6 +5,7 @@
 	import DropdownMenu from '$lib/components/DropdownMenu.svelte';
 	import { getPaneFooter, getPaneHeader } from '$lib/paneHeader';
 	import { formatDuration } from '$lib/taskParse';
+	import TodayIcon from './TodayIcon.svelte';
 	import { projectColor, type TaskSettings, type TaskView } from './shared';
 
 	/**
@@ -15,7 +16,7 @@
 	 * Move up / Move down in their menu. On phones it is the Browse tab.
 	 */
 	let {
-		projects, categories, filters, counts, minutes, view, projectId, filterId, settings, browsing = false,
+		projects, categories, filters, counts, minutes, view, projectId, filterId, settings, today, browsing = false,
 		onaddproject, oneditproject, ondeleteproject, onreorderprojects, onaddfilter, oneditfilter, ondeletefilter,
 	}: {
 		projects: TaskProject[];
@@ -31,6 +32,8 @@
 		projectId: string | null;
 		filterId: string | null;
 		settings: TaskSettings;
+		/** Today, `YYYY-MM-DD`, for the Today icon. */
+		today: string;
 		/** Phones: the pane is the Browse tab, shown in place of the list. */
 		browsing?: boolean;
 		onaddproject: () => void;
@@ -44,8 +47,8 @@
 
 	const VIEWS = [
 		{ key: 'inbox',    label: 'Inbox',    icon: 'M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4' },
-		{ key: 'today',    label: 'Today',    icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
-		{ key: 'upcoming', label: 'Upcoming', icon: 'M13 7l5 5m0 0l-5 5m5-5H6' },
+		{ key: 'today',    label: 'Today' }, // TodayIcon: a calendar tile with the day number
+		{ key: 'upcoming', label: 'Upcoming', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
 		{ key: 'karma',    label: 'Karma',    icon: 'M4 20h16M7 16v-4m5 4V8m5 8v-7' },
 	] as const;
 
@@ -149,7 +152,11 @@
 		<div class="tasks-pane-views">
 			{#each VIEWS as v}
 				<a href="?view={v.key}" class="tasks-pane-link" aria-current={view === v.key ? 'page' : undefined}>
-					<svg aria-hidden="true" class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d={v.icon} /></svg>
+					{#if v.key === 'today'}
+						<TodayIcon date={today} class="w-4 h-4 shrink-0" />
+					{:else}
+						<svg aria-hidden="true" class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d={v.icon} /></svg>
+					{/if}
 					<span class="tasks-pane-label">{v.label}</span>
 					{#if v.key !== 'karma' && count(counts[v.key])}<span class="tasks-pane-count">{count(counts[v.key])}</span>{/if}
 				</a>

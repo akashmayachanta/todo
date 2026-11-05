@@ -5,7 +5,7 @@
 	import { describeDue, formatDuration } from '$lib/taskParse';
 	import SmartTaskInput from './SmartTaskInput.svelte';
 	import { finishPatch, smartPatch, smartTitle, titleEdit } from './smartEdit';
-	import { placeName, projectColor } from './shared';
+	import { SUBTASK_MAX, placeName, projectColor, subtaskLimit } from './shared';
 
 	/**
 	 * A task edited where it stands (Alt+click, or the pencil): its title as a smart line
@@ -28,6 +28,7 @@
 	let root = $state<HTMLFormElement | null>(null);
 
 	let st = $derived(smartTitle(title, task, projects, categories));
+	let limit = $derived(task.parent_id ? subtaskLimit(st.smart.title, task.title) : null);
 	/** The task as it will be once saved. */
 	let next = $derived({ ...task, ...smartPatch(st.smart, task) });
 	let due = $derived(describeDue(next));
@@ -35,8 +36,8 @@
 
 	async function save() {
 		if (busy) return;
-		if (!st.smart.title && !Object.keys(smartPatch(st.smart, task)).length) {
-			// The title was emptied: there is nothing to save it as.
+		if (limit?.over || (!st.smart.title && !Object.keys(smartPatch(st.smart, task)).length)) {
+			// Too long for a subtask, or emptied: there is nothing to save it as.
 			field?.focus();
 			return;
 		}
@@ -140,12 +141,14 @@
 	</div>
 
 	<div class="task-inline-foot">
-		<span class="task-inline-hint">Enter to save · Esc to cancel</span>
+		<span class="task-inline-hint">
+			{#if limit?.shown}<span class="task-char-count" class:task-char-count-over={limit.over}>{limit.count}/{SUBTASK_MAX}</span> · {/if}Enter to save · Esc to cancel
+		</span>
 		<div class="task-inline-actions">
 			<button type="button" class="tasks-icon-btn" onclick={ondone} aria-label="Cancel" title="Cancel (Esc)">
 				<svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
 			</button>
-			<button type="submit" class="task-inline-save" disabled={busy} aria-label="Save" title="Save (Enter)">
+			<button type="submit" class="task-inline-save" disabled={busy || limit?.over} aria-label="Save" title="Save (Enter)">
 				<svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7" /></svg>
 			</button>
 		</div>

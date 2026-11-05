@@ -1,7 +1,7 @@
 import type {
 	Task, TaskCategory, TaskDueWindow, TaskFilterCriteria, TaskGroupBy, TaskPatch, TaskPriority, TaskProject, TaskRowField,
 } from '$lib/api';
-import { addDays } from '$lib/taskParse';
+import { addDays, todayHeading } from '$lib/taskParse';
 import { byDue, projectColor } from './shared';
 
 /**
@@ -182,7 +182,7 @@ function bucketSpecs(by: Exclude<TaskGroupBy, 'none'>, ctx: GroupCtx): Spec[] {
 			const tomorrow = addDays(ctx.today, 1);
 			return [
 				{ key: 'due:overdue', title: 'Overdue', overdue: true, drop: null, defaults: {} },
-				{ key: 'due:today', title: 'Today', drop: { due_date: ctx.today }, defaults: { due_date: ctx.today } },
+				{ key: 'due:today', title: todayHeading(ctx.today), drop: { due_date: ctx.today }, defaults: { due_date: ctx.today } },
 				{ key: 'due:tomorrow', title: 'Tomorrow', drop: { due_date: tomorrow }, defaults: { due_date: tomorrow } },
 				{ key: 'due:next_7', title: 'Next 7 days', drop: null, defaults: {} },
 				{ key: 'due:later', title: 'Later', drop: null, defaults: {} },

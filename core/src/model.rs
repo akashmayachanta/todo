@@ -253,6 +253,18 @@ pub(crate) fn check_title(field: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
+/// The most characters a subtask's title shows. Links count as their label, so
+/// a long address doesn't use up the limit (`check_title` still caps the stored
+/// text). Sync merges aren't checked, so an older, longer subtask stays intact.
+pub const SUBTASK_TITLE_MAX: usize = 255;
+
+pub(crate) fn check_subtask_title(value: &str) -> Result<()> {
+    if crate::plain_title(value).chars().count() > SUBTASK_TITLE_MAX {
+        return Err(invalid("title", &format!("A subtask can have at most {SUBTASK_TITLE_MAX} characters")));
+    }
+    Ok(())
+}
+
 pub(crate) fn check_priority(value: i64) -> Result<()> {
     if (1..=4).contains(&value) {
         Ok(())

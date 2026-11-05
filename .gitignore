@@ -10,3 +10,4 @@
 # The server's data (accounts.db, user_<id>.db) and settings
 /data
 .env
+*.lnk

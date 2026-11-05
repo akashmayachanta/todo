@@ -87,7 +87,8 @@
 			<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 			<div class="task-main" onclick={onMainClick} title={onedit ? 'Click to open · Alt+click to edit here' : undefined}>
 				<button type="button" class="task-open" aria-label="Open {name}"></button>
-				<span class="task-title"><LinkedText text={task.title} /></span>
+				<!-- A subtask stays on one line; the task itself shows its full title when opened. -->
+				<span class="task-title" class:task-title-one={!!task.parent_id} title={task.parent_id ? name : undefined}><LinkedText text={task.title} /></span>
 				{#if note}<span class="task-note"><LinkedText text={note} /></span>{/if}
 				{#if due || reminder || repeat || duration || subtaskCount || task.location || place}
 					<span class="task-meta">

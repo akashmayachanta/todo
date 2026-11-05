@@ -12,11 +12,12 @@
 	import { taskSettings } from '$lib/stores/taskSettings';
 	import { onTasksChanged } from '$lib/tasks/client';
 	import { plainText } from '$lib/links';
-	import { addDays, dayLabel, daysBetween, formatDuration, fromYmd, nextOccurrence, ymd } from '$lib/taskParse';
+	import { addDays, dayLabel, daysBetween, formatDuration, fromYmd, nextOccurrence, todayHeading, ymd } from '$lib/taskParse';
 	import DropdownMenu from '$lib/components/DropdownMenu.svelte';
 	import TasksPane from '$lib/components/tasks/TasksPane.svelte';
 	import QuickAdd from '$lib/components/tasks/QuickAdd.svelte';
 	import TaskRow from '$lib/components/tasks/TaskRow.svelte';
+	import TodayIcon from '$lib/components/tasks/TodayIcon.svelte';
 	import TaskDetail from '$lib/components/tasks/TaskDetail.svelte';
 	import TaskInlineEdit from '$lib/components/tasks/TaskInlineEdit.svelte';
 	import TaskCalendar from '$lib/components/tasks/TaskCalendar.svelte';
@@ -40,8 +41,8 @@
 	/** The phone tab bar. */
 	const TABS = [
 		{ key: 'inbox',    label: 'Inbox',    icon: 'M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4' },
-		{ key: 'today',    label: 'Today',    icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
-		{ key: 'upcoming', label: 'Upcoming', icon: 'M13 7l5 5m0 0l-5 5m5-5H6' },
+		{ key: 'today',    label: 'Today' }, // TodayIcon: a calendar tile with the day number
+		{ key: 'upcoming', label: 'Upcoming', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
 		{ key: 'karma',    label: 'Karma',    icon: 'M4 20h16M7 16v-4m5 4V8m5 8v-7' },
 		{ key: 'browse',   label: 'Browse',   icon: 'M4 6h16M4 12h16M4 18h10' },
 	] as const;
@@ -86,6 +87,8 @@
 	let newCategory = $state('');
 	let renamingCategory = $state<string | null>(null);
 	let categoryName = $state('');
+	/** The category being moved to another project. */
+	let movingCategory = $state<TaskCategory | null>(null);
 
 	// ── Where we are (kept in the URL) ─────────────────────────────────────────
 
@@ -199,14 +202,15 @@
 	);
 	let drawerParent = $derived(drawerTask?.parent_id ? tasks.find((t) => t.id === drawerTask!.parent_id) ?? null : null);
 
-	/** "3 Nov" over "Today · Tuesday", "Tomorrow · Wednesday" or "Friday". */
+	/** "Today · Thu 5 Nov", or "6 Nov" over "Tomorrow · Friday" or "Saturday". */
 	function dayHeading(date: string) {
+		const rel = daysBetween(today, date);
+		if (rel === 0) return { title: todayHeading(today), sub: '' };
 		const d = fromYmd(date);
 		const weekday = d.toLocaleDateString(undefined, { weekday: 'long' });
-		const rel = daysBetween(today, date);
 		return {
 			title: d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }),
-			sub: rel === 0 ? `Today · ${weekday}` : rel === 1 ? `Tomorrow · ${weekday}` : weekday,
+			sub: rel === 1 ? `Tomorrow · ${weekday}` : weekday,
 		};
 	}
 
@@ -318,7 +322,7 @@
 		if (view === 'today') {
 			const cols: Column[] = [];
 			if (overdue.length) cols.push({ key: 'overdue', title: 'Overdue', tasks: overdue, overdue: true, drop: null, add: null });
-			cols.push({ key: `date:${today}`, title: 'Today', tasks: todayTasks, drop: { due_date: today }, add: { key: 'main', defaults: { due_date: today } } });
+			cols.push({ key: `date:${today}`, title: todayHeading(today), tasks: todayTasks, drop: { due_date: today }, add: { key: 'main', defaults: { due_date: today } } });
 			return cols;
 		}
 		if (view === 'upcoming') {
@@ -720,10 +724,25 @@
 		}
 	}
 
+	/** Its tasks and their subtasks go with it. */
+	async function moveCategory(c: TaskCategory, target: TaskProject) {
+		movingCategory = null;
+		try {
+			await api.tasks.categories.update(c.id, { project_id: target.id, name: c.name });
+			categories = await api.tasks.categories.list();
+			await reloadTasks();
+			toast.success(`Moved "${c.name}" to ${target.name}`);
+		} catch (e) {
+			toast.error(errorDetail(e));
+		}
+	}
+
 	function onCategoryMenu(c: TaskCategory, id: string) {
 		if (id === 'rename') {
 			renamingCategory = c.id;
 			categoryName = c.name;
+		} else if (id === 'move') {
+			movingCategory = c;
 		} else {
 			deleteCategory(c);
 		}
@@ -766,6 +785,10 @@
 		node.focus();
 	}
 
+	function focusFirstButton(node: HTMLElement) {
+		node.querySelector('button')?.focus();
+	}
+
 	// ── Keys ───────────────────────────────────────────────────────────────────
 
 	function mainAddKey() {
@@ -778,10 +801,14 @@
 			projectDialog = null;
 			return;
 		}
+		if (e.key === 'Escape' && movingCategory) {
+			movingCategory = null;
+			return;
+		}
 		if (e.key !== 'q' || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
 		const el = e.target as HTMLElement | null;
 		if (el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName))) return;
-		if (projectDialog || filterDialog || taskId || view === 'karma') return;
+		if (projectDialog || filterDialog || movingCategory || taskId || view === 'karma') return;
 		e.preventDefault();
 		addingAt = mainAddKey();
 	}
@@ -906,7 +933,11 @@
 				class="task-category-menu"
 				triggerClass="tasks-icon-btn"
 				ariaLabel="Category actions for {c.name}"
-				items={[{ id: 'rename', label: 'Rename' }, { id: 'delete', label: 'Delete category', danger: true }]}
+				items={[
+					{ id: 'rename', label: 'Rename' },
+					...(projects.length > 1 ? [{ id: 'move', label: 'Move to project…' }] : []),
+					{ id: 'delete', label: 'Delete category', danger: true },
+				]}
 				onselect={(id) => onCategoryMenu(c, id)}
 			>
 				{#snippet icon()}
@@ -952,6 +983,7 @@
 		{projectId}
 		{filterId}
 		{settings}
+		{today}
 		{browsing}
 		onaddproject={newProject}
 		oneditproject={editProject}
@@ -1133,7 +1165,7 @@
 				{/if}
 				<section class="task-group">
 					{#if overdue.length}
-						<h2 class="task-group-head">Today <span class="task-group-count">{todayTasks.length}</span></h2>
+						<h2 class="task-group-head">{todayHeading(today)} <span class="task-group-count">{todayTasks.length}</span></h2>
 					{/if}
 					{#each todayTasks as task (task.id)}
 						{@render row(task, false, true)}
@@ -1149,7 +1181,7 @@
 					<section class="task-group">
 						<h2 class="task-group-head">
 							{head.title}
-							<span class="task-group-sub">{head.sub}</span>
+							{#if head.sub}<span class="task-group-sub">{head.sub}</span>{/if}
 							<span class="task-group-count">{day.tasks.length}</span>
 						</h2>
 						{#each day.tasks as task (task.id)}
@@ -1160,7 +1192,7 @@
 				{/each}
 				{#if !upcomingDays.some((d) => d.date === today)}
 					<section class="task-group">
-						<h2 class="task-group-head">Today</h2>
+						<h2 class="task-group-head">{todayHeading(today)}</h2>
 						{@render adder(`date:${today}`, { due_date: today })}
 					</section>
 				{/if}
@@ -1205,7 +1237,11 @@
 		{#each TABS as t (t.key)}
 			{@const here = t.key === 'browse' ? browsing || view === 'project' || view === 'filter' : !browsing && view === t.key}
 			<a href="?view={t.key}" class="tasks-tab" aria-current={here ? 'page' : undefined}>
-				<svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width={here ? 2.1 : 1.75} d={t.icon} /></svg>
+				{#if t.key === 'today'}
+					<TodayIcon date={today} strokeWidth={here ? 2.1 : 1.75} />
+				{:else}
+					<svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width={here ? 2.1 : 1.75} d={t.icon} /></svg>
+				{/if}
 				<span>{t.label}</span>
 			</a>
 		{/each}
@@ -1240,6 +1276,33 @@
 		onsave={saveFilter}
 		onclose={() => (filterDialog = null)}
 	/>
+{/if}
+
+{#if movingCategory}
+	{@const moving = movingCategory}
+	<div class="modal-backdrop" onclick={() => (movingCategory = null)} aria-hidden="true"></div>
+	<div class="modal-overlay">
+		<div class="modal-panel max-w-sm" role="dialog" aria-modal="true" aria-labelledby="move-category-title">
+			<div class="modal-header">
+				<h2 id="move-category-title" class="modal-title">Move "{moving.name}" to</h2>
+				<button onclick={() => (movingCategory = null)} class="modal-close" aria-label="Close">
+					<svg aria-hidden="true" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+				</button>
+			</div>
+			<div class="modal-body">
+				<ul class="category-move-list" use:focusFirstButton>
+					{#each projects.filter((p) => p.id !== moving.project_id) as p (p.id)}
+						<li>
+							<button type="button" class="category-move-option" onclick={() => moveCategory(moving, p)}>
+								<span class="tasks-dot" style="background-color: {projectColor(p.color)}"></span>
+								<span class="truncate">{p.name}</span>
+							</button>
+						</li>
+					{/each}
+				</ul>
+			</div>
+		</div>
+	</div>
 {/if}
 
 {#if projectDialog}

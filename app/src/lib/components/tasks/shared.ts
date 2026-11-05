@@ -1,4 +1,5 @@
 import type { Task, TaskCategory, TaskPriority, TaskProject } from '$lib/api';
+import { plainText } from '$lib/links';
 import { localInstant } from '$lib/taskParse';
 
 export type TaskView = 'inbox' | 'today' | 'upcoming' | 'karma' | 'project' | 'filter';
@@ -91,6 +92,18 @@ export function defaultReminder(due_date: string | null | undefined, due_time: s
 	if (!due_date || !due_time) return null;
 	const at = localInstant(due_date, due_time);
 	return new Date(at).getTime() > now.getTime() ? at : null;
+}
+
+/** The most characters a subtask's title shows (core's SUBTASK_TITLE_MAX). */
+export const SUBTASK_MAX = 255;
+
+/**
+ * Where a subtask title stands against the limit: links count as their label, as in
+ * core. `saved` is its current title: an older, longer one can stay until it is changed.
+ */
+export function subtaskLimit(title: string, saved?: string): { count: number; shown: boolean; over: boolean } {
+	const count = [...plainText(title)].length; // characters, as core counts them, not UTF-16 units
+	return { count, shown: count >= 200, over: count > SUBTASK_MAX && title !== saved };
 }
 
 /** Project colours; the key is what is stored in task_projects.color. */

@@ -1,5 +1,6 @@
 // `npm run icons`: makes every icon size. Windows from icons-src/icon.svg (green);
-// Android from icons-src/icon-android.json (black) into src-tauri/icons/android.
+// Android from icons-src/icon-android.json (also green, with a smaller check so it
+// fits the adaptive icon's mask) into src-tauri/icons/android.
 // `tauri icon` writes all platforms at once, so Android's go to a temp folder and
 // only that part is kept. Then copies them into the Android project, if there is one.
 import { execFileSync } from 'node:child_process';

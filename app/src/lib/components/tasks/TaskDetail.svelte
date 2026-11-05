@@ -5,13 +5,14 @@
 	import DropdownMenu from '$lib/components/DropdownMenu.svelte';
 	import Select from '$lib/components/Select.svelte';
 	import { askReminderPermission } from '$lib/stores/taskReminders';
+	import { toast } from '$lib/stores/toast';
 	import { linkParts, plainText } from '$lib/links';
 	import { firstOccurrence, formatDuration, normalizeRecurrence, parseQuickAdd, pastedLines, ymd, type QuickAdd } from '$lib/taskParse';
 	import LinkedText from './LinkedText.svelte';
 	import SmartTaskInput from './SmartTaskInput.svelte';
 	import SmartTips from './SmartTips.svelte';
 	import { dueAtOf, finishPatch, patchChips, smartPatch, smartTitle, titleEdit } from './smartEdit';
-	import { PRIORITY_OPTIONS, defaultReminder, projectColor } from './shared';
+	import { PRIORITY_OPTIONS, SUBTASK_MAX, defaultReminder, projectColor, subtaskLimit } from './shared';
 
 	/**
 	 * One task in a modal: the title, description and subtasks on the left, its fields in a
@@ -133,8 +134,13 @@
 	// ── Smart title ──────────────────────────────────────────────────────────
 	let st = $derived(smartTitle(title, task, projects, categories));
 	let titleChips = $derived(patchChips(smartPatch(st.smart, task), projects, categories));
+	let titleLimit = $derived(task.parent_id ? subtaskLimit(st.smart.title, task.title) : null);
+	/** The title box scrolls sideways, so a long subtask's title is also shown in full under it. */
+	let fullTitleShown = $derived(!!task.parent_id && plainText(task.title).length > 50);
 
 	function saveTitle() {
+		// Too long for a subtask: it stays in the box, with the counter, to be shortened.
+		if (titleLimit?.over) return;
 		const patch = titleEdit(st.smart, task);
 		if (!patch) {
 			title = task.title;
@@ -209,6 +215,7 @@
 	// ── Subtasks ─────────────────────────────────────────────────────────────
 	const parseSubtask = (line: string) => parseQuickAdd(line, [], [], new Date(), null, task.due_date);
 	let subParsed = $derived(parseSubtask(newSubtask));
+	let subLimit = $derived(subtaskLimit(subParsed.title));
 	let subtasksDone = $derived(subtasks.filter((s) => s.completed_at).length);
 
 	async function openSubtaskLine() {
@@ -231,19 +238,24 @@
 	}
 
 	async function addSubtask() {
-		if (!subParsed.title) return;
+		if (!subParsed.title || subLimit.over) return;
 		await createSubtask(subParsed);
 		newSubtask = '';
 	}
 
-	/** Several lines pasted into the sub-task line become one sub-task each, in order. */
+	/** Several lines pasted into the sub-task line become one sub-task each, in order; a line too long is left out. */
 	async function pasteSubtasks(e: ClipboardEvent) {
 		const lines = pastedLines(e.clipboardData?.getData('text') ?? '');
 		if (lines.length < 2) return;
 		e.preventDefault();
+		let tooLong = 0;
 		for (const line of lines) {
 			const p = parseSubtask(line.text);
-			if (p.title) await createSubtask(p, line.minutes);
+			if (subtaskLimit(p.title).over) tooLong++;
+			else if (p.title) await createSubtask(p, line.minutes);
+		}
+		if (tooLong) {
+			toast.error(`${tooLong === 1 ? '1 line was' : `${tooLong} lines were`} over ${SUBTASK_MAX} characters and not added`);
 		}
 	}
 
@@ -376,6 +388,14 @@
 							onenter={blurActive}
 							onblur={saveTitle}
 						/>
+						{#if titleLimit?.shown}
+							<p class="task-char-count task-modal-char-count" class:task-char-count-over={titleLimit.over}>
+								{titleLimit.count}/{SUBTASK_MAX}{#if titleLimit.over} · Too long to save{/if}
+							</p>
+						{/if}
+						{#if fullTitleShown}
+							<p class="task-modal-full-title"><LinkedText text={task.title} /></p>
+						{/if}
 						{#if titleChips.length}
 							<div class="task-modal-smart" aria-live="polite">
 								{#each titleChips as chip}
@@ -427,7 +447,7 @@
 								</button>
 								<!-- Links sit inside, as in TaskRow: the pointer clicks this, the keyboard the button over it. -->
 								<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-								<div class="task-modal-sub-title" onclick={() => onopen(sub)}>
+								<div class="task-modal-sub-title" title={subName} onclick={() => onopen(sub)}>
 									<button type="button" class="task-open" aria-label="Open {subName}"></button>
 									<LinkedText text={sub.title} />
 								</div>
@@ -450,8 +470,11 @@
 									onpaste={pasteSubtasks}
 								/>
 								<div class="task-modal-sub-actions">
+									{#if subLimit.shown}
+										<span class="task-char-count task-modal-sub-count" class:task-char-count-over={subLimit.over}>{subLimit.count}/{SUBTASK_MAX}</span>
+									{/if}
 									<button type="button" class="btn btn-ghost" onclick={closeSubtaskLine}>Cancel</button>
-									<button type="button" class="btn btn-primary" onclick={addSubtask} disabled={!subParsed.title}>Add sub-task</button>
+									<button type="button" class="btn btn-primary" onclick={addSubtask} disabled={!subParsed.title || subLimit.over}>Add sub-task</button>
 								</div>
 							</div>
 						{:else}

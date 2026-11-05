@@ -12,6 +12,7 @@ pub mod client;
 pub mod db;
 pub mod model;
 pub mod ops;
+pub mod recurrence;
 pub mod sync;
 pub mod time;
 

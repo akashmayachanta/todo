@@ -29,7 +29,7 @@ fn core_err(e: tasks_core::Error) -> String {
 }
 
 /// Runs f in one transaction on the local DB; a write wakes the sync loop.
-fn db<T>(st: &AppState, write: bool, f: impl FnOnce(&Connection, &Ctx) -> tasks_core::Result<T>) -> Res<T> {
+pub(crate) fn db<T>(st: &AppState, write: bool, f: impl FnOnce(&Connection, &Ctx) -> tasks_core::Result<T>) -> Res<T> {
     let out = {
         let conn = lock(&st.db);
         let tx = conn.unchecked_transaction().map_err(|e| core_err(e.into()))?;

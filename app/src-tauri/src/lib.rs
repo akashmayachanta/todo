@@ -122,7 +122,12 @@ pub fn run() {
     #[cfg(desktop)]
     {
         builder = builder
-            .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))
+            .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+                // A toast's button starts a second copy, which lands here with the action.
+                if !reminders::handle_toast_action(app, &args) {
+                    show_main(app);
+                }
+            }))
             .plugin(tauri_plugin_autostart::init(
                 tauri_plugin_autostart::MacosLauncher::LaunchAgent,
                 Some(vec!["--minimized"]),
@@ -135,7 +140,9 @@ pub fn run() {
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             let st = Arc::new(AppState::open(&dir).map_err(|e| format!("Can't open the tasks DB in {}: {e}", dir.display()))?);
-            st.minimized.store(std::env::args().any(|a| a == "--minimized"), Ordering::Relaxed);
+            let args: Vec<String> = std::env::args().collect();
+            let hidden = args.iter().any(|a| a == "--minimized") || reminders::is_background_action(&args);
+            st.minimized.store(hidden, Ordering::Relaxed);
             app.manage(st.clone());
 
             #[cfg(desktop)]
@@ -173,6 +180,13 @@ pub fn run() {
             if let Err(e) = reminders::write_start_menu_shortcut(app.handle()) {
                 eprintln!("Can't write the Start Menu shortcut: {e}");
             }
+            #[cfg(windows)]
+            if let Err(e) = reminders::register_toast_protocol() {
+                eprintln!("Can't register the notification buttons: {e}");
+            }
+            // The app was closed and a toast's button started it.
+            #[cfg(desktop)]
+            reminders::handle_toast_action(app.handle(), &args);
 
             tauri::async_runtime::spawn(syncer::run(app.handle().clone(), st.clone()));
             tauri::async_runtime::spawn(reminders::run(app.handle().clone(), st));

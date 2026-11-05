@@ -177,7 +177,8 @@ function step(r: Rule, date: string): string {
 /**
  * The next due date of a recurring task after `due_date`, rolled on past today
  * so finishing an overdue "every day" doesn't leave it overdue. Null when the
- * recurrence isn't understood.
+ * recurrence isn't understood. core/src/recurrence.rs is the same rule for the
+ * notification's Complete button, so change the two together.
  */
 export function nextOccurrence(recurrence: string, due_date: string | null, now = new Date()): string | null {
 	const r = rule(recurrence);

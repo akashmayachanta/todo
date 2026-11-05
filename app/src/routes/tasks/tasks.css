@@ -55,7 +55,8 @@
 .tasks-head-actions {
   display: flex;
   align-items: center;
-  gap: var(--space-2xs);
+  gap: var(--space-xs);
+  padding-top: 0.25rem;
 }
 
 .tasks-empty {
@@ -98,78 +99,32 @@
 .tasks-pane {
   display: flex;
   flex-direction: column;
-  width: 13.5rem;
+  width: 16rem;
   flex-shrink: 0;
   min-height: 0;
-  padding: var(--space-md) var(--space-xs) var(--space-xs);
+  padding: var(--space-sm) var(--space-xs) var(--space-xs);
   border-right: var(--rule-hair) solid var(--clr-border);
+  background-color: var(--bg-surface);
 }
 
-/* The lists scroll; Settings stays at the foot of the pane. */
+/* The account (photo, name, menu) and the Settings gear, then the lists, which scroll. */
+.tasks-pane-top {
+  flex-shrink: 0;
+  margin: 0 0 var(--space-sm);
+}
+
 .tasks-pane-lists {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
 }
 
+/* Sync status, server and version, pinned to the bottom. */
 .tasks-pane-foot {
   flex-shrink: 0;
   margin-top: var(--space-xs);
-  padding-top: var(--space-xs);
+  padding-top: var(--space-2xs);
   border-top: var(--rule-hair) solid var(--clr-border);
-}
-
-.tasks-pane-settings {
-  width: 100%;
-  text-align: left;
-}
-
-.tasks-pane-settings-chevron {
-  color: var(--text-faint);
-  transition: transform var(--dur-micro) var(--ease-out);
-}
-
-.tasks-pane-settings[aria-expanded="false"] .tasks-pane-settings-chevron {
-  transform: rotate(180deg);
-}
-
-.tasks-settings {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2xs);
-  padding: var(--space-2xs) var(--space-xs) var(--space-xs);
-}
-
-.tasks-setting {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-xs);
-  font-size: 0.8125rem;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.tasks-setting input {
-  flex-shrink: 0;
-  margin-top: 0.1875rem;
-  accent-color: var(--color-brand);
-}
-
-.tasks-setting-sub {
-  padding-left: 1.25rem;
-}
-
-.tasks-setting:has(input:disabled) {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.tasks-setting-field {
-  margin-top: var(--space-xs);
-  font-family: var(--font-prose);
-  font-size: var(--text-label);
-  font-weight: 500;
-  color: var(--text-muted);
 }
 
 .tasks-pane-link {
@@ -269,29 +224,6 @@
 
 .tasks-pane-project:hover .tasks-pane-count {
   visibility: hidden;
-}
-
-/* "Add task" leads the pane, in the brand colour, with its shortcut. */
-.tasks-pane-add {
-  width: 100%;
-  margin-bottom: var(--space-2xs);
-  text-align: left;
-  font-weight: 500;
-  color: var(--color-brand);
-}
-
-.tasks-pane-add:hover {
-  color: var(--color-brand);
-}
-
-.tasks-pane-kbd {
-  font-family: var(--font-outlier);
-  font-size: var(--text-xs);
-  font-weight: 400;
-  padding: 0 0.25rem;
-  border: var(--rule-hair) solid var(--clr-border);
-  border-radius: var(--radius-control);
-  color: var(--text-faint);
 }
 
 /* Project rows keep a gutter on the left for the categories expander. */
@@ -1205,18 +1137,20 @@ button.task-modal-crumb:hover {
 .tasks-layout {
   display: inline-flex;
   align-items: center;
-  padding: 0.125rem;
+  gap: 0.125rem;
+  height: 2rem;
+  padding: 0.1875rem;
   border: var(--rule-hair) solid var(--clr-border);
-  border-radius: var(--radius-control);
+  border-radius: var(--task-radius-sm);
 }
 
 .tasks-layout-btn {
   display: inline-flex;
   align-items: center;
   gap: 0.3125rem;
-  height: 1.75rem;
+  height: 100%;
   padding: 0 var(--space-xs);
-  border-radius: var(--radius-control);
+  border-radius: 4px;
   font-size: var(--text-xs);
   color: var(--text-muted);
   transition: color var(--dur-micro) var(--ease-out), background-color var(--dur-micro) var(--ease-out);
@@ -1642,54 +1576,101 @@ button.tcal-day:hover {
   }
 }
 
-/* ── Narrow screens: the pane becomes a strip above the list ───────────── */
+/* ── Phones: views in a tab bar along the bottom; Browse is the pane ───── */
+.tasks-tabbar {
+  display: none;
+}
+
 @media (max-width: 720px) {
   .tasks-page {
     flex-direction: column;
-    height: auto;
   }
 
+  /* The pane only shows as the Browse tab, in place of the list. */
   .tasks-pane {
-    width: auto;
-    display: flex;
-    flex-direction: row;
-    flex-wrap: wrap;
-    gap: var(--space-2xs);
-    border-right: 0;
-    border-bottom: var(--rule-hair) solid var(--clr-border);
-  }
-
-  .tasks-pane-link {
-    flex: 0 1 auto;
-  }
-
-  .tasks-pane-add {
-    width: auto;
-    margin-bottom: 0;
-  }
-
-  /* On the strip the lists wrap with the rest; Settings takes a row of its own. */
-  .tasks-pane-lists {
-    display: contents;
-  }
-
-  .tasks-pane-foot {
-    width: 100%;
-  }
-
-  .tasks-pane-kbd,
-  .tasks-pane-expander,
-  .tasks-pane-cats {
     display: none;
   }
 
-  .tasks-pane-project > .tasks-pane-link {
-    padding-left: var(--space-xs);
+  .tasks-page-browsing .tasks-pane {
+    display: flex;
+    flex: 1;
+    width: auto;
+    padding: var(--space-sm) var(--space-sm) calc(4.5rem + env(safe-area-inset-bottom));
+    border-right: 0;
+    background-color: var(--bg-base);
+  }
+
+  .tasks-page-browsing .tasks-main {
+    display: none;
+  }
+
+  /* The bar has Inbox, Today, Upcoming and Karma already. */
+  .tasks-pane-views {
+    display: none;
+  }
+
+  .tasks-pane-link {
+    padding-block: 0.625rem;
+    font-size: var(--text-md);
   }
 
   .tasks-pane-head {
-    width: 100%;
-    margin-top: var(--space-xs);
+    margin-top: var(--space-lg);
+  }
+
+  .tasks-pane-views + .tasks-pane-head {
+    margin-top: 0;
+    border-top: 0;
+  }
+
+  /* No hover on touch: the menus stay in view, beside the count. */
+  .tasks-pane-menu {
+    position: static;
+    opacity: 1;
+  }
+
+  .tasks-pane-project:hover .tasks-pane-count {
+    visibility: visible;
+  }
+
+  .tasks-tabbar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 20;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    padding: var(--space-2xs) var(--space-2xs) calc(var(--space-2xs) + env(safe-area-inset-bottom));
+    border-top: var(--rule-hair) solid var(--clr-border);
+    background-color: color-mix(in oklch, var(--bg-surface) 92%, transparent);
+    backdrop-filter: blur(12px);
+  }
+
+  .tasks-tab {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 0.375rem 0 0.25rem;
+    border-radius: 8px;
+    font-size: 0.6875rem;
+    color: var(--text-muted);
+  }
+
+  .tasks-tab svg {
+    width: 1.375rem;
+    height: 1.375rem;
+  }
+
+  .tasks-tab[aria-current="page"] {
+    color: var(--color-brand);
+    font-weight: 600;
+  }
+
+  /* Clear of the tab bar. */
+  .tasks-main {
+    padding-bottom: calc(4.5rem + env(safe-area-inset-bottom));
   }
 
   .tasks-content {
@@ -1746,19 +1727,54 @@ button.tcal-day:hover {
 }
 
 /* ── Group picker (header) ─────────────────────────────────────────────── */
-.tasks-group-menu {
+/* The header's controls share one height and outline: Group, then the layout switch. */
+.tasks-head-btn {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-2xs);
+  gap: 0.375rem;
+  height: 2rem;
+  padding: 0 0.625rem;
+  border: var(--rule-hair) solid var(--clr-border);
+  border-radius: var(--task-radius-sm);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: color var(--dur-micro) var(--ease-out), background-color var(--dur-micro) var(--ease-out), border-color var(--dur-micro) var(--ease-out);
 }
 
-.tasks-group-label {
+.tasks-head-btn:hover,
+.tasks-head-btn[aria-expanded="true"] {
+  color: var(--text-primary);
+  border-color: var(--clr-border-light);
+  background-color: var(--bg-hover);
+}
+
+.tasks-head-btn-caret {
+  width: 0.75rem;
+  height: 0.75rem;
+  color: var(--text-faint);
+  transition: transform var(--dur-micro) var(--ease-out);
+}
+
+.tasks-head-btn[aria-expanded="true"] .tasks-head-btn-caret {
+  transform: rotate(180deg);
+}
+
+.tasks-group-panel {
+  min-width: 11rem !important;
+  border-radius: var(--task-radius);
+}
+
+.tasks-group-panel-title {
+  margin: 0;
+  padding: 0.375rem 0.625rem 0.25rem;
   font-size: var(--text-xs);
+  font-weight: 600;
   color: var(--text-muted);
 }
 
-.tasks-group-select {
-  width: 10.5rem;
+.tasks-group-panel-label {
+  flex: 1;
 }
 
 /* ── Filter dialog ─────────────────────────────────────────────────────── */
@@ -1772,6 +1788,31 @@ button.tcal-day:hover {
   font-weight: 400;
   font-size: var(--text-xs);
   color: var(--text-muted);
+}
+
+/* A checkbox and its label (the filter dialog). */
+.tasks-setting {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-xs);
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.tasks-setting input {
+  flex-shrink: 0;
+  margin-top: 0.1875rem;
+  accent-color: var(--color-brand);
+}
+
+.tasks-setting-sub {
+  padding-left: 1.25rem;
+}
+
+.tasks-setting:has(input:disabled) {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .filter-places,
@@ -1858,4 +1899,16 @@ button.tcal-day:hover {
   margin-bottom: var(--space-2xs);
   font-size: var(--text-xs);
   color: var(--color-warning);
+}
+
+@media (max-width: 720px) {
+  .fab {
+    bottom: calc(4.75rem + env(safe-area-inset-bottom));
+    right: calc(1rem + env(safe-area-inset-right));
+  }
+
+  .tasks-page-browsing ~ .fab,
+  .app-main:has(.tasks-page-browsing) ~ .fab {
+    display: none;
+  }
 }

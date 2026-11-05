@@ -3,17 +3,18 @@
 	import { page } from '$app/state';
 	import type { TaskCategory, TaskFilter, TaskProject } from '$lib/api';
 	import DropdownMenu from '$lib/components/DropdownMenu.svelte';
-	import Select from '$lib/components/Select.svelte';
+	import { getPaneFooter, getPaneHeader } from '$lib/paneHeader';
 	import { projectColor, type TaskSettings, type TaskView } from './shared';
 
 	/**
-	 * The Tasks page's own slim pane: "Add task", the fixed views (Karma, the progress charts, last), the saved filters, then the projects.
+	 * The Tasks page's own pane: the account (from the app shell) at the top, the fixed views
+	 * (Karma, the progress charts, last), the saved filters, then the projects.
 	 * A project with categories has an expander that lists them; a category links to
 	 * its section of the project. Projects are reordered by dragging them, or with
-	 * Move up / Move down in their menu. Settings (display options) sit at the bottom.
+	 * Move up / Move down in their menu. On phones it is the Browse tab.
 	 */
 	let {
-		projects, categories, filters, counts, view, projectId, filterId, settings, onsettings, onaddtask,
+		projects, categories, filters, counts, view, projectId, filterId, settings, browsing = false,
 		onaddproject, oneditproject, ondeleteproject, onreorderprojects, onaddfilter, oneditfilter, ondeletefilter,
 	}: {
 		projects: TaskProject[];
@@ -27,8 +28,8 @@
 		projectId: string | null;
 		filterId: string | null;
 		settings: TaskSettings;
-		onsettings: (settings: TaskSettings) => void;
-		onaddtask: () => void;
+		/** Phones: the pane is the Browse tab, shown in place of the list. */
+		browsing?: boolean;
 		onaddproject: () => void;
 		oneditproject: (project: TaskProject) => void;
 		ondeleteproject: (project: TaskProject) => void;
@@ -130,45 +131,27 @@
 		projectDragEnd();
 	}
 
-	let settingsOpen = $state(false);
-
-	type Toggle = 'showSubtasks' | 'showDoneSubtasks' | 'showNotes' | 'showPlace' | 'showCounts';
-	const TOGGLES: { key: Toggle; label: string; sub?: boolean }[] = [
-		{ key: 'showSubtasks',     label: 'Show subtasks' },
-		{ key: 'showDoneSubtasks', label: 'Include completed subtasks', sub: true },
-		{ key: 'showNotes',        label: 'Show descriptions' },
-		{ key: 'showPlace',        label: 'Show project in Today and Upcoming' },
-		{ key: 'showCounts',       label: 'Show task counts' },
-	];
-	const START_VIEWS = [
-		{ value: 'today', label: 'Today' },
-		{ value: 'inbox', label: 'Inbox' },
-		{ value: 'upcoming', label: 'Upcoming' },
-	] as const;
-
-	function set<K extends keyof TaskSettings>(key: K, value: TaskSettings[K]) {
-		onsettings({ ...settings, [key]: value });
-	}
+	const header = getPaneHeader();
+	const footer = getPaneFooter();
 
 	/** Counts are hidden when Settings says so. */
 	const count = (n: number | undefined) => (settings.showCounts && n ? n : 0);
 </script>
 
-<nav class="tasks-pane" aria-label="Task lists">
+<nav class="tasks-pane" class:tasks-pane-browsing={browsing} aria-label="Task lists">
+	{#if header}
+		<div class="tasks-pane-top">{@render header()}</div>
+	{/if}
 	<div class="tasks-pane-lists">
-		<button type="button" class="tasks-pane-link tasks-pane-add" onclick={onaddtask} title="Add task (Alt+N)">
-			<svg aria-hidden="true" class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14m7-7H5" /></svg>
-			<span class="tasks-pane-label">Add task</span>
-			<kbd class="tasks-pane-kbd">Alt N</kbd>
-		</button>
-
-		{#each VIEWS as v}
-			<a href="?view={v.key}" class="tasks-pane-link" aria-current={view === v.key ? 'page' : undefined}>
-				<svg aria-hidden="true" class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d={v.icon} /></svg>
-				<span class="tasks-pane-label">{v.label}</span>
-				{#if v.key !== 'karma' && count(counts[v.key])}<span class="tasks-pane-count">{count(counts[v.key])}</span>{/if}
-			</a>
-		{/each}
+		<div class="tasks-pane-views">
+			{#each VIEWS as v}
+				<a href="?view={v.key}" class="tasks-pane-link" aria-current={view === v.key ? 'page' : undefined}>
+					<svg aria-hidden="true" class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d={v.icon} /></svg>
+					<span class="tasks-pane-label">{v.label}</span>
+					{#if v.key !== 'karma' && count(counts[v.key])}<span class="tasks-pane-count">{count(counts[v.key])}</span>{/if}
+				</a>
+			{/each}
+		</div>
 
 		<div class="tasks-pane-head">
 			<span>Filters</span>
@@ -286,39 +269,7 @@
 		{/each}
 	</div>
 
-	<div class="tasks-pane-foot">
-		{#if settingsOpen}
-			<div id="tasks-settings" class="tasks-settings">
-				{#each TOGGLES as t (t.key)}
-					<label class="tasks-setting" class:tasks-setting-sub={t.sub}>
-						<input
-							type="checkbox"
-							checked={settings[t.key]}
-							disabled={t.sub && !settings.showSubtasks}
-							onchange={(e) => set(t.key, e.currentTarget.checked)}
-						/>
-						<span>{t.label}</span>
-					</label>
-				{/each}
-				<label class="tasks-setting-field" for="tasks-start-view">Open on</label>
-				<Select
-					id="tasks-start-view"
-					value={settings.startView}
-					options={[...START_VIEWS]}
-					onchange={(v) => set('startView', v)}
-				/>
-			</div>
-		{/if}
-		<button
-			type="button"
-			class="tasks-pane-link tasks-pane-settings"
-			aria-expanded={settingsOpen}
-			aria-controls="tasks-settings"
-			onclick={() => (settingsOpen = !settingsOpen)}
-		>
-			<svg aria-hidden="true" class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-			<span class="tasks-pane-label">Settings</span>
-			<svg aria-hidden="true" class="tasks-pane-settings-chevron w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 15l7-7 7 7" /></svg>
-		</button>
-	</div>
+	{#if footer}
+		<div class="tasks-pane-foot">{@render footer()}</div>
+	{/if}
 </nav>

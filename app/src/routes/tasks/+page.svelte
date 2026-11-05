@@ -8,7 +8,8 @@
 	import { toast } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import { askReminderPermission } from '$lib/stores/taskReminders';
-	import { onTaskAdded, openQuickAdd, setQuickAddContext } from '$lib/stores/taskQuickAdd';
+	import { onTaskAdded, setQuickAddContext } from '$lib/stores/taskQuickAdd';
+	import { taskSettings } from '$lib/stores/taskSettings';
 	import { onTasksChanged } from '$lib/tasks/client';
 	import { addDays, dayLabel, daysBetween, fromYmd, nextOccurrence, ymd } from '$lib/taskParse';
 	import DropdownMenu from '$lib/components/DropdownMenu.svelte';
@@ -28,12 +29,21 @@
 		type AddDefaults, type Bucket, type DateViewGroup, type GroupCtx,
 	} from '$lib/components/tasks/taskFilters';
 	import {
-		PROJECT_COLORS, byDue, byPosition, loadLayouts, loadTaskSettings, placeName, projectColor, saveLayouts,
-		saveTaskSettings, shiftInstant, type TaskLayout, type TaskSettings, type TaskView,
+		PROJECT_COLORS, byDue, byPosition, loadLayouts, placeName, projectColor, saveLayouts,
+		shiftInstant, type TaskLayout, type TaskSettings, type TaskView,
 	} from '$lib/components/tasks/shared';
 	import './tasks.css';
 
 	const UPCOMING_DAYS = 14;
+
+	/** The phone tab bar. */
+	const TABS = [
+		{ key: 'inbox',    label: 'Inbox',    icon: 'M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4' },
+		{ key: 'today',    label: 'Today',    icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
+		{ key: 'upcoming', label: 'Upcoming', icon: 'M13 7l5 5m0 0l-5 5m5-5H6' },
+		{ key: 'karma',    label: 'Karma',    icon: 'M4 20h16M7 16v-4m5 4V8m5 8v-7' },
+		{ key: 'browse',   label: 'Browse',   icon: 'M4 6h16M4 12h16M4 18h10' },
+	] as const;
 
 	let projects = $state<TaskProject[]>([]);
 	let categories = $state<TaskCategory[]>([]);
@@ -56,12 +66,11 @@
 	let layouts = $state<Record<string, TaskLayout>>({});
 	/** How Today and Upcoming are grouped, remembered in this browser (a filter keeps its own). */
 	let grouping = $state<Record<string, DateViewGroup>>({});
-	/** Display settings from the pane's Settings section, remembered in this browser. */
-	let settings = $state<TaskSettings>(loadTaskSettings());
+	/** Display settings (Settings → General), remembered in this browser. */
+	let settings = $derived($taskSettings);
 
 	function changeSettings(next: TaskSettings) {
-		settings = next;
-		saveTaskSettings(next);
+		taskSettings.set(next);
 	}
 	/** The task being edited where it stands (Alt+click or the pencil). */
 	let inlineEditId = $state<string | null>(null);
@@ -91,6 +100,8 @@
 		return v === 'inbox' || v === 'upcoming' || v === 'today' || v === 'karma' ? v : settings.startView;
 	});
 	let taskId = $derived(params.get('task') || null);
+	/** Phones: the Browse tab (account, filters, projects) in place of the list. */
+	let browsing = $derived(!projectId && !filterId && params.get('view') === 'browse');
 	let project = $derived(projects.find((p) => p.id === projectId) ?? null);
 	let filter = $derived(filters.find((f) => f.id === filterId) ?? null);
 	let today = $derived(ymd(now));
@@ -913,7 +924,7 @@
 	{/if}
 {/snippet}
 
-<div class="tasks-page">
+<div class="tasks-page" class:tasks-page-browsing={browsing}>
 	<TasksPane
 		{projects}
 		{categories}
@@ -923,8 +934,7 @@
 		{projectId}
 		{filterId}
 		{settings}
-		onsettings={changeSettings}
-		onaddtask={() => openQuickAdd()}
+		{browsing}
 		onaddproject={newProject}
 		oneditproject={editProject}
 		ondeleteproject={deleteProject}
@@ -1173,6 +1183,17 @@
 			{/if}
 		</div>
 	</div>
+
+	<!-- Phones: the views along the bottom, like the pane on wider screens. -->
+	<nav class="tasks-tabbar" aria-label="Views">
+		{#each TABS as t (t.key)}
+			{@const here = t.key === 'browse' ? browsing || view === 'project' || view === 'filter' : !browsing && view === t.key}
+			<a href="?view={t.key}" class="tasks-tab" aria-current={here ? 'page' : undefined}>
+				<svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width={here ? 2.1 : 1.75} d={t.icon} /></svg>
+				<span>{t.label}</span>
+			</a>
+		{/each}
+	</nav>
 </div>
 
 {#if drawerTask}

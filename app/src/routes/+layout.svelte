@@ -13,12 +13,15 @@
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import QuickAddDialog from '$lib/components/tasks/QuickAddDialog.svelte';
 	import { setTasksClient, tasksChanged } from '$lib/tasks/client';
-	import { isQuickAddShortcut, openQuickAdd } from '$lib/stores/taskQuickAdd';
-	import { modeStore, themeStore } from '$lib/stores/theme';
+	import { isQuickAddShortcut, openQuickAdd, quickAdd } from '$lib/stores/taskQuickAdd';
+	import { applyTheme, followSystemTheme } from '$lib/stores/theme';
+	import { setPaneFooter, setPaneHeader } from '$lib/paneHeader';
 	import { call, tauriTasksClient, type AppStatus, type SyncStatus } from '$shell/tauriClient';
 	import Setup from '$shell/Setup.svelte';
 	import FirstSync from '$shell/FirstSync.svelte';
-	import SyncChip from '$shell/SyncChip.svelte';
+	import AccountMenu from '$shell/AccountMenu.svelte';
+	import PaneStatus from '$shell/PaneStatus.svelte';
+	import SettingsDialog, { type SettingsTab } from '$shell/SettingsDialog.svelte';
 
 	// Before any page loads: tasks come from the local DB (Rust). Reminders are
 	// system notifications scheduled there too (src-tauri/src/reminders.rs).
@@ -27,29 +30,20 @@
 	let { children } = $props();
 
 	let status = $state<AppStatus | null>(null);
-	// The Account screen, opened from the app bar (signed in already).
+	// The sign-in screen, opened from Settings → Account (signed in already).
 	let showSetup = $state(false);
 	// Signed in, but the first sync hasn't brought the tasks here yet.
 	let waitingForFirstSync = $derived(!!status?.configured && !status.sync.ready);
-	// Until a mode is picked here, the theme follows the system (see app.html).
-	let modeChosen = $state(hasSavedMode());
+	// Settings, open on one of its sections.
+	let settingsTab = $state<SettingsTab | null>(null);
+	let ready = $derived(!!status && status.configured && !showSetup && !waitingForFirstSync);
 
-	function hasSavedMode(): boolean {
-		try {
-			return localStorage.getItem('theme-mode') !== null;
-		} catch {
-			return false;
-		}
-	}
+	// The account menu tops the Tasks pane (lib/components/tasks/TasksPane.svelte).
+	setPaneHeader(paneHeader);
+	setPaneFooter(paneFooter);
 
-	$effect(() => {
-		if (modeChosen) document.documentElement.dataset.theme = $themeStore;
-	});
-
-	function toggleMode() {
-		const dark = document.documentElement.dataset.theme?.startsWith('dark');
-		modeChosen = true;
-		modeStore.set(dark ? 'light' : 'dark');
+	function openSettings(tab: SettingsTab = 'account') {
+		settingsTab = tab;
 	}
 
 	function openTask(id: string) {
@@ -65,6 +59,8 @@
 	}
 
 	onMount(() => {
+		applyTheme();
+		const stopTheme = followSystemTheme();
 		call<AppStatus>('app_status').then((s) => (status = s));
 		call<string | null>('app_take_open_task').then((id) => id && openTask(id));
 		call('app_ask_notification_permission').catch(() => {});
@@ -86,11 +82,14 @@
 		window.addEventListener('online', syncNow);
 		document.addEventListener('visibilitychange', onVisible);
 
-		// Alt+N while the window has focus (the global shortcut covers the rest of Windows).
+		// Alt+N while the window has focus (the global shortcut covers the rest of Windows); Ctrl+, Settings.
 		function onKey(e: KeyboardEvent) {
 			if (isQuickAddShortcut(e)) {
 				e.preventDefault();
 				openQuickAdd();
+			} else if (e.key === ',' && (e.ctrlKey || e.metaKey) && !e.altKey && ready) {
+				e.preventDefault();
+				openSettings(settingsTab ?? 'account');
 			}
 		}
 		document.addEventListener('keydown', onKey);
@@ -98,10 +97,23 @@
 			window.removeEventListener('online', syncNow);
 			document.removeEventListener('visibilitychange', onVisible);
 			document.removeEventListener('keydown', onKey);
+			stopTheme();
 			stops.forEach((p) => p.then((stop) => stop()));
 		};
 	});
 </script>
+
+{#snippet paneHeader()}
+	{#if status}
+		<AccountMenu {status} onsync={syncNow} onsettings={openSettings} />
+	{/if}
+{/snippet}
+
+{#snippet paneFooter()}
+	{#if status}
+		<PaneStatus {status} onsync={syncNow} />
+	{/if}
+{/snippet}
 
 <div class="app-shell">
 	{#if status && (!status.configured || showSetup)}
@@ -121,19 +133,30 @@
 			<FirstSync sync={status.sync} username={status.username} onretry={syncNow} onsignout={signOut} />
 		</main>
 	{:else if status}
-		<header class="app-bar">
-			<span class="app-bar-title">Tasks</span>
-			{#if status}
-				<SyncChip sync={status.sync} onsync={syncNow} onaccount={() => (showSetup = true)} />
-				<button type="button" class="app-bar-button" onclick={() => (showSetup = true)}>Account</button>
-			{/if}
-			<button type="button" class="app-bar-button" onclick={toggleMode} aria-label="Switch light or dark mode">◐</button>
-		</header>
 		<main class="app-main">
 			{@render children()}
 		</main>
+		{#if !$quickAdd}
+			<button type="button" class="fab" onclick={() => openQuickAdd()} aria-label="Add task" title="Add task (Alt+N)">
+				<svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-width="2.25" d="M12 5v14m7-7H5" /></svg>
+			</button>
+		{/if}
 	{/if}
 </div>
+
+{#if status && ready && settingsTab}
+	<SettingsDialog
+		{status}
+		tab={settingsTab}
+		onstatus={(s) => (status = s)}
+		onsync={syncNow}
+		onswitch={() => {
+			settingsTab = null;
+			showSetup = true;
+		}}
+		onclose={() => (settingsTab = null)}
+	/>
+{/if}
 
 <ToastHost />
 <ConfirmDialog />

@@ -10,29 +10,43 @@
 	padding-top: env(safe-area-inset-top);
 	padding-bottom: env(safe-area-inset-bottom);
 }
-.app-bar {
-	display: flex;
-	align-items: center;
-	gap: 0.5rem;
-	height: 2.75rem;
-	padding: 0 0.75rem;
-	border-bottom: 1px solid var(--clr-border);
-	background: var(--bg-surface);
-	flex-shrink: 0;
-}
-.app-bar-title {
-	font-weight: 600;
-	margin-right: auto;
-}
-.app-bar-button {
-	background: none;
-	border: 0;
-	padding: 0.25rem 0.4rem;
-	font: inherit;
-	font-size: 0.85rem;
-	color: var(--text-secondary, inherit);
-}
 .app-main {
 	flex: 1;
 	overflow: auto;
+}
+
+/* Add task: a round button floating at the bottom right, over every view. */
+.fab {
+	position: fixed;
+	right: calc(1.5rem + env(safe-area-inset-right));
+	bottom: calc(1.5rem + env(safe-area-inset-bottom));
+	z-index: 30;
+	display: grid;
+	place-items: center;
+	width: 3.25rem;
+	height: 3.25rem;
+	border-radius: 999px;
+	background: var(--color-brand);
+	color: var(--color-brand-text);
+	box-shadow: 0 6px 18px -4px color-mix(in oklch, var(--color-brand) 55%, transparent), 0 2px 6px rgb(0 0 0 / 0.12);
+	transition: transform var(--dur-short) var(--ease-out), box-shadow var(--dur-short) var(--ease-out);
+}
+.fab svg {
+	width: 1.5rem;
+	height: 1.5rem;
+	transition: transform var(--dur-short) var(--ease-out);
+}
+.fab:hover {
+	transform: translateY(-2px) scale(1.04);
+	box-shadow: 0 10px 24px -6px color-mix(in oklch, var(--color-brand) 60%, transparent), 0 3px 8px rgb(0 0 0 / 0.14);
+}
+.fab:hover svg {
+	transform: rotate(90deg);
+}
+.fab:active {
+	transform: scale(0.96);
+}
+.fab:focus-visible {
+	outline: 2px solid var(--color-focus);
+	outline-offset: 3px;
 }

@@ -14,7 +14,7 @@
 	import SmartTips from './SmartTips.svelte';
 	import TaskGrip from './TaskGrip.svelte';
 	import { dueAtOf, finishPatch, patchChips, smartPatch, smartTitle, titleEdit } from './smartEdit';
-	import { PRIORITY_OPTIONS, SUBTASK_MAX, defaultReminder, projectColor, subtaskLimit } from './shared';
+	import { PRIORITY_OPTIONS, SUBTASK_MAX, defaultReminder, projectColor, subtaskLimit, subtaskMinutes } from './shared';
 
 	/**
 	 * One task in a modal: the title, description and subtasks on the left, its fields in a
@@ -92,6 +92,8 @@
 	// ── Duration ─────────────────────────────────────────────────────────────
 	const DURATION_MINUTES = [15, 30, 45, 60, 90, 120, 180, 240, 480];
 	let durationValue = $derived(task.duration_minutes ? String(task.duration_minutes) : 'none');
+	/** Its subtasks have durations, so its own is what's left of theirs, kept up to date for it. */
+	let durationFromSubtasks = $derived(subtaskMinutes(subtasks) !== null);
 	let durationOptions = $derived([
 		{ value: 'none', label: 'None' },
 		...[...new Set([...DURATION_MINUTES, ...(task.duration_minutes ? [task.duration_minutes] : [])])]
@@ -540,8 +542,8 @@
 				</div>
 
 				<div class="task-side-item">
-					<label class="task-side-label" for="task-duration">Duration</label>
-					<Select id="task-duration" class="task-side-control" value={durationValue} options={durationOptions} onchange={saveDuration} />
+					<label class="task-side-label" for="task-duration" title={durationFromSubtasks ? 'What is left of its open subtasks' : undefined}>Duration{durationFromSubtasks ? ' (subtasks)' : ''}</label>
+					<Select id="task-duration" class="task-side-control" value={durationValue} options={durationOptions} onchange={saveDuration} disabled={durationFromSubtasks} />
 				</div>
 
 				<div class="task-side-item">

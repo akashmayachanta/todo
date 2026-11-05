@@ -33,7 +33,7 @@
 		type AddDefaults, type Bucket, type DateViewGroup, type GroupCtx,
 	} from '$lib/components/tasks/taskFilters';
 	import {
-		PROJECT_COLORS, byDue, byPosition, completionPatch, durationTotals, loadLayouts, parentFinder, placeName, projectColor, saveLayouts, shownWhenDue, taskRoots,
+		PROJECT_COLORS, byDue, byPosition, completionPatch, durationTotals, loadLayouts, parentFinder, placeName, projectColor, saveLayouts, shownWhenDue, parentMinutes, subtaskMinutes, taskRoots,
 		shiftInstant, type TaskLayout, type TaskSettings, type TaskView,
 	} from '$lib/components/tasks/shared';
 	import type { PinTarget } from '$lib/components/tasks/pins';
@@ -181,7 +181,7 @@
 		};
 	});
 	/** Minutes of open work rolled up to each project and category (subtasks included). */
-	let minutes = $derived(durationTotals(open));
+	let minutes = $derived(durationTotals(open, subtasksOf));
 
 	let inboxTasks = $derived(topLevel.filter((t) => t.project_id === null).sort(byPosition));
 	let overdue = $derived(dated.filter((t) => t.due_date! < today).sort(byDue));
@@ -500,6 +500,11 @@
 			tasks = tasks.map((t) => saved.get(t.id) ?? t);
 			// A task's subtasks follow it to another category.
 			if (patch) await reloadTasks();
+			// A subtask with a duration takes it from one task's total to the other's.
+			if (patch?.parent_id && task.duration_minutes) {
+				await syncParentMinutes(patch.parent_id);
+				await syncParentMinutes(task.parent_id, true);
+			}
 		} catch (e) {
 			tasks = before;
 			toast.error(errorDetail(e));
@@ -741,9 +746,18 @@
 			const created = await api.tasks.create({ ...data, parent_id: parent.id });
 			tasks = [...tasks, created];
 			if (created.remind_at) askReminderPermission();
+			if (created.duration_minutes) await syncParentMinutes(parent.id);
 		} catch (e) {
 			toast.error(errorDetail(e));
 		}
+	}
+
+	/** A task whose subtasks have durations takes their remaining total as its own, saved like any edit. */
+	async function syncParentMinutes(parentId: string | null, hadMinutes = false) {
+		const parent = parentId ? tasks.find((t) => t.id === parentId) : null;
+		if (!parent) return;
+		const next = parentMinutes(parent, subtasksOf(parent.id), hadMinutes);
+		if (next !== undefined) replace(await api.tasks.update(parent.id, { duration_minutes: next }));
 	}
 
 	async function patchTask(task: Task, patch: TaskPatch) {
@@ -751,12 +765,24 @@
 		if (patch.due_date && task.due_date && task.remind_at && !('remind_at' in patch) && patch.due_date !== task.due_date) {
 			patch = { ...patch, remind_at: shiftInstant(task.remind_at, daysBetween(task.due_date, patch.due_date)) };
 		}
+		// A task with timed subtasks takes their total; its own can't be set apart from them.
+		if ('duration_minutes' in patch && task.parent_id === null && subtaskMinutes(subtasksOf(task.id)) !== null) {
+			const { duration_minutes: _, ...rest } = patch;
+			patch = rest;
+			if (!Object.keys(patch).length) return;
+		}
 		try {
 			const updated = await api.tasks.update(task.id, patch);
 			replace(updated);
 			if (patch.remind_at) askReminderPermission();
 			// A move carries the subtasks along on the server.
 			if (('project_id' in patch || 'category_id' in patch) && task.parent_id === null) await reloadTasks();
+			if (task.parent_id !== null && ('duration_minutes' in patch || 'parent_id' in patch)) {
+				const had = !!task.duration_minutes;
+				const moved = updated.parent_id !== task.parent_id;
+				await syncParentMinutes(updated.parent_id, had && !moved);
+				if (moved) await syncParentMinutes(task.parent_id, had);
+			}
 		} catch (e) {
 			toast.error(errorDetail(e));
 		}
@@ -766,6 +792,8 @@
 		try {
 			const patch = completionPatch(task, now);
 			replace(await api.tasks.update(task.id, patch));
+			// A done subtask's time leaves its task's remaining total; an undone one comes back.
+			if (task.parent_id !== null && task.duration_minutes) await syncParentMinutes(task.parent_id);
 			if (patch.completes_occurrence) {
 				toast.success(`Next: ${dayLabel(patch.due_date!, now)}`);
 				return;
@@ -789,6 +817,7 @@
 			searchDone = searchDone.filter((t) => t.id !== task.id);
 			if (taskId === task.id) closeTask();
 			toast.success('Task deleted');
+			if (task.duration_minutes) await syncParentMinutes(task.parent_id, true);
 		} catch (e) {
 			toast.error(errorDetail(e));
 		}

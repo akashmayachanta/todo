@@ -7,7 +7,7 @@
 	import LinkedText from './LinkedText.svelte';
 	import TaskGrip from './TaskGrip.svelte';
 	import TaskRow from './TaskRow.svelte';
-	import { taskMinutes } from './shared';
+	import { subtaskMinutes } from './shared';
 
 	/**
 	 * One task: a round check ringed in its priority colour, the title, and a line of what
@@ -61,10 +61,9 @@
 	let parentName = $derived(parent ? plainText(parent.title) : '');
 	let noteShown = $derived(fields ? fields.has('description') : showNote);
 	let note = $derived(noteShown ? task.description?.split('\n').find((l) => l.trim()) ?? '' : '');
-	/** Its own duration plus its open subtasks'; left out when it is only its own and the due time already shows it as a range. */
-	let totalMinutes = $derived(taskMinutes(task, subtasks));
-	let rolledUp = $derived(totalMinutes !== (task.duration_minutes ?? 0));
-	let duration = $derived(shows('duration') && totalMinutes && (rolledUp || !(due && task.due_time)) ? totalMinutes : null);
+	/** Its duration (what's left of its subtasks' when they have them); left out when the due time already shows it as a range. */
+	let rolledUp = $derived(subtaskMinutes(subtasks) !== null);
+	let duration = $derived(shows('duration') && task.duration_minutes && !(due && task.due_time) ? task.duration_minutes : null);
 	let repeat = $derived(shows('repeat') ? task.recurrence : null);
 	let reminder = $derived(shows('reminder') ? task.remind_at : null);
 	let subtaskCount = $derived(shows('subtasks') && subtasks.length > 0);
@@ -117,7 +116,7 @@
 							</span>
 						{/if}
 						{#if duration}
-							<span class="task-meta-icon" title={rolledUp ? `Takes ${formatDuration(duration)} with its open subtasks` : `Takes ${formatDuration(duration)}`}>{formatDuration(duration)}</span>
+							<span class="task-meta-icon" title={rolledUp ? `${formatDuration(duration)} left in its open subtasks` : `Takes ${formatDuration(duration)}`}>{formatDuration(duration)}</span>
 						{/if}
 						{#if repeat}
 							<span class="task-meta-icon" title={repeat} aria-label="Repeats {repeat}">↻</span>

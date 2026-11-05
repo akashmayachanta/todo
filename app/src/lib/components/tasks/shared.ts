@@ -163,20 +163,42 @@ export function shownWhenDue(date: string): (parent: Task, subtask: Task) => boo
 	return (parent, subtask) => due(parent) || due(subtask);
 }
 
-/** A task's own minutes plus those of its open subtasks. */
-export function taskMinutes(task: Task, subtasks: Task[]): number {
-	let total = task.duration_minutes ?? 0;
+/**
+ * The duration a task takes from its subtasks: what is left of theirs, the open ones'
+ * total (capped at the 7-day limit), 0 when those are all done. Null when none has a
+ * duration, and the task keeps its own.
+ */
+export function subtaskMinutes(subtasks: Task[]): number | null {
+	if (!subtasks.some((s) => s.duration_minutes)) return null;
+	let total = 0;
 	for (const s of subtasks) if (!s.completed_at) total += s.duration_minutes ?? 0;
-	return total;
+	return Math.min(total, 10080);
 }
 
-/** Minutes of open work in each project and category: every open task's own duration, subtasks included. */
-export function durationTotals(open: Task[]): { projects: Record<string, number>; categories: Record<string, number> } {
+/**
+ * The duration to save on a task so it stays its subtasks' remaining total, or undefined
+ * when it already is. `hadMinutes`: a subtask with a duration lost it or left, so a task
+ * with none left drops the old total rather than keep it.
+ */
+export function parentMinutes(parent: Task, subtasks: Task[], hadMinutes = false): number | null | undefined {
+	const left = subtaskMinutes(subtasks);
+	const next = left === null ? (hadMinutes ? null : parent.duration_minutes) : left || null;
+	return next === parent.duration_minutes ? undefined : next;
+}
+
+/**
+ * Minutes of open work in each project and category: every open task's duration. A task
+ * whose duration is its subtasks' total is left out, as its open subtasks count on their own.
+ */
+export function durationTotals(
+	open: Task[],
+	subtasksOf: (id: string) => Task[],
+): { projects: Record<string, number>; categories: Record<string, number> } {
 	const projects: Record<string, number> = {};
 	const categories: Record<string, number> = {};
 	for (const t of open) {
 		const m = t.duration_minutes ?? 0;
-		if (!m) continue;
+		if (!m || (t.parent_id === null && subtaskMinutes(subtasksOf(t.id)) !== null)) continue;
 		if (t.project_id !== null) projects[t.project_id] = (projects[t.project_id] ?? 0) + m;
 		if (t.category_id !== null) categories[t.category_id] = (categories[t.category_id] ?? 0) + m;
 	}

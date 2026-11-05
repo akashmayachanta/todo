@@ -6,7 +6,7 @@
 	import QuickAdd from '$lib/components/tasks/QuickAdd.svelte';
 	import TaskRow from '$lib/components/tasks/TaskRow.svelte';
 	import { pinFromLabel, pinNewTask, pinView, type PinView } from '$lib/components/tasks/pins';
-	import { byPosition, completionPatch, parentFinder } from '$lib/components/tasks/shared';
+	import { byPosition, completionPatch, parentFinder, parentMinutes } from '$lib/components/tasks/shared';
 	import { toast } from '$lib/stores/toast';
 	import { askReminderPermission } from '$lib/stores/taskReminders';
 	import { ymd } from '$lib/taskParse';
@@ -70,6 +70,13 @@
 		try {
 			await api.tasks.update(task.id, completionPatch(task, now));
 			await load();
+			// A done subtask's time leaves its task's remaining total; an undone one comes back.
+			const parent = task.parent_id !== null && task.duration_minutes ? tasks.find((t) => t.id === task.parent_id) : null;
+			const next = parent ? parentMinutes(parent, subtasksOf(parent.id)) : undefined;
+			if (parent && next !== undefined) {
+				await api.tasks.update(parent.id, { duration_minutes: next });
+				await load();
+			}
 		} catch (e) {
 			toast.error(errorDetail(e));
 		}

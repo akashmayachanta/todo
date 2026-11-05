@@ -23,11 +23,13 @@
 	 * "/Category", "every monday", "!30m" typed into them set those fields. The arrows in
 	 * the head (or k / j) step to the previous and next task of the view.
 	 */
-	let { task, parent = null, subtasks, projects, categories, onprev = null, onnext = null, sort = null, onpin = null, onpatch, ontoggle, onaddsubtask, onopen, ondelete, onclose }: {
+	let { task, parent = null, subtasks, showDoneSubtasks = true, projects, categories, onprev = null, onnext = null, sort = null, onpin = null, onpatch, ontoggle, onaddsubtask, onopen, ondelete, onclose }: {
 		task: Task;
 		/** The task this is a subtask of. */
 		parent?: Task | null;
 		subtasks: Task[];
+		/** Lists the completed subtasks too (the "Show completed tasks" setting), as the lists do. */
+		showDoneSubtasks?: boolean;
 		projects: TaskProject[];
 		categories: TaskCategory[];
 		/** Step to the previous / next task of the view; null at either end. */
@@ -223,6 +225,7 @@
 	let subParsed = $derived(parseSubtask(newSubtask));
 	let subLimit = $derived(subtaskLimit(subParsed.title));
 	let subtasksDone = $derived(subtasks.filter((s) => s.completed_at).length);
+	let listedSubtasks = $derived(showDoneSubtasks ? subtasks : subtasks.filter((s) => !s.completed_at));
 
 	async function openSubtaskLine() {
 		addingSubtask = true;
@@ -440,10 +443,9 @@
 						{#if subtasks.length}
 							<h3 class="task-modal-section">
 								Sub-tasks
-								<span class="task-group-count">{subtasksDone}/{subtasks.length}</span>
-							</h3>
+								<span class="task-group-count">{subtasksDone}/{subtasks.length}</span>							</h3>
 						{/if}
-						{#each subtasks as sub (sub.id)}
+						{#each listedSubtasks as sub (sub.id)}
 							{@const subName = plainText(sub.title)}
 							<div class="task-modal-sub" class:task-row-done={!!sub.completed_at} data-sort-id={sort ? sub.id : undefined} data-sort-kind={sort ? 'sub' : undefined}>
 								{#if sort}<TaskGrip id={sub.id} kind="sub" name={subName} {sort} />{/if}

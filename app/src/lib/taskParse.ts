@@ -290,6 +290,9 @@ dates.parsers.push({
 	},
 });
 
+/** "no date", "no due date": takes the date and time off. */
+const NO_DATE_RE = /(^|\s)(no\s+(?:due\s+)?date)(?=\s|$|[.,;])/i;
+
 const timeOf = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
 function hasDay(c: chrono.ParsedComponents): boolean {
@@ -422,9 +425,16 @@ export function parseQuickAdd(
 		}
 	}
 
+	// "no date" clears the date and its time; any other date or time in the line is then left alone.
+	const noDate = NO_DATE_RE.exec(mask(text, tokens));
+	if (noDate) {
+		const start = noDate.index + noDate[1].length;
+		add('date', start, start + noDate[2].length);
+	}
+
 	// Any other date phrase is the due date.
 	let timeOnly = false;
-	for (const hit of dates.parse(mask(text, tokens), now, { forwardDate: true })) {
+	for (const hit of noDate ? [] : dates.parse(mask(text, tokens), now, { forwardDate: true })) {
 		const c = hit.start;
 		const day = hasDay(c);
 		// A lone month name ("may", "march") is far more often a word of the title.
@@ -521,6 +531,8 @@ export function parseEdit(
 export interface DueLabel {
 	label: string;
 	overdue: boolean;
+	/** Started and its duration hasn't run out yet. Never also overdue. */
+	inProgress: boolean;
 	today: boolean;
 }
 
@@ -559,11 +571,23 @@ export function todayHeading(today: string): string {
 	return `Today · ${shortDate(today)}`;
 }
 
-/** The due label of a task, with its time, and whether it is overdue; null when it has no date. */
+/** Whether `now` falls between a task's start and the end of its duration, which may be past midnight. */
+function isInProgress(date: string, time: string | null, duration: number | null | undefined, now: Date): boolean {
+	if (!time || !duration) return false;
+	const [h, m] = time.split(':').map(Number);
+	const start = fromYmd(date);
+	start.setHours(h, m, 0, 0);
+	const end = fromYmd(date);
+	end.setHours(h, m + duration, 0, 0);
+	return start <= now && now < end;
+}
+
+/** The due label of a task, with its time, and whether it is overdue or in progress; null when it has no date. */
 export function describeDue(task: Pick<Task, 'due_date' | 'due_time'> & { duration_minutes?: number | null }, now = new Date()): DueLabel | null {
 	if (!task.due_date) return null;
 	const today = ymd(now);
-	const overdue = task.due_date < today || (task.due_date === today && !!task.due_time && task.due_time < timeOf(now));
+	const inProgress = isInProgress(task.due_date, task.due_time, task.duration_minutes, now);
+	const overdue = !inProgress && (task.due_date < today || (task.due_date === today && !!task.due_time && task.due_time < timeOf(now)));
 	const label = dayLabel(task.due_date, now) + (task.due_time ? ` ${timeRange(task.due_time, task.duration_minutes)}` : '');
-	return { label, overdue, today: task.due_date === today };
+	return { label, overdue, inProgress, today: task.due_date === today };
 }

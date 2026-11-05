@@ -21,7 +21,7 @@
 	 */
 	let {
 		task, parent = null, subtasksOf, nested = false, subtaskFilter = null, showDoneSubtasks = false, showNote = true, place = null, fields = null, now,
-		editingId = null, editor, sort = null, compact = false, ontoggle, onopen, onedit, ondelete,
+		editingId = null, editor, sort = null, compact = false, ontoggle, onopen, onedit, onpin = null, ondelete,
 	}: {
 		task: Task;
 		/** The task this subtask belongs to, when the list doesn't already show it. */
@@ -47,6 +47,8 @@
 		ontoggle: (task: Task) => void;
 		onopen: (task: Task) => void;
 		onedit?: (task: Task) => void;
+		/** Pins it to the desktop; null where there are no pins (Android). */
+		onpin?: ((task: Task) => void) | null;
 		ondelete?: (task: Task) => void;
 	} = $props();
 
@@ -109,7 +111,7 @@
 				{#if due || reminder || repeat || duration || subtaskCount || task.location || place}
 					<span class="task-meta">
 						{#if due}
-							<span class="task-due" class:task-due-overdue={due.overdue && !done} class:task-due-today={due.today && !due.overdue}>
+							<span class="task-due" class:task-due-overdue={due.overdue && !done} class:task-due-today={due.today && !due.overdue} class:task-due-progress={due.inProgress && !done}>
 								<svg aria-hidden="true" class="task-meta-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
 								{due.label}
 							</span>
@@ -154,6 +156,11 @@
 						<svg aria-hidden="true" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
 					</button>
 				{/if}
+				{#if onpin}
+					<button type="button" class="tasks-icon-btn" onclick={() => onpin(task)} title="Pin to desktop" aria-label="Pin {name} to desktop">
+						<svg aria-hidden="true" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 17v5M7 17h10l-1.5-4.5V6a2 2 0 00-2-2h-3a2 2 0 00-2 2v6.5L7 17z" /></svg>
+					</button>
+				{/if}
 				<button type="button" class="tasks-icon-btn tasks-icon-btn-danger" onclick={() => ondelete?.(task)} title="Delete" aria-label="Delete {name}">
 					<svg aria-hidden="true" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
 				</button>
@@ -165,7 +172,7 @@
 	{#if nested && shownSubtasks.length}
 		<div class="task-subtasks">
 			{#each shownSubtasks as sub (sub.id)}
-				<TaskRow task={sub} {subtasksOf} {showNote} {fields} {now} {editingId} {editor} {sort} {compact} {ontoggle} {onopen} {onedit} {ondelete} />
+				<TaskRow task={sub} {subtasksOf} {showNote} {fields} {now} {editingId} {editor} {sort} {compact} {ontoggle} {onopen} {onedit} {onpin} {ondelete} />
 			{/each}
 		</div>
 	{/if}

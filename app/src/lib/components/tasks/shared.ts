@@ -27,15 +27,16 @@ export function saveLayouts(layouts: Record<string, TaskLayout>) {
 export type TaskSettings = {
 	/** Open subtasks listed under their task (Inbox and projects, list and board). */
 	showSubtasks: boolean;
-	/** Done subtasks listed under their task too, ticked. */
-	showDoneSubtasks: boolean;
 	/** The first line of a task's description under its title. */
 	showNotes: boolean;
 	/** Where a task lives, in Today and Upcoming. */
 	showPlace: boolean;
 	/** Open-task counts in the pane. */
 	showCounts: boolean;
-	/** Done tasks listed under the open ones (Inbox and projects, list and board). */
+	/**
+	 * Done tasks listed under the open ones (Inbox and projects, list and board), and
+	 * done subtasks under their task, in the lists and the task window.
+	 */
 	showCompleted: boolean;
 	/** The view `/tasks` opens on. */
 	startView: 'today' | 'inbox' | 'upcoming';
@@ -50,7 +51,6 @@ export const clampGoal = (n: number, fallback: number) =>
 
 export const DEFAULT_TASK_SETTINGS: TaskSettings = {
 	showSubtasks: true,
-	showDoneSubtasks: false,
 	showNotes: true,
 	showPlace: true,
 	showCounts: true,
@@ -67,7 +67,7 @@ export function loadTaskSettings(): TaskSettings {
 	try {
 		const raw = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}');
 		if (!raw || typeof raw !== 'object') return out;
-		for (const k of ['showSubtasks', 'showDoneSubtasks', 'showNotes', 'showPlace', 'showCounts', 'showCompleted'] as const) {
+		for (const k of ['showSubtasks', 'showNotes', 'showPlace', 'showCounts', 'showCompleted'] as const) {
 			if (typeof raw[k] === 'boolean') out[k] = raw[k];
 		}
 		if (['today', 'inbox', 'upcoming'].includes(raw.startView)) out.startView = raw.startView;

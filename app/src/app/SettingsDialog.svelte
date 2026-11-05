@@ -126,14 +126,13 @@
 
 	// ── General ──────────────────────────────────────────────────────────────
 
-	type Toggle = 'showSubtasks' | 'showDoneSubtasks' | 'showNotes' | 'showPlace' | 'showCounts' | 'showCompleted';
+	type Toggle = 'showSubtasks' | 'showNotes' | 'showPlace' | 'showCounts' | 'showCompleted';
 	const TOGGLES: { key: Toggle; label: string; hint?: string; sub?: boolean }[] = [
 		{ key: 'showSubtasks', label: 'Show subtasks', hint: 'Under their task in the Inbox and projects' },
-		{ key: 'showDoneSubtasks', label: 'Include completed subtasks', sub: true },
 		{ key: 'showNotes', label: 'Show descriptions', hint: 'The first line, under the title' },
 		{ key: 'showPlace', label: 'Show project in Today and Upcoming' },
 		{ key: 'showCounts', label: 'Show task counts', hint: 'Beside each list in the sidebar' },
-		{ key: 'showCompleted', label: 'Show completed tasks', hint: 'Under the open ones in the Inbox and projects' },
+		{ key: 'showCompleted', label: 'Show completed tasks', hint: 'Tasks under the open ones in the Inbox and projects, and subtasks everywhere' },
 	];
 	const START_VIEWS = [
 		{ value: 'today', label: 'Today' },
@@ -681,11 +680,17 @@
 		border-radius: 999px;
 	}
 
-	/* Phones: the sections become tabs across the top. */
+	/* Phones: the sections become tabs across the top. The panel is as tall as the
+	   section in it, centred, and scrolls only when that is taller than the screen. */
 	@media (max-width: 720px) {
 		.set-panel {
 			flex-direction: column;
-			height: calc(100dvh - 2rem);
+			height: auto;
+			max-height: calc(100dvh - 2rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+		}
+		.set-scroll {
+			flex: 0 1 auto;
+			min-height: 0;
 		}
 		.set-nav {
 			flex-direction: row;

@@ -529,7 +529,7 @@
 		if (!((view === 'inbox' || view === 'project' || view === 'today') && settings.showSubtasks)) return list;
 		return list.flatMap((t) => [
 			t,
-			...subtasksOf(t.id).filter((s) => (settings.showDoneSubtasks || !s.completed_at) && (view !== 'today' || dueSubtasks(t, s))),
+			...subtasksOf(t.id).filter((s) => (settings.showCompleted || !s.completed_at) && (view !== 'today' || dueSubtasks(t, s))),
 		]);
 	}
 
@@ -1034,7 +1034,7 @@
 		{subtasksOf}
 		nested={(nested || (view === 'today' && !task.completed_at)) && settings.showSubtasks}
 		subtaskFilter={view === 'today' ? dueSubtasks : null}
-		showDoneSubtasks={settings.showDoneSubtasks}
+		showDoneSubtasks={settings.showCompleted}
 		showNote={settings.showNotes}
 		{now}
 		place={view === 'filter' ? (filterFields?.has('place') ? placeOf(task) : null) : withPlace && settings.showPlace ? placeOf(task) : null}
@@ -1044,6 +1044,7 @@
 		ontoggle={toggleTask}
 		onopen={openTask}
 		onedit={(t) => { addingAt = null; inlineEditId = t.id; }}
+		onpin={isDesktop ? (t) => pin({ kind: 'task', id: t.id }) : null}
 		ondelete={deleteTask}
 	/>
 {/snippet}
@@ -1468,6 +1469,7 @@
 		task={drawerTask}
 		parent={drawerParent}
 		subtasks={subtasksOf(drawerTask.id)}
+		showDoneSubtasks={settings.showCompleted}
 		{projects}
 		{categories}
 		onprev={neighbours.prev ? () => openTask(neighbours.prev!) : null}

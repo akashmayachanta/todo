@@ -60,6 +60,8 @@ export function patchChips(p: TaskPatch, projects: TaskProject[], categories: Ta
 	const chips: SmartChip[] = [];
 	if ('due_date' in p && p.due_date) {
 		chips.push({ kind: 'date', label: dayLabel(p.due_date) + (p.due_time ? ` ${formatTime(p.due_time)}` : '') });
+	} else if ('due_date' in p) {
+		chips.push({ kind: 'date', label: 'No date' });
 	}
 	if (p.duration_minutes) chips.push({ kind: 'duration', label: `for ${formatDuration(p.duration_minutes)}` });
 	if (p.recurrence) chips.push({ kind: 'recurrence', label: `↻ ${p.recurrence}` });

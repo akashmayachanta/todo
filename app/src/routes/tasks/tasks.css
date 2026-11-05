@@ -778,6 +778,11 @@ html.sort-active * {
   color: var(--color-danger);
 }
 
+/* Started, with time left. After .task-due-today, so it wins on today's tasks. */
+.task-due-progress {
+  color: var(--color-info);
+}
+
 .task-meta-icon {
   display: inline-flex;
   align-items: center;

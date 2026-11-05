@@ -9,7 +9,7 @@
 	let root = $state<HTMLDivElement | null>(null);
 
 	const TIPS = [
-		{ what: 'Date', how: ['today', 'tod', 'tomorrow', 'tom', 'next fri', 'in 3 days', '12/11'] },
+		{ what: 'Date', how: ['today', 'tod', 'tomorrow', 'tom', 'next fri', 'in 3 days', '12/11', 'no date'], note: '"no date" takes the date and time off.' },
 		{ what: 'Time', how: ['5pm', '10p', 'tom 9:30a'], note: 'A time alone lands on the day you are adding to or the task already has, else today.' },
 		{ what: 'Duration', how: ['for 30m', 'for 1h', 'for 1h30m', 'for 2 hours'] },
 		{ what: 'Priority', how: ['p1', 'p2', 'p3', 'p4'], note: 'p1 is the highest.' },

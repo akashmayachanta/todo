@@ -31,7 +31,9 @@
 		const project_id = parsed.project_id ?? defaults.project_id ?? null;
 		const category_id = parsed.category_id
 			?? (project_id === (defaults.project_id ?? null) ? defaults.category_id ?? null : null);
-		const due_date = parsed.due_date ?? defaults.due_date ?? null;
+		// "no date" in the line beats the day being added to.
+		const datedByLine = parsed.tokens.some((t) => t.kind === 'date');
+		const due_date = datedByLine ? parsed.due_date : parsed.due_date ?? defaults.due_date ?? null;
 		const due_time = parsed.due_date ? parsed.due_time : null;
 		return {
 			title: parsed.title,

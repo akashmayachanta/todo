@@ -32,12 +32,23 @@
   max-width: none;
 }
 
+/* When the title and the controls don't fit on one line, the controls wrap under
+   the title instead of the title shrinking under them. */
 .tasks-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
-  gap: var(--space-sm);
+  gap: var(--space-xs) var(--space-sm);
   margin-bottom: var(--space-md);
+}
+
+.tasks-head > :first-child {
+  flex: 1 1 auto;
+}
+
+.tasks-head .tasks-title {
+  overflow-wrap: anywhere;
 }
 
 .tasks-title {
@@ -54,6 +65,7 @@
 
 .tasks-head-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-xs);
   padding-top: 0.25rem;
@@ -1595,7 +1607,8 @@ button.tcal-day:hover {
     display: flex;
     flex: 1;
     width: auto;
-    padding: var(--space-sm) var(--space-sm) calc(4.5rem + env(safe-area-inset-bottom));
+    /* Clear of the tab bar and the add button above it. */
+    padding: var(--space-sm) var(--space-sm) calc(8.5rem + env(safe-area-inset-bottom));
     border-right: 0;
     background-color: var(--bg-base);
   }
@@ -1668,17 +1681,13 @@ button.tcal-day:hover {
     font-weight: 600;
   }
 
-  /* Clear of the tab bar. */
+  /* Clear of the tab bar and the add button above it. */
   .tasks-main {
-    padding-bottom: calc(4.5rem + env(safe-area-inset-bottom));
+    padding-bottom: calc(8.5rem + env(safe-area-inset-bottom));
   }
 
   .tasks-content {
     padding: var(--space-md);
-  }
-
-  .tasks-head {
-    flex-wrap: wrap;
   }
 
   .tasks-layout-label {
@@ -1899,16 +1908,4 @@ button.tcal-day:hover {
   margin-bottom: var(--space-2xs);
   font-size: var(--text-xs);
   color: var(--color-warning);
-}
-
-@media (max-width: 720px) {
-  .fab {
-    bottom: calc(4.75rem + env(safe-area-inset-bottom));
-    right: calc(1rem + env(safe-area-inset-right));
-  }
-
-  .tasks-page-browsing ~ .fab,
-  .app-main:has(.tasks-page-browsing) ~ .fab {
-    display: none;
-  }
 }

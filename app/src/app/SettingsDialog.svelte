@@ -126,13 +126,14 @@
 
 	// ── General ──────────────────────────────────────────────────────────────
 
-	type Toggle = 'showSubtasks' | 'showDoneSubtasks' | 'showNotes' | 'showPlace' | 'showCounts';
+	type Toggle = 'showSubtasks' | 'showDoneSubtasks' | 'showNotes' | 'showPlace' | 'showCounts' | 'showCompleted';
 	const TOGGLES: { key: Toggle; label: string; hint?: string; sub?: boolean }[] = [
 		{ key: 'showSubtasks', label: 'Show subtasks', hint: 'Under their task in the Inbox and projects' },
 		{ key: 'showDoneSubtasks', label: 'Include completed subtasks', sub: true },
 		{ key: 'showNotes', label: 'Show descriptions', hint: 'The first line, under the title' },
 		{ key: 'showPlace', label: 'Show project in Today and Upcoming' },
 		{ key: 'showCounts', label: 'Show task counts', hint: 'Beside each list in the sidebar' },
+		{ key: 'showCompleted', label: 'Show completed tasks', hint: 'Under the open ones in the Inbox and projects' },
 	];
 	const START_VIEWS = [
 		{ value: 'today', label: 'Today' },

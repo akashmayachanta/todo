@@ -57,7 +57,6 @@
 	/** Which "+ Add task" has its quick add open: 'main', `cat:<id>` or `date:<YYYY-MM-DD>`. */
 	let addingAt = $state<string | null>(null);
 
-	let completedShown = $state(false);
 	let completed = $state<Task[]>([]);
 	/** The task in the drawer when it isn't among the open ones (done, or opened from search). */
 	let extraTask = $state<Task | null>(null);
@@ -100,6 +99,8 @@
 		return v === 'inbox' || v === 'upcoming' || v === 'today' || v === 'karma' ? v : settings.startView;
 	});
 	let taskId = $derived(params.get('task') || null);
+	/** Done tasks are listed in the Inbox and projects when Settings → General says so. */
+	let completedShown = $derived(settings.showCompleted && (view === 'project' || view === 'inbox'));
 	/** Phones: the Browse tab (account, filters, projects) in place of the list. */
 	let browsing = $derived(!projectId && !filterId && params.get('view') === 'browse');
 	let project = $derived(projects.find((p) => p.id === projectId) ?? null);
@@ -478,24 +479,29 @@
 		}
 	}
 
+	/** Bumped on each load, so a slow load for a view already left is dropped. */
+	let completedLoad = 0;
+
 	async function loadCompleted() {
-		completed = view === 'project' && projectId
+		const n = ++completedLoad;
+		const list = view === 'project' && projectId
 			? await api.tasks.list({ completed: true, project_id: projectId })
 			: await api.tasks.list({ completed: true, inbox: true });
+		if (n === completedLoad) completed = list;
 	}
 
-	async function toggleCompleted() {
-		completedShown = !completedShown;
+	// The done tasks of the view on screen, loaded when it opens or the setting is turned on.
+	$effect(() => {
+		void view; void projectId;
+		completed = [];
+		completedLoad++;
 		if (!completedShown) return;
-		try { await loadCompleted(); }
-		catch (e) { toast.error(errorDetail(e)); }
-	}
+		loadCompleted().catch((e) => toast.error(errorDetail(e)));
+	});
 
-	// A new view starts without its done tasks and with no quick add open.
+	// A new view starts with no quick add open.
 	$effect(() => {
 		void view; void projectId; void filterId;
-		completedShown = false;
-		completed = [];
 		addingAt = null;
 		addingCategory = false;
 		renamingCategory = null;
@@ -779,6 +785,8 @@
 
 	/** Where the app-wide quick add puts a task by default while this page is open. */
 	function quickAddDefaults() {
+		// Phones' Browse tab isn't a list: a task added there goes to the Inbox, undated.
+		if (browsing) return {};
 		if (view === 'project' && projectId) {
 			const m = /^#task-cat-([\w-]+)$/.exec(page.url.hash);
 			const cat = m ? categories.find((c) => c.id === m[1] && c.project_id === projectId) : null;
@@ -965,11 +973,6 @@
 					{/if}
 					{#if !loading && !error && view !== 'karma'}
 						<LayoutToggle {layout} options={layoutOptions} onchange={setLayout} />
-					{/if}
-					{#if (view === 'project' || view === 'inbox') && layout !== 'calendar'}
-						<button type="button" class="btn btn-ghost" onclick={toggleCompleted} aria-pressed={completedShown}>
-							{completedShown ? 'Hide completed' : 'Show completed'}
-						</button>
 					{/if}
 					{#if view !== 'karma'}<SmartTips />{/if}
 					{#if filter}

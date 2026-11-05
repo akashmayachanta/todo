@@ -15,7 +15,7 @@
 	overflow: auto;
 }
 
-/* Add task: a round button floating at the bottom right, over every view. */
+/* Add task: a rounded-square button floating at the bottom right, over every view. */
 .fab {
 	position: fixed;
 	right: calc(1.5rem + env(safe-area-inset-right));
@@ -25,7 +25,7 @@
 	place-items: center;
 	width: 3.25rem;
 	height: 3.25rem;
-	border-radius: 999px;
+	border-radius: 14px;
 	background: var(--color-brand);
 	color: var(--color-brand-text);
 	box-shadow: 0 6px 18px -4px color-mix(in oklch, var(--color-brand) 55%, transparent), 0 2px 6px rgb(0 0 0 / 0.12);
@@ -49,4 +49,12 @@
 .fab:focus-visible {
 	outline: 2px solid var(--color-focus);
 	outline-offset: 3px;
+}
+/* Phones: above the Tasks tab bar (tasks.css, about 3.7rem tall). Kept in this file,
+   right after .fab, so it always wins: a page's stylesheet can load before this one. */
+@media (max-width: 720px) {
+	.fab {
+		bottom: calc(4.75rem + env(safe-area-inset-bottom));
+		right: calc(1rem + env(safe-area-inset-right));
+	}
 }

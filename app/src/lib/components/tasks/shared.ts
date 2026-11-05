@@ -34,6 +34,8 @@ export type TaskSettings = {
 	showPlace: boolean;
 	/** Open-task counts in the pane. */
 	showCounts: boolean;
+	/** Done tasks listed under the open ones (Inbox and projects, list and board). */
+	showCompleted: boolean;
 	/** The view `/tasks` opens on. */
 	startView: 'today' | 'inbox' | 'upcoming';
 	/** Karma: tasks to complete a day, and a week. */
@@ -51,6 +53,7 @@ export const DEFAULT_TASK_SETTINGS: TaskSettings = {
 	showNotes: true,
 	showPlace: true,
 	showCounts: true,
+	showCompleted: false,
 	startView: 'today',
 	dailyGoal: 5,
 	weeklyGoal: 25,
@@ -63,7 +66,7 @@ export function loadTaskSettings(): TaskSettings {
 	try {
 		const raw = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}');
 		if (!raw || typeof raw !== 'object') return out;
-		for (const k of ['showSubtasks', 'showDoneSubtasks', 'showNotes', 'showPlace', 'showCounts'] as const) {
+		for (const k of ['showSubtasks', 'showDoneSubtasks', 'showNotes', 'showPlace', 'showCounts', 'showCompleted'] as const) {
 			if (typeof raw[k] === 'boolean') out[k] = raw[k];
 		}
 		if (['today', 'inbox', 'upcoming'].includes(raw.startView)) out.startView = raw.startView;

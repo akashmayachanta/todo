@@ -7,6 +7,14 @@ set -euo pipefail
 SRC="$(cd "$(dirname "$0")" && pwd)"   # the Windows repo, seen from WSL
 DEST="${DEST:-$HOME/todo}"             # the Linux copy that is built
 
+# Run from the Linux copy, the sync would copy it onto itself: the APK would be
+# built from stale code and left in Linux, not in the Windows repo.
+if [ "$(realpath -m "$SRC")" = "$(realpath -m "$DEST")" ]; then
+  echo "error: this is the Linux copy ($DEST); it is built from the Windows repo." >&2
+  echo "Run the Windows one instead:  bash /mnt/c/Drive/Vault/todo/build-android.sh" >&2
+  exit 1
+fi
+
 # A script doesn't read ~/.bashrc, so load the toolchain here.
 source "$HOME/.cargo/env"
 export NVM_DIR="$HOME/.nvm"; source "$NVM_DIR/nvm.sh"

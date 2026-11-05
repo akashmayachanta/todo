@@ -15,7 +15,8 @@ the server keeps them in step across devices.
 └── app/                 Tauri 2 app (Windows .exe/.msi, Android .apk)
     ├── src/             SvelteKit: the Tasks UI (lib/, routes/tasks) and the shell
     │                    (app/: setup, first sync, sync chip, Tauri TasksClient)
-    ├── icons-src/       the icon's source; `npm run icons` makes every size from it
+    ├── icons-src/       the icons' sources (green for Windows, black for Android);
+    │                    `npm run icons` makes every size from them
     └── src-tauri/       Rust: local tasks.db, commands, sync loop, reminders, tray
 ```
 
@@ -64,7 +65,8 @@ the server keeps them in step across devices.
   app returns to the front (Android resumes it), and about 2 s after an edit.
   Otherwise it syncs every 2 minutes. The chip in the app bar shows synced,
   syncing, offline, server down, error or signed out, plus how many changes are
-  waiting. Click it to sync now.
+  waiting. Click it to sync now. The icon beside it forces a sync: it starts at
+  once, pulls every row from the server again, and reloads the tasks.
 - **Either side can drop mid-sync.** A push is safe to repeat: a row the server
   already has is ignored. A pull resumes from the last page that was saved. So
   a sync cut short by either side just finishes next time.
@@ -243,6 +245,8 @@ npm run android:build     # tauri android build --apk
 `android:init` writes `src-tauri/gen/android`. Commit that folder, but never the
 keystore. `scripts/android-permissions.mjs` adds `POST_NOTIFICATIONS`,
 `SCHEDULE_EXACT_ALARM`, `USE_EXACT_ALARM` and `RECEIVE_BOOT_COMPLETED`.
+`scripts/android-icons.mjs` copies `src-tauri/icons/android` into it before each
+build, since that folder starts with Tauri's default icons.
 
 **Reminders on Android are scheduled notifications.** After every sync or edit,
 the app cancels its scheduled notifications. It then schedules one for each open

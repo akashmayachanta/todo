@@ -1,8 +1,11 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import type { Task, TaskRowField } from '$lib/api';
+	import { plainText } from '$lib/links';
 	import { describeDue, formatDuration } from '$lib/taskParse';
+	import LinkedText from './LinkedText.svelte';
 	import TaskRow from './TaskRow.svelte';
+	import { taskMinutes } from './shared';
 
 	/**
 	 * One task: a round check ringed in its priority colour, the title, and a line of what
@@ -41,9 +44,13 @@
 	const shows = (f: TaskRowField) => !fields || fields.has(f);
 	let due = $derived(shows('due') ? describeDue(task, now) : null);
 	let done = $derived(!!task.completed_at);
+	let name = $derived(plainText(task.title));
 	let noteShown = $derived(fields ? fields.has('description') : showNote);
 	let note = $derived(noteShown ? task.description?.split('\n').find((l) => l.trim()) ?? '' : '');
-	let duration = $derived(shows('duration') && task.duration_minutes && !(due && task.due_time) ? task.duration_minutes : null);
+	/** Its own duration plus its open subtasks'; left out when it is only its own and the due time already shows it as a range. */
+	let totalMinutes = $derived(taskMinutes(task, subtasks));
+	let rolledUp = $derived(totalMinutes !== (task.duration_minutes ?? 0));
+	let duration = $derived(shows('duration') && totalMinutes && (rolledUp || !(due && task.due_time)) ? totalMinutes : null);
 	let repeat = $derived(shows('repeat') ? task.recurrence : null);
 	let reminder = $derived(shows('reminder') ? task.remind_at : null);
 	let subtaskCount = $derived(shows('subtasks') && subtasks.length > 0);
@@ -70,15 +77,18 @@
 				class="task-check"
 				data-priority={task.priority}
 				aria-pressed={done}
-				aria-label={done ? `Mark "${task.title}" not done` : task.recurrence ? `Complete "${task.title}" (moves to its next date)` : `Complete "${task.title}"`}
+				aria-label={done ? `Mark "${name}" not done` : task.recurrence ? `Complete "${name}" (moves to its next date)` : `Complete "${name}"`}
 				onclick={() => ontoggle(task)}
 			>
 				<svg aria-hidden="true" class="task-check-tick" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" /></svg>
 			</button>
 
-			<button type="button" class="task-main" onclick={onMainClick} title={onedit ? 'Click to open · Alt+click to edit here' : undefined}>
-				<span class="task-title">{task.title}</span>
-				{#if note}<span class="task-note">{note}</span>{/if}
+			<!-- Links sit inside, so this can't be a button: the pointer clicks the row, the keyboard the button over it. -->
+			<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+			<div class="task-main" onclick={onMainClick} title={onedit ? 'Click to open · Alt+click to edit here' : undefined}>
+				<button type="button" class="task-open" aria-label="Open {name}"></button>
+				<span class="task-title"><LinkedText text={task.title} /></span>
+				{#if note}<span class="task-note"><LinkedText text={note} /></span>{/if}
 				{#if due || reminder || repeat || duration || subtaskCount || task.location || place}
 					<span class="task-meta">
 						{#if due}
@@ -88,7 +98,7 @@
 							</span>
 						{/if}
 						{#if duration}
-							<span class="task-meta-icon" title="Takes {formatDuration(duration)}">{formatDuration(duration)}</span>
+							<span class="task-meta-icon" title={rolledUp ? `Takes ${formatDuration(duration)} with its open subtasks` : `Takes ${formatDuration(duration)}`}>{formatDuration(duration)}</span>
 						{/if}
 						{#if repeat}
 							<span class="task-meta-icon" title={repeat} aria-label="Repeats {repeat}">↻</span>
@@ -118,15 +128,15 @@
 						{/if}
 					</span>
 				{/if}
-			</button>
+			</div>
 
 			<div class="task-actions">
 				{#if onedit}
-					<button type="button" class="tasks-icon-btn" onclick={() => onedit(task)} title="Edit here (Alt+click)" aria-label="Edit {task.title}">
+					<button type="button" class="tasks-icon-btn" onclick={() => onedit(task)} title="Edit here (Alt+click)" aria-label="Edit {name}">
 						<svg aria-hidden="true" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
 					</button>
 				{/if}
-				<button type="button" class="tasks-icon-btn tasks-icon-btn-danger" onclick={() => ondelete(task)} title="Delete" aria-label="Delete {task.title}">
+				<button type="button" class="tasks-icon-btn tasks-icon-btn-danger" onclick={() => ondelete(task)} title="Delete" aria-label="Delete {name}">
 					<svg aria-hidden="true" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
 				</button>
 			</div>

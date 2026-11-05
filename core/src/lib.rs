@@ -80,3 +80,31 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 pub fn new_id() -> String {
     uuid::Uuid::now_v7().to_string()
 }
+
+/// A title as read, for a notification: "[Talk](https://…) notes" is "Talk notes".
+pub fn plain_title(title: &str) -> String {
+    let mut out = String::new();
+    let mut rest = title;
+    while let Some(mid) = rest.find("](http") {
+        let (Some(open), Some(close)) = (rest[..mid].rfind('['), rest[mid..].find(')')) else {
+            break;
+        };
+        out.push_str(&rest[..open]);
+        out.push_str(&rest[open + 1..mid]);
+        rest = &rest[mid + close + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+#[cfg(test)]
+mod title_tests {
+    use super::plain_title;
+
+    #[test]
+    fn plain_title_keeps_only_the_labels() {
+        assert_eq!(plain_title("Plain"), "Plain");
+        assert_eq!(plain_title("[Talk](https://a.b/c?d=1) notes [x](http://e)"), "Talk notes x");
+        assert_eq!(plain_title("Odd ](https://a.b"), "Odd ](https://a.b");
+    }
+}

@@ -52,6 +52,8 @@ pub struct AppState {
     pub status: Mutex<SyncStatus>,
     /// Wakes the sync loop (a change, Sync now, sign-in).
     pub wake: Notify,
+    /// The next round pulls everything again and reloads the page (the force-sync button).
+    pub force_sync: AtomicBool,
     /// Held for a whole sync round and while signing in, so a round never
     /// lands one account's rows after the switch to another.
     pub sync_lock: AsyncMutex<()>,
@@ -81,6 +83,7 @@ impl AppState {
             config: Mutex::new(config),
             status: Mutex::new(SyncStatus::default()),
             wake: Notify::new(),
+            force_sync: AtomicBool::new(false),
             sync_lock: AsyncMutex::new(()),
             open_task: Mutex::new(None),
             minimized: AtomicBool::new(false),

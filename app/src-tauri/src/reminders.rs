@@ -56,7 +56,7 @@ fn fire_due(app: &AppHandle, st: &Arc<AppState>) {
         if fired.contains(&key) {
             continue;
         }
-        let _ = app.notification().builder().title("Task reminder").body(&task.title).show();
+        let _ = app.notification().builder().title("Task reminder").body(&tasks_core::plain_title(&task.title)).show();
         fired.push(key);
         any = true;
     }
@@ -113,7 +113,7 @@ pub fn refresh(app: &AppHandle, st: &Arc<AppState>) {
             .builder()
             .id(id)
             .title("Task reminder")
-            .body(&task.title)
+            .body(&tasks_core::plain_title(&task.title))
             .extra("task_id", &task.id)
             .auto_cancel()
             .schedule(Schedule::At { date, repeating: false, allow_while_idle: true })

@@ -11,7 +11,8 @@
 	import { onTaskAdded, setQuickAddContext } from '$lib/stores/taskQuickAdd';
 	import { taskSettings } from '$lib/stores/taskSettings';
 	import { onTasksChanged } from '$lib/tasks/client';
-	import { addDays, dayLabel, daysBetween, fromYmd, nextOccurrence, ymd } from '$lib/taskParse';
+	import { plainText } from '$lib/links';
+	import { addDays, dayLabel, daysBetween, formatDuration, fromYmd, nextOccurrence, ymd } from '$lib/taskParse';
 	import DropdownMenu from '$lib/components/DropdownMenu.svelte';
 	import TasksPane from '$lib/components/tasks/TasksPane.svelte';
 	import QuickAdd from '$lib/components/tasks/QuickAdd.svelte';
@@ -29,7 +30,7 @@
 		type AddDefaults, type Bucket, type DateViewGroup, type GroupCtx,
 	} from '$lib/components/tasks/taskFilters';
 	import {
-		PROJECT_COLORS, byDue, byPosition, loadLayouts, placeName, projectColor, saveLayouts,
+		PROJECT_COLORS, byDue, byPosition, durationTotals, loadLayouts, placeName, projectColor, saveLayouts,
 		shiftInstant, type TaskLayout, type TaskSettings, type TaskView,
 	} from '$lib/components/tasks/shared';
 	import './tasks.css';
@@ -165,6 +166,8 @@
 			categories: byCategory,
 		};
 	});
+	/** Minutes of open work rolled up to each project and category (subtasks included). */
+	let minutes = $derived(durationTotals(open));
 
 	let inboxTasks = $derived(topLevel.filter((t) => t.project_id === null).sort(byPosition));
 	let overdue = $derived(dated.filter((t) => t.due_date! < today).sort(byDue));
@@ -604,7 +607,7 @@
 			}
 			const done = await api.tasks.update(task.id, { completed_at: new Date().toISOString() });
 			replace(done);
-			if (task.parent_id === null) toast.success(`Completed "${task.title}"`);
+			if (task.parent_id === null) toast.success(`Completed "${plainText(task.title)}"`);
 			await reloadTasks();
 		} catch (e) {
 			toast.error(errorDetail(e));
@@ -613,7 +616,7 @@
 
 	async function deleteTask(task: Task) {
 		const subs = subtasksOf(task.id).length;
-		if (!(await confirmDialog(`Delete "${task.title}"${subs ? ` and its ${subs} subtask${subs > 1 ? 's' : ''}` : ''}?`))) return;
+		if (!(await confirmDialog(`Delete "${plainText(task.title)}"${subs ? ` and its ${subs} subtask${subs > 1 ? 's' : ''}` : ''}?`))) return;
 		try {
 			await api.tasks.delete(task.id);
 			tasks = tasks.filter((t) => t.id !== task.id && t.parent_id !== task.id);
@@ -806,7 +809,10 @@
 			if (!tasks.some((x) => x.id === t.id)) tasks = [...tasks, t];
 		});
 		// The Tauri app's sync pulled changes made on another device.
-		const stopChanged = onTasksChanged(loadAll);
+		const stopChanged = onTasksChanged(async () => {
+			await loadAll();
+			if (completedShown) loadCompleted().catch(() => {});
+		});
 		// Keeps "Today" and the overdue marks right past midnight and as times go by.
 		const clock = setInterval(() => (now = new Date()), 60_000);
 		return () => {
@@ -893,6 +899,9 @@
 		{:else}
 			<h2 class="task-category-name">{c.name}</h2>
 			<span class="task-group-count">{count}</span>
+			{#if minutes.categories[c.id]}
+				<span class="task-group-count task-group-time" title="Open work in {c.name}">{formatDuration(minutes.categories[c.id])}</span>
+			{/if}
 			<DropdownMenu
 				class="task-category-menu"
 				triggerClass="tasks-icon-btn"
@@ -938,6 +947,7 @@
 		{categories}
 		{filters}
 		{counts}
+		{minutes}
 		{view}
 		{projectId}
 		{filterId}
@@ -960,6 +970,9 @@
 						{#if project}<span class="tasks-dot tasks-dot-lg" style="background-color: {projectColor(project.color)}"></span>{/if}
 						{#if filter}<span class="tasks-dot tasks-dot-lg" style="background-color: {projectColor(filter.color)}"></span>{/if}
 						{heading}
+						{#if project && minutes.projects[project.id]}
+							<span class="tasks-title-time" title="Open work in {project.name}">{formatDuration(minutes.projects[project.id])}</span>
+						{/if}
 					</h1>
 					{#if view === 'today'}
 						<p class="page-subtitle">{fromYmd(today).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</p>

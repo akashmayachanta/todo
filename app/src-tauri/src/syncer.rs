@@ -2,15 +2,17 @@
 //! at start, ~2 s after a change, every 2 minutes, and while it can't sync:
 //! every 30 s when this device is offline, every minute when the server is
 //! down. The page also wakes it when the network comes back or the app is
-//! brought back to the front.
+//! brought back to the front. A forced round (the force-sync button) starts at
+//! once, pulls every row again, and always reloads the page.
 //!
 //! The first full sync after signing in marks the account ready (see
 //! SyncStatus::ready); until then the page shows that it is fetching the tasks.
 
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
-use tasks_core::client::{diagnose, sync_once, Client, ClientError};
+use tasks_core::client::{diagnose, sync_once, Client, ClientError, SyncReport};
 use tauri::{AppHandle, Emitter};
 
 use crate::state::{lock, AppState, SyncStatus, FIRST_SYNC_KEY};
@@ -23,7 +25,7 @@ const DEBOUNCE: Duration = Duration::from_secs(2);
 
 /// Tells the page: the sync status changed.
 pub const EVENT_STATUS: &str = "tasks://sync";
-/// Tells the page: a pull changed local rows, reload.
+/// Tells the page: local rows changed under it, reload.
 pub const EVENT_CHANGED: &str = "tasks://changed";
 
 pub fn set_status(app: &AppHandle, st: &AppState, mut status: SyncStatus) {
@@ -44,6 +46,7 @@ fn pending(st: &AppState) -> i64 {
 /// One round; returns how long to wait before the next one.
 async fn round(app: &AppHandle, st: &Arc<AppState>) -> Duration {
     let _round = st.sync_lock.lock().await;
+    let force = st.force_sync.swap(false, Ordering::Relaxed);
     let server = lock(&st.config).server.clone();
     let Some(server) = server else {
         set_status(app, st, SyncStatus { state: "setup", pending: pending(st), ..Default::default() });
@@ -56,14 +59,23 @@ async fn round(app: &AppHandle, st: &Arc<AppState>) -> Duration {
     let last = lock(&st.status).last_synced_at.clone();
     set_status(app, st, SyncStatus { state: "syncing", last_synced_at: last.clone(), pending: pending(st), ..Default::default() });
 
+    if force {
+        let _ = tasks_core::sync::set_last_pulled(&lock(&st.db), 0);
+    }
     let client = Client::new(server.clone());
-    let result = match sync_once(&client, &token, &st.db, &st.ctx).await {
-        Ok(report) => Ok(report),
+    let mut report = SyncReport::default();
+    let result = match sync_once(&client, &token, &st.db, &st.ctx, &mut report).await {
+        Ok(()) => Ok(()),
         Err(e) => Err(diagnose(e).await),
     };
+    // Also after a round that failed partway: the rows it pulled won't count as
+    // changes next time, so this is the only chance to show them.
+    if force || report.changed > 0 {
+        let _ = app.emit(EVENT_CHANGED, report.changed);
+    }
     let pending = pending(st);
     match result {
-        Ok(report) => {
+        Ok(()) => {
             let _ = tasks_core::db::set_state(&lock(&st.db), FIRST_SYNC_KEY, &tasks_core::time::now_iso());
             set_status(
                 app,
@@ -76,9 +88,6 @@ async fn round(app: &AppHandle, st: &Arc<AppState>) -> Duration {
                     ready: true,
                 },
             );
-            if report.changed > 0 {
-                let _ = app.emit(EVENT_CHANGED, report.changed);
-            }
             EVERY
         }
         Err(ClientError::Offline(_) | ClientError::Unreachable(_)) => {
@@ -109,7 +118,7 @@ pub async fn run(app: AppHandle, st: Arc<AppState>) {
             _ = st.wake.notified() => true,
             _ = tokio::time::sleep(delay) => false,
         };
-        if woke {
+        if woke && !st.force_sync.load(Ordering::Relaxed) {
             // More edits in the next moment wake it again; one sync covers them.
             tokio::time::sleep(DEBOUNCE).await;
         }

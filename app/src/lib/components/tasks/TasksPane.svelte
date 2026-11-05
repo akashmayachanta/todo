@@ -4,6 +4,7 @@
 	import type { TaskCategory, TaskFilter, TaskProject } from '$lib/api';
 	import DropdownMenu from '$lib/components/DropdownMenu.svelte';
 	import { getPaneFooter, getPaneHeader } from '$lib/paneHeader';
+	import { formatDuration } from '$lib/taskParse';
 	import { projectColor, type TaskSettings, type TaskView } from './shared';
 
 	/**
@@ -14,7 +15,7 @@
 	 * Move up / Move down in their menu. On phones it is the Browse tab.
 	 */
 	let {
-		projects, categories, filters, counts, view, projectId, filterId, settings, browsing = false,
+		projects, categories, filters, counts, minutes, view, projectId, filterId, settings, browsing = false,
 		onaddproject, oneditproject, ondeleteproject, onreorderprojects, onaddfilter, oneditfilter, ondeletefilter,
 	}: {
 		projects: TaskProject[];
@@ -24,6 +25,8 @@
 			inbox: number; today: number; upcoming: number;
 			projects: Record<string, number>; categories: Record<string, number>; filters: Record<string, number>;
 		};
+		/** Minutes of open work in each project and category. */
+		minutes: { projects: Record<string, number>; categories: Record<string, number> };
 		view: TaskView;
 		projectId: string | null;
 		filterId: string | null;
@@ -212,6 +215,7 @@
 				<a href="?project={p.id}" class="tasks-pane-link" aria-current={here && !hash.startsWith('#task-cat-') ? 'page' : undefined}>
 					<span class="tasks-dot" style="background-color: {projectColor(p.color)}"></span>
 					<span class="tasks-pane-label">{p.name}</span>
+					{#if count(minutes.projects[p.id])}<span class="tasks-pane-count tasks-pane-time">{formatDuration(minutes.projects[p.id])}</span>{/if}
 					{#if count(counts.projects[p.id])}<span class="tasks-pane-count">{count(counts.projects[p.id])}</span>{/if}
 				</a>
 				{#if cats.length}
@@ -258,6 +262,7 @@
 							>
 								<span class="tasks-pane-cat-mark" style="border-color: {projectColor(p.color)}"></span>
 								<span class="tasks-pane-label">{c.name}</span>
+								{#if count(minutes.categories[c.id])}<span class="tasks-pane-count tasks-pane-time">{formatDuration(minutes.categories[c.id])}</span>{/if}
 								{#if count(counts.categories[c.id])}<span class="tasks-pane-count">{count(counts.categories[c.id])}</span>{/if}
 							</a>
 						</li>

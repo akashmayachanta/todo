@@ -9,11 +9,11 @@
 		"build": "vite build",
 		"tauri": "tauri",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-		"icons": "tauri icon icons-src/icon.svg",
-		"android:init": "tauri android init && node scripts/android-permissions.mjs",
-		"android:dev": "tauri android dev",
-		"android:build": "node scripts/android-signing.mjs && tauri android build --apk --target aarch64",
-		"android:build:all": "node scripts/android-signing.mjs && tauri android build --apk"
+		"icons": "node scripts/icons.mjs",
+		"android:init": "tauri android init && node scripts/android-permissions.mjs && node scripts/android-icons.mjs",
+		"android:dev": "node scripts/android-icons.mjs && tauri android dev",
+		"android:build": "node scripts/android-signing.mjs && node scripts/android-icons.mjs && tauri android build --apk --target aarch64",
+		"android:build:all": "node scripts/android-signing.mjs && node scripts/android-icons.mjs && tauri android build --apk"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-static": "^3.0.10",
@@ -35,6 +35,7 @@
 		"@fontsource-variable/hanken-grotesk": "^5.3.0",
 		"@fontsource/ibm-plex-mono": "^5.3.0",
 		"@tauri-apps/api": "^2.9.0",
+		"@tauri-apps/plugin-opener": "^2.7.2",
 		"chrono-node": "^2.10.3",
 		"vanilla-calendar-pro": "^3.4.0"
 	}

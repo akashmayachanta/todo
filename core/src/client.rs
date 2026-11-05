@@ -236,9 +236,10 @@ async fn push_all(client: &Client, token: &str, db: &Mutex<Connection>, ctx: &Ct
 }
 
 /// One sync round. Safe to call while the user keeps editing: a row changed
-/// during the push stays dirty and goes next time.
-pub async fn sync_once(client: &Client, token: &str, db: &Mutex<Connection>, ctx: &Ctx) -> Result<SyncReport, ClientError> {
-    let mut report = SyncReport { pushed: push_all(client, token, db, ctx).await?, ..Default::default() };
+/// during the push stays dirty and goes next time. `report` is filled as it goes,
+/// so a round that fails partway still tells what it already changed.
+pub async fn sync_once(client: &Client, token: &str, db: &Mutex<Connection>, ctx: &Ctx, report: &mut SyncReport) -> Result<(), ClientError> {
+    report.pushed += push_all(client, token, db, ctx).await?;
     let mut restarted = false;
     loop {
         let since = sync::last_pulled(&lock(db))?;
@@ -272,5 +273,5 @@ pub async fn sync_once(client: &Client, token: &str, db: &Mutex<Connection>, ctx
     }
     // Repairs made by the merge (e.g. a task whose project was deleted elsewhere).
     report.pushed += push_all(client, token, db, ctx).await?;
-    Ok(report)
+    Ok(())
 }

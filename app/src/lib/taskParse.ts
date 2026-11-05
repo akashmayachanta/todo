@@ -7,6 +7,7 @@
  */
 import * as chrono from 'chrono-node';
 import type { Task, TaskCategory, TaskPriority, TaskProject } from '$lib/api';
+import { blankLinks } from '$lib/links';
 
 export type TokenKind = 'date' | 'priority' | 'project' | 'category' | 'recurrence' | 'reminder' | 'duration';
 
@@ -244,7 +245,7 @@ function overlaps(tokens: ParsedToken[], start: number, end: number): boolean {
 
 /** The text with the token ranges blanked out, so offsets stay the same. */
 function mask(text: string, tokens: ParsedToken[]): string {
-	const chars = [...text];
+	const chars = text.split(''); // UTF-16 units, as the offsets are, so an emoji doesn't shift them.
 	for (const t of tokens) for (let i = t.start; i < t.end; i++) chars[i] = ' ';
 	return chars.join('');
 }
@@ -306,13 +307,15 @@ function hasDay(c: chrono.ParsedComponents): boolean {
  * without one a time alone is today (or tomorrow once it has passed).
  */
 export function parseQuickAdd(
-	text: string,
+	line: string,
 	projects: TaskProject[],
 	categories: TaskCategory[],
 	now = new Date(),
 	contextProjectId: string | null = null,
 	contextDate: string | null = null,
 ): QuickAdd {
+	// A link is left as it is: its label and address aren't dates or places.
+	const text = blankLinks(line);
 	const tokens: ParsedToken[] = [];
 	const out: QuickAdd = {
 		title: '', due_date: null, due_time: null, duration_minutes: null, remind_at: null, priority: null,
@@ -443,8 +446,34 @@ export function parseQuickAdd(
 	}
 
 	tokens.sort((a, b) => a.start - b.start);
-	out.title = mask(text, tokens.filter((t) => !t.unknown)).replace(/\s+/g, ' ').trim();
+	out.title = mask(line, tokens.filter((t) => !t.unknown)).replace(/\s+/g, ' ').trim();
 	return out;
+}
+
+/** One line of a pasted list. `minutes` comes from a trailing " · 17:52" or " · 1:39:43". */
+export interface PastedLine {
+	text: string;
+	minutes: number | null;
+}
+
+const LIST_MARK_RE = /^\s*(?:[-*+•]\s+|\d+[.)]\s+)?(?:\[[ xX]\]\s+)?/;
+const CLOCK_TAIL_RE = /\s+·\s+(?:(\d+):)?(\d{1,2}):(\d{2})\s*$/;
+
+/** The items of pasted text, one per line, without list marks. Blank lines and "## headings" are skipped. */
+export function pastedLines(text: string): PastedLine[] {
+	const lines: PastedLine[] = [];
+	for (const raw of text.split(/\r?\n/)) {
+		if (!raw.trim() || /^\s*#{1,6}\s/.test(raw)) continue;
+		const item = raw.replace(LIST_MARK_RE, '');
+		const clock = CLOCK_TAIL_RE.exec(item);
+		const seconds = clock ? Number(clock[1] ?? 0) * 3600 + Number(clock[2]) * 60 + Number(clock[3]) : 0;
+		const minutes = Math.max(1, Math.round(seconds / 60));
+		lines.push({
+			text: (clock ? item.slice(0, clock.index) : item).trim(),
+			minutes: clock && minutes <= 10080 ? minutes : null,
+		});
+	}
+	return lines.filter((l) => l.text);
 }
 
 /**

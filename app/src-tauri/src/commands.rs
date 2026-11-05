@@ -285,6 +285,13 @@ pub fn app_sync_now(st: St) {
     st.wake.notify_one();
 }
 
+/// Sync right away, pull everything from the server again, and reload the page.
+#[tauri::command]
+pub fn app_force_sync(st: St) {
+    st.force_sync.store(true, std::sync::atomic::Ordering::Relaxed);
+    st.wake.notify_one();
+}
+
 /// The task whose notification was tapped, once.
 #[tauri::command]
 pub fn app_take_open_task(st: St) -> Option<String> {

@@ -7,9 +7,10 @@
 	/**
 	 * The foot of the Tasks pane: a dot for the sync state (green synced, yellow
 	 * changes waiting or the server out of reach, red an error), the server's
-	 * host, and the app version. Click to sync now.
+	 * host, and the app version. Click to sync now; the icon beside it forces a sync,
+	 * which starts at once, pulls everything from the server again and reloads the tasks.
 	 */
-	let { status, onsync }: { status: AppStatus; onsync: () => void } = $props();
+	let { status, onsync, onforcesync }: { status: AppStatus; onsync: () => void; onforcesync: () => void } = $props();
 
 	let version = $state('');
 	let now = $state(Date.now());
@@ -34,6 +35,7 @@
 			: SYNC_LABELS[sync.state],
 	);
 	let host = $derived(hostOf(status.server));
+	let canSync = $derived(sync.state !== 'setup' && sync.state !== 'signed_out');
 	let title = $derived(
 		[
 			`${SYNC_LABELS[sync.state]} · last synced ${ago(sync.last_synced_at, now)}`,
@@ -47,6 +49,7 @@
 	);
 </script>
 
+<div class="pane-status-wrap">
 <button type="button" class="pane-status" data-tone={tone} {title} onclick={onsync}>
 	<span class="pane-status-line">
 		<span class="pane-status-dot" aria-hidden="true"></span>
@@ -63,8 +66,63 @@
 		{#if version}<span class="pane-status-version">v{version}</span>{/if}
 	</span>
 </button>
+{#if canSync}
+	<button
+		type="button"
+		class="pane-status-force"
+		class:pane-status-force-busy={sync.state === 'syncing'}
+		title="Force sync: get everything from the server again and refresh the tasks"
+		aria-label="Force sync"
+		onclick={onforcesync}
+	>
+		<svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+	</button>
+{/if}
+</div>
 
 <style>
+	.pane-status-wrap {
+		position: relative;
+		min-width: 0;
+	}
+	.pane-status-force {
+		position: absolute;
+		top: 0;
+		right: 0.125rem;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 1.5rem;
+		height: 1.5rem;
+		border-radius: 6px;
+		color: var(--text-muted);
+		transition: background-color var(--dur-micro) var(--ease-out), color var(--dur-micro) var(--ease-out);
+	}
+	.pane-status-force:hover {
+		background-color: var(--bg-hover);
+		color: var(--text-primary);
+	}
+	.pane-status-force svg {
+		width: 0.875rem;
+		height: 0.875rem;
+	}
+	.pane-status-force-busy svg {
+		animation: pane-spin 1s linear infinite;
+	}
+	@keyframes pane-spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.pane-status-force-busy svg {
+			animation: none;
+		}
+	}
+	/* Its first line stops short of the icon, which sits over its right end. */
+	.pane-status-line:first-child {
+		padding-right: 1.5rem;
+	}
 	.pane-status {
 		display: grid;
 		gap: 0.2rem;

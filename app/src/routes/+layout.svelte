@@ -54,6 +54,10 @@
 		call('app_sync_now').catch(() => {});
 	}
 
+	function forceSync() {
+		call('app_force_sync').catch(() => {});
+	}
+
 	async function signOut() {
 		status = await call<AppStatus>('app_sign_out');
 	}
@@ -75,9 +79,12 @@
 		];
 
 		// Sync as soon as the network comes back, or the app comes back to the front
-		// (Android resumes it), instead of waiting for the next retry.
+		// (Android resumes it), instead of waiting for the next retry. The page loads
+		// its tasks again too: a sleeping page can miss the event for a sync's changes.
 		function onVisible() {
-			if (document.visibilityState === 'visible') syncNow();
+			if (document.visibilityState !== 'visible') return;
+			syncNow();
+			tasksChanged();
 		}
 		window.addEventListener('online', syncNow);
 		document.addEventListener('visibilitychange', onVisible);
@@ -111,7 +118,7 @@
 
 {#snippet paneFooter()}
 	{#if status}
-		<PaneStatus {status} onsync={syncNow} />
+		<PaneStatus {status} onsync={syncNow} onforcesync={forceSync} />
 	{/if}
 {/snippet}
 

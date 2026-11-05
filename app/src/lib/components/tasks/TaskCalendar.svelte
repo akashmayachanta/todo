@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
 	import type { Task } from '$lib/api';
+	import { plainText } from '$lib/links';
 	import { addDays, fromYmd, timeRange, ymd } from '$lib/taskParse';
 	import { byDue } from './shared';
 
@@ -175,14 +176,14 @@
 			class="task-check task-check-sm"
 			data-priority={task.priority}
 			aria-pressed="false"
-			aria-label={task.recurrence ? `Complete "${task.title}" (moves to its next date)` : `Complete "${task.title}"`}
+			aria-label={task.recurrence ? `Complete "${plainText(task.title)}" (moves to its next date)` : `Complete "${plainText(task.title)}"`}
 			onclick={() => ontoggle(task)}
 		>
 			<svg aria-hidden="true" class="task-check-tick" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" /></svg>
 		</button>
-		<button type="button" class="tcal-chip-title" onclick={() => onopen(task)} title={task.title}>
+		<button type="button" class="tcal-chip-title" onclick={() => onopen(task)} title={plainText(task.title)}>
 			{#if task.due_time}<span class="tcal-chip-time">{timeRange(task.due_time, task.duration_minutes)}</span>{/if}
-			{task.title}{#if task.recurrence}<span class="tcal-chip-icon" aria-label="Repeats"> ↻</span>{/if}
+			{plainText(task.title)}{#if task.recurrence}<span class="tcal-chip-icon" aria-label="Repeats"> ↻</span>{/if}
 		</button>
 	</div>
 {/snippet}

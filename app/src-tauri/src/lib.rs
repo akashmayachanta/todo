@@ -131,6 +131,7 @@ pub fn run() {
 
     builder
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             let st = Arc::new(AppState::open(&dir).map_err(|e| format!("Can't open the tasks DB in {}: {e}", dir.display()))?);
@@ -192,6 +193,7 @@ pub fn run() {
             commands::app_sign_in,
             commands::app_sign_out,
             commands::app_sync_now,
+            commands::app_force_sync,
             commands::app_take_open_task,
             commands::app_ask_notification_permission,
         ])

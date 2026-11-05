@@ -5,7 +5,9 @@
 	import DropdownMenu from '$lib/components/DropdownMenu.svelte';
 	import Select from '$lib/components/Select.svelte';
 	import { askReminderPermission } from '$lib/stores/taskReminders';
-	import { firstOccurrence, formatDuration, normalizeRecurrence, parseQuickAdd, ymd } from '$lib/taskParse';
+	import { linkParts, plainText } from '$lib/links';
+	import { firstOccurrence, formatDuration, normalizeRecurrence, parseQuickAdd, pastedLines, ymd, type QuickAdd } from '$lib/taskParse';
+	import LinkedText from './LinkedText.svelte';
 	import SmartTaskInput from './SmartTaskInput.svelte';
 	import SmartTips from './SmartTips.svelte';
 	import { dueAtOf, finishPatch, patchChips, smartPatch, smartTitle, titleEdit } from './smartEdit';
@@ -205,7 +207,8 @@
 	}
 
 	// ── Subtasks ─────────────────────────────────────────────────────────────
-	let subParsed = $derived(parseQuickAdd(newSubtask, [], [], new Date(), null, task.due_date));
+	const parseSubtask = (line: string) => parseQuickAdd(line, [], [], new Date(), null, task.due_date);
+	let subParsed = $derived(parseSubtask(newSubtask));
 	let subtasksDone = $derived(subtasks.filter((s) => s.completed_at).length);
 
 	async function openSubtaskLine() {
@@ -214,9 +217,7 @@
 		subField?.focus();
 	}
 
-	async function addSubtask() {
-		const p = subParsed;
-		if (!p.title) return;
+	async function createSubtask(p: QuickAdd, minutes: number | null = null) {
 		if (p.remind_at) askReminderPermission();
 		await onaddsubtask(task, {
 			title: p.title,
@@ -225,9 +226,25 @@
 			due_time: p.due_date ? p.due_time : null,
 			remind_at: p.remind_at ?? defaultReminder(p.due_date, p.due_date ? p.due_time : null),
 			recurrence: p.recurrence,
-			duration_minutes: p.duration_minutes,
+			duration_minutes: minutes ?? p.duration_minutes,
 		});
+	}
+
+	async function addSubtask() {
+		if (!subParsed.title) return;
+		await createSubtask(subParsed);
 		newSubtask = '';
+	}
+
+	/** Several lines pasted into the sub-task line become one sub-task each, in order. */
+	async function pasteSubtasks(e: ClipboardEvent) {
+		const lines = pastedLines(e.clipboardData?.getData('text') ?? '');
+		if (lines.length < 2) return;
+		e.preventDefault();
+		for (const line of lines) {
+			const p = parseSubtask(line.text);
+			if (p.title) await createSubtask(p, line.minutes);
+		}
 	}
 
 	function closeSubtaskLine() {
@@ -273,19 +290,23 @@
 	}
 
 	onMount(() => panel?.focus());
+
+	// The title and description are edited as typed; their links open from a line under the title.
+	let linkText = $derived(`${task.title}\n${task.description ?? ''}`);
+	let hasLinks = $derived(linkParts(linkText).some((p) => p.url));
 </script>
 
 <svelte:window onkeydown={onKeydown} />
 
 <div class="task-modal-scrim" onclick={onclose} aria-hidden="true"></div>
 <div class="task-modal-overlay">
-	<div bind:this={panel} class="task-modal" role="dialog" aria-modal="true" aria-label="Task: {task.title}" tabindex="-1">
+	<div bind:this={panel} class="task-modal" role="dialog" aria-modal="true" aria-label="Task: {plainText(task.title)}" tabindex="-1">
 		<header class="task-modal-head">
 			<nav class="task-modal-crumbs" aria-label="Where this task is">
 				{#if parent}
 					<button type="button" class="task-modal-crumb" onclick={() => onopen(parent)}>
 						<svg aria-hidden="true" class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" /></svg>
-						<span class="truncate">{parent.title}</span>
+						<span class="truncate">{plainText(parent.title)}</span>
 					</button>
 				{:else}
 					<span class="task-modal-crumb">
@@ -366,6 +387,9 @@
 								<span class="task-modal-smart-hint">Enter to apply</span>
 							</div>
 						{/if}
+						{#if hasLinks}
+							<div class="task-modal-links"><LinkedText text={linkText} linksOnly /></div>
+						{/if}
 						<div class="task-modal-desc-wrap">
 							<svg aria-hidden="true" class="task-modal-desc-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h10" /></svg>
 							<textarea
@@ -389,18 +413,25 @@
 							</h3>
 						{/if}
 						{#each subtasks as sub (sub.id)}
+							{@const subName = plainText(sub.title)}
 							<div class="task-modal-sub" class:task-row-done={!!sub.completed_at}>
 								<button
 									type="button"
 									class="task-check task-check-sm"
 									data-priority={sub.priority}
 									aria-pressed={!!sub.completed_at}
-									aria-label={sub.completed_at ? `Mark "${sub.title}" not done` : `Complete "${sub.title}"`}
+									aria-label={sub.completed_at ? `Mark "${subName}" not done` : `Complete "${subName}"`}
 									onclick={() => ontoggle(sub)}
 								>
 									<svg aria-hidden="true" class="task-check-tick" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" /></svg>
 								</button>
-								<button type="button" class="task-modal-sub-title" onclick={() => onopen(sub)}>{sub.title}</button>
+								<!-- Links sit inside, as in TaskRow: the pointer clicks this, the keyboard the button over it. -->
+								<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+								<div class="task-modal-sub-title" onclick={() => onopen(sub)}>
+									<button type="button" class="task-open" aria-label="Open {subName}"></button>
+									<LinkedText text={sub.title} />
+								</div>
+								{#if sub.duration_minutes}<span class="task-modal-sub-time">{formatDuration(sub.duration_minutes)}</span>{/if}
 							</div>
 						{/each}
 						{#if addingSubtask}
@@ -416,6 +447,7 @@
 									class="task-modal-sub-add"
 									onenter={addSubtask}
 									onescape={closeSubtaskLine}
+									onpaste={pasteSubtasks}
 								/>
 								<div class="task-modal-sub-actions">
 									<button type="button" class="btn btn-ghost" onclick={closeSubtaskLine}>Cancel</button>

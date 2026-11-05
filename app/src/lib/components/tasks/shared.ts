@@ -125,6 +125,26 @@ export function placeName(task: Pick<Task, 'project_id' | 'category_id'>, projec
 	return category ? `${project.name} / ${category.name}` : project.name;
 }
 
+/** A task's own minutes plus those of its open subtasks. */
+export function taskMinutes(task: Task, subtasks: Task[]): number {
+	let total = task.duration_minutes ?? 0;
+	for (const s of subtasks) if (!s.completed_at) total += s.duration_minutes ?? 0;
+	return total;
+}
+
+/** Minutes of open work in each project and category: every open task's own duration, subtasks included. */
+export function durationTotals(open: Task[]): { projects: Record<string, number>; categories: Record<string, number> } {
+	const projects: Record<string, number> = {};
+	const categories: Record<string, number> = {};
+	for (const t of open) {
+		const m = t.duration_minutes ?? 0;
+		if (!m) continue;
+		if (t.project_id !== null) projects[t.project_id] = (projects[t.project_id] ?? 0) + m;
+		if (t.category_id !== null) categories[t.category_id] = (categories[t.category_id] ?? 0) + m;
+	}
+	return { projects, categories };
+}
+
 /** Due date, then time (untimed last), then priority, then manual order. */
 export function byDue(a: Task, b: Task): number {
 	return (a.due_date ?? '9999').localeCompare(b.due_date ?? '9999')

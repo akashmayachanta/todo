@@ -23,6 +23,7 @@
 		onenter,
 		onescape,
 		onblur,
+		onpaste,
 	}: {
 		value?: string;
 		tokens: ParsedToken[];
@@ -38,6 +39,7 @@
 		onenter?: () => void;
 		onescape?: () => void;
 		onblur?: () => void;
+		onpaste?: (e: ClipboardEvent) => void;
 	} = $props();
 
 	let caret = $state(0);
@@ -145,6 +147,7 @@
 		onscroll={syncCaret}
 		onkeydown={onKeydown}
 		{onblur}
+		{onpaste}
 	/>
 
 	{#if suggest}

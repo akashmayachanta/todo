@@ -74,6 +74,20 @@ The build writes:
 The MSI is skipped because WiX is slow and MSI installs usually need admin. Run a plain
 `npm run tauri build` if you ever want it.
 
+### Faster builds
+
+`.cargo/config.toml` links Windows builds with `rust-lld`, which ships with Rust. To go back
+to MSVC's `link.exe`, delete that file.
+
+Windows Defender also slows builds down. To stop it scanning build output, run this once in
+an admin PowerShell:
+
+```powershell
+Add-MpPreference -ExclusionPath "C:\Drive\Vault\todo\target", "C:\Drive\Software\rust\cargo"
+```
+
+The second path is `CARGO_HOME` on this machine, so change it on any other machine.
+
 ### Test on Windows
 
 - [ ] Install with the NSIS setup.exe and open **Tasks**.

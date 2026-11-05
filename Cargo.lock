@@ -4033,6 +4033,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "time",
  "tokio",
+ "winreg",
 ]
 
 [[package]]

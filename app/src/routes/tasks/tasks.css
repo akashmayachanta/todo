@@ -602,6 +602,11 @@
   .task-category-menu {
     opacity: 1;
   }
+
+  .task-check-tick {
+    width: 0.4rem;
+    height: 0.4rem;
+  }
 }
 
 .task-add {

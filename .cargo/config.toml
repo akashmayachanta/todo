@@ -1,0 +1,4 @@
+# Link Windows builds with the lld that ships with Rust: it is much faster than
+# MSVC's link.exe. Other targets, such as the Android build, are not affected.
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld.exe"

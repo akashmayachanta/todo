@@ -165,6 +165,11 @@ pub fn run() {
                 }
             }
 
+            #[cfg(windows)]
+            if let Err(e) = reminders::register_toast_app(app.handle(), &dir) {
+                eprintln!("Can't register the app for notifications: {e}");
+            }
+
             tauri::async_runtime::spawn(syncer::run(app.handle().clone(), st.clone()));
             tauri::async_runtime::spawn(reminders::run(app.handle().clone(), st));
             Ok(())

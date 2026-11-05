@@ -20,6 +20,23 @@ use crate::state::AppState;
 #[cfg(desktop)]
 const FIRED_KEY: &str = "reminders_fired";
 
+/// Registers the app ID that toasts are sent under. Windows silently drops toasts
+/// for an unknown ID. The installer's Start Menu shortcut registers it, but an exe
+/// that was copied somewhere and run directly has no shortcut. The icon has to be
+/// a file on disk, so it is written to the app's data folder.
+#[cfg(windows)]
+pub fn register_toast_app(app: &AppHandle, data_dir: &std::path::Path) -> std::io::Result<()> {
+    use winreg::{enums::HKEY_CURRENT_USER, RegKey};
+
+    let icon = data_dir.join("notification-icon.png");
+    std::fs::write(&icon, include_bytes!("../icons/128x128.png"))?;
+
+    let path = format!(r"Software\Classes\AppUserModelId\{}", app.config().identifier);
+    let (key, _) = RegKey::predef(HKEY_CURRENT_USER).create_subkey(path)?;
+    key.set_value("DisplayName", &app.package_info().name)?;
+    key.set_value("IconUri", &icon.to_string_lossy().into_owned())
+}
+
 /// Called after each sync and edit. Windows needs nothing here: its loop reads the DB.
 #[cfg(desktop)]
 pub fn refresh(_app: &AppHandle, _st: &Arc<AppState>) {}

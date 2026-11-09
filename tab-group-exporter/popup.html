@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Export tab groups</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --surface: #f1f3f4;
+      --text: #202124;
+      --muted: #5f6368;
+      --line: #dadce0;
+      --accent: #1a73e8;
+      --accent-text: #ffffff;
+      color-scheme: light dark;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #202124;
+        --surface: #292a2d;
+        --text: #e8eaed;
+        --muted: #9aa0a6;
+        --line: #3c4043;
+        --accent: #8ab4f8;
+        --accent-text: #202124;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      width: 380px;
+      font: 13px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    header { padding: 14px 16px 10px; }
+    h1 { margin: 0; font-size: 15px; font-weight: 600; }
+    .summary { margin: 2px 0 0; color: var(--muted); }
+
+    .groups {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      padding: 0 16px 12px;
+      max-height: 96px;
+      overflow-y: auto;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-weight: 500;
+      color: #fff;
+      background: var(--group);
+      border: 1px solid var(--group);
+      white-space: nowrap;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .pill .count { opacity: .8; font-weight: 400; }
+    .pill.none { background: var(--surface); border-color: var(--line); color: var(--muted); }
+    .pill.closed { background: transparent; color: var(--group); border-style: dashed; padding-right: 4px; }
+    .pill .remove {
+      flex: none;
+      width: 18px;
+      height: 18px;
+      padding: 0;
+      border: 0;
+      border-radius: 50%;
+      font-size: 14px;
+      line-height: 1;
+      color: inherit;
+      opacity: .7;
+    }
+    .pill .remove:hover { opacity: 1; background: var(--surface); }
+    @media (prefers-color-scheme: dark) {
+      .pill.closed { color: var(--text); }
+    }
+
+    .options {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px 12px;
+      padding: 12px 16px;
+      border-top: 1px solid var(--line);
+    }
+    .options label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+    .options .format { grid-column: 1 / -1; justify-content: space-between; }
+    select {
+      font: inherit;
+      color: var(--text);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 3px 6px;
+    }
+
+    textarea {
+      display: block;
+      width: calc(100% - 32px);
+      margin: 0 16px;
+      height: 180px;
+      resize: vertical;
+      padding: 10px;
+      font: 12px/1.5 ui-monospace, "SF Mono", Consolas, monospace;
+      color: var(--text);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    footer {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px 14px;
+    }
+    button {
+      font: inherit;
+      font-weight: 500;
+      padding: 7px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+    }
+    button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+    /* Styled like the Tasks app's icon (white tick on its green), so the button
+       reads as "send to Tasks". Fixed colors: the same in light and dark. */
+    button.tasks-btn {
+      display: inline-flex; align-items: center; gap: 5px; padding-left: 11px;
+      background: #14532d; border-color: #14532d; color: #fff;
+    }
+    .tasks-logo { width: 14px; height: 14px; flex: none; }
+    button:disabled { opacity: .5; cursor: default; }
+    button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    /* Four buttons fill the 380px popup, so a status message gets its own
+       line below them while it shows, instead of squeezing their labels. */
+    footer { flex-wrap: wrap; }
+    footer button { white-space: nowrap; }
+    .status { margin-left: auto; color: var(--muted); }
+    footer .status { flex-basis: 100%; text-align: right; }
+    footer .status:empty { display: none; }
+    button.link {
+      justify-self: start;
+      padding: 0;
+      border: 0;
+      color: var(--accent);
+      font-weight: 400;
+    }
+
+    .share { padding: 0 16px 14px; }
+    .share-top { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+    .share-top select { flex: 1; min-width: 0; }
+    .qr-box {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 12px;
+      min-height: 160px;
+      justify-content: center;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    }
+    /* QR codes must stay black on white to scan, even in dark mode. */
+    .qr-box canvas { width: 280px; height: 280px; background: #fff; border-radius: 6px; image-rendering: pixelated; }
+    .qr-note { margin: 0; text-align: center; color: var(--muted); }
+    .share-actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 12px; }
+    .share-status { min-height: 1.45em; margin: 8px 0 0; color: var(--muted); text-align: center; }
+
+    .tasks-signin { display: grid; gap: 8px; }
+    .tasks-signin label { display: grid; gap: 3px; color: var(--muted); }
+    .tasks-signin input {
+      font: inherit;
+      color: var(--text);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 6px 8px;
+    }
+    .tasks-ready { display: grid; gap: 10px; }
+    .tasks-ready p { margin: 0; }
+    .tasks-ready .qr-note { text-align: left; }
+    /* display: grid above would otherwise override the hidden attribute. */
+    .tasks-signin[hidden], .tasks-ready[hidden] { display: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Export tab groups</h1>
+    <p class="summary" id="summary">Reading your tabs…</p>
+  </header>
+
+  <div id="mainView">
+  <div class="groups" id="groups"></div>
+
+  <div class="options">
+    <label><input type="checkbox" id="currentWindow"> This window only</label>
+    <label><input type="checkbox" id="includeUngrouped"> Include ungrouped</label>
+    <label><input type="checkbox" id="includeClosed"> Include closed groups</label>
+    <label><input type="checkbox" id="includeDurations"> Include video times</label>
+    <button class="link" id="forget" hidden>Forget closed</button>
+    <label class="format">
+      Format
+      <select id="format">
+        <option value="markdown">Markdown (links)</option>
+        <option value="text">Plain text</option>
+        <option value="urls">URLs only</option>
+        <option value="json">JSON</option>
+      </select>
+    </label>
+  </div>
+
+  <textarea id="output" readonly aria-label="Export preview"></textarea>
+
+  <footer>
+    <button class="tasks-btn" id="tasks" title="Add to Tasks: each group's videos as subtasks">
+      <svg class="tasks-logo" viewBox="160 160 704 704" aria-hidden="true">
+        <path d="M292 540 L448 696 L748 368" fill="none" stroke="#fff" stroke-width="120" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>Tasks</button>
+    <button class="primary" id="copy">Copy list</button>
+    <button id="saveMd" title="Save the Markdown list as YT-List.md">Save .md</button>
+    <button id="share">Share</button>
+    <span class="status" id="status" role="status"></span>
+  </footer>
+  </div>
+
+  <section class="share" id="sharePanel" hidden aria-label="Share tab groups">
+    <div class="share-top">
+      <button id="shareBack">&larr; Back</button>
+      <select id="shareScope" aria-label="What to share"></select>
+    </div>
+
+    <div class="qr-box">
+      <canvas id="qr" width="560" height="560" role="img" aria-label="QR code with your links"></canvas>
+      <p class="qr-note" id="qrNote"></p>
+    </div>
+
+    <div class="share-actions">
+      <button class="primary" id="shareEmail">Email</button>
+      <button class="primary" id="shareWhatsapp">WhatsApp</button>
+      <button id="shareMore" title="Open the system share sheet, or save as a file">More…</button>
+    </div>
+    <p class="share-status" id="shareStatus" role="status"></p>
+  </section>
+
+  <section class="share" id="tasksPanel" hidden aria-label="Add to Tasks">
+    <div class="share-top">
+      <button id="tasksBack">&larr; Back</button>
+      <select id="tasksScope" aria-label="Which groups to add"></select>
+    </div>
+
+    <form class="tasks-signin" id="tasksSignin" hidden>
+      <label>Server
+        <input id="tasksServer" placeholder="http://localhost:8050" autocomplete="url" spellcheck="false" required>
+      </label>
+      <label>Username
+        <input id="tasksUser" autocomplete="username" spellcheck="false" required>
+      </label>
+      <label>Password
+        <input id="tasksPass" type="password" autocomplete="current-password" required>
+      </label>
+      <button class="primary" type="submit" id="tasksSignInBtn">Sign in</button>
+    </form>
+
+    <div class="tasks-ready" id="tasksReady" hidden>
+      <p>Signed in as <b id="tasksWho"></b> · <button class="link" id="tasksSignOut">Sign out</button></p>
+      <p class="qr-note">Each group becomes a task in Learning → YT, with its videos as subtasks.
+        Videos already there are skipped, and ticked-off ones are reopened. A group whose
+        task you've completed gets a new task.</p>
+      <button class="primary" id="tasksAdd">Add to Tasks</button>
+    </div>
+    <p class="share-status" id="tasksStatus" role="status"></p>
+  </section>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

@@ -74,6 +74,9 @@ list the build commands they need to run.
 - It is built in WSL from a Linux copy at `~/todo`. `build-android.sh` syncs code there
   but skips `app/src-tauri/gen/android`, which exists only in that copy, so a change
   meant for that folder must be applied by a script in `app/scripts/`.
+- The app's own Kotlin (reminder alarms, background sync, boot receiver, the
+  `tasks-android` plugin) lives in `app/android/`; `scripts/android-native.mjs`
+  copies it in before every Android build. Rust side: `app/src-tauri/src/android.rs`.
 
 **Tools on Windows**
 - Run `cargo` from PowerShell. In Git Bash, its `link.exe` shadows the MSVC linker.

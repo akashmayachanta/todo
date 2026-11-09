@@ -154,6 +154,7 @@
 		width: 0.5rem;
 		height: 0.5rem;
 		border-radius: 999px;
+		corner-shape: round;
 		background: var(--color-success);
 	}
 	[data-tone='wait'] .pane-status-dot {

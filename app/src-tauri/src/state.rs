@@ -86,6 +86,10 @@ pub struct AppState {
     pub status: Mutex<SyncStatus>,
     /// Wakes the sync loop (a change, Sync now, sign-in).
     pub wake: Notify,
+    /// Wakes the reminder loop on Windows after an edit or sync, so it re-reads
+    /// when the next reminder is due.
+    #[cfg_attr(mobile, allow(dead_code))]
+    pub reminders_wake: Notify,
     /// The next round pulls everything again and reloads the page (the force-sync button).
     pub force_sync: AtomicBool,
     /// Held for a whole sync round and while signing in, so a round never
@@ -117,6 +121,7 @@ impl AppState {
             config: Mutex::new(config),
             status: Mutex::new(SyncStatus::default()),
             wake: Notify::new(),
+            reminders_wake: Notify::new(),
             force_sync: AtomicBool::new(false),
             sync_lock: AsyncMutex::new(()),
             open_task: Mutex::new(None),

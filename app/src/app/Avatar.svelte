@@ -20,6 +20,7 @@
 		width: var(--avatar-size);
 		height: var(--avatar-size);
 		border-radius: 999px;
+		corner-shape: round;
 		overflow: hidden;
 		background: var(--color-brand);
 		color: var(--color-brand-text);

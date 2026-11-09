@@ -19,8 +19,9 @@
   --font-prose: "Figtree Variable", ui-sans-serif, system-ui, sans-serif;
   --font-outlier: "IBM Plex Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
 
-  /* Square corners; 2px at most on a control. Two rule weights. */
-  --radius-card: 0; --radius-pill: 2px; --radius-control: 2px;
+  /* Squircle corners (corner-shape in layout.css); radii are a step larger than
+     round ones would be, since a squircle of the same radius reads tighter. */
+  --radius-card: 14px; --radius-pill: 9999px; --radius-control: 8px;
   --rule-hair: 1px; --rule-bar: 2px;
   --shadow-card: none;
   --tracking-display: -0.02em; --display-weight: 600;

@@ -140,6 +140,38 @@
 		{ value: 'upcoming', label: 'Upcoming' },
 	] as const;
 
+	// ── Reminders on this phone (Android) ────────────────────────────────────
+
+	type ReminderHealth = { notifications: boolean; exactAlarms: boolean; batteryUnrestricted: boolean };
+	type HealthKey = keyof ReminderHealth;
+	const HEALTH: { key: HealthKey; label: string; ok: string; off: string }[] = [
+		{ key: 'notifications', label: 'Notifications', ok: 'Allowed', off: 'Off: reminders are not shown' },
+		{ key: 'exactAlarms', label: 'Alarms & reminders', ok: 'Allowed: reminders fire on the minute', off: 'Off: Android may hold reminders back by minutes' },
+		{ key: 'batteryUnrestricted', label: 'Battery', ok: 'Unrestricted: background sync runs', off: 'Optimized: background sync may be held back' },
+	];
+	let health = $state<ReminderHealth | null>(null);
+
+	async function loadHealth() {
+		if (status.platform !== 'android') return;
+		health = await call<ReminderHealth | null>('app_reminder_health').catch(() => null);
+	}
+
+	async function fixHealth(kind: HealthKey) {
+		try {
+			await call('app_open_reminder_setting', { kind });
+		} catch (e) {
+			toast.error(errorDetail(e));
+		}
+	}
+
+	// Coming back from Android's settings brings the page to the front again.
+	onMount(() => {
+		loadHealth();
+		const recheck = () => document.visibilityState === 'visible' && loadHealth();
+		document.addEventListener('visibilitychange', recheck);
+		return () => document.removeEventListener('visibilitychange', recheck);
+	});
+
 	// ── Theme ────────────────────────────────────────────────────────────────
 
 	const MODE_PREFS: { value: ModePref; label: string }[] = [
@@ -322,6 +354,28 @@
 							{/each}
 						</div>
 					</div>
+					{#if health}
+						<div class="set-group">
+							<span class="set-label">Reminders on this phone</span>
+							<div class="set-toggles">
+								{#each HEALTH as h (h.key)}
+									<div class="set-toggle">
+										<span class="set-toggle-text">
+											<span class="set-toggle-label">
+												<span class="set-dot" data-state={health[h.key] ? 'synced' : 'error'}></span>
+												{h.label}
+											</span>
+											<span class="set-hint">{health[h.key] ? h.ok : h.off}</span>
+										</span>
+										{#if !health[h.key]}
+											<button type="button" class="btn btn-secondary" onclick={() => fixHealth(h.key)}>Allow</button>
+										{/if}
+									</div>
+								{/each}
+							</div>
+							<span class="set-hint">Some phones also stop apps in the background on their own. If reminders still come late, look for the app in the phone's autostart or background app settings.</span>
+						</div>
+					{/if}
 				{:else}
 					<div class="set-group">
 						<span class="set-label">Mode</span>
@@ -521,6 +575,7 @@
 		width: 0.5rem;
 		height: 0.5rem;
 		border-radius: 999px;
+		corner-shape: round;
 		background: var(--text-muted);
 	}
 	.set-dot[data-state='synced'] {
@@ -602,6 +657,7 @@
 		padding: 0;
 		border: 0;
 		border-radius: 999px;
+		corner-shape: round;
 		background: var(--clr-border-light);
 		cursor: inherit;
 		transition: background-color var(--dur-short) var(--ease-out);
@@ -614,6 +670,7 @@
 		width: 16px;
 		height: 16px;
 		border-radius: 999px;
+		corner-shape: round;
 		background: #fff;
 		box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
 		transition: transform var(--dur-short) var(--ease-out);
@@ -678,6 +735,7 @@
 		width: 1rem;
 		height: 1rem;
 		border-radius: 999px;
+		corner-shape: round;
 	}
 
 	/* Phones: the sections become tabs across the top. The panel is as tall as the

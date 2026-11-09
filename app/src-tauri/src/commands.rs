@@ -377,3 +377,32 @@ pub fn app_ask_notification_permission(app: AppHandle) {
         let _ = n.request_permission();
     }
 }
+
+/// Whether Android will deliver reminders on time: `{notifications, exactAlarms,
+/// batteryUnrestricted}`. None off Android.
+#[tauri::command]
+pub async fn app_reminder_health(app: AppHandle) -> Res<Option<serde_json::Value>> {
+    #[cfg(target_os = "android")]
+    {
+        crate::android::health(&app).await.map(Some).map_err(|e| fail(500, e))
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        Result::Ok(None)
+    }
+}
+
+/// Opens the Android setting that fixes `kind`: notifications, exactAlarms or battery.
+#[tauri::command]
+pub async fn app_open_reminder_setting(app: AppHandle, kind: String) -> Res<()> {
+    #[cfg(target_os = "android")]
+    {
+        crate::android::open_setting(&app, kind).await.map_err(|e| fail(500, e))
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (app, kind);
+        Result::Ok(())
+    }
+}

@@ -209,6 +209,7 @@
 		width: 0.6rem;
 		height: 0.6rem;
 		border-radius: 999px;
+		corner-shape: round;
 		border: 2px solid var(--bg-base);
 		background: var(--color-warning);
 	}
@@ -337,6 +338,7 @@
 		width: 0.45rem;
 		height: 0.45rem;
 		border-radius: 999px;
+		corner-shape: round;
 		background: currentColor;
 	}
 	.acct-spin {

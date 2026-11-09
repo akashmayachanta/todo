@@ -10,10 +10,10 @@
 		"tauri": "tauri",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"icons": "node scripts/icons.mjs",
-		"android:init": "tauri android init && node scripts/android-permissions.mjs && node scripts/android-icons.mjs",
-		"android:dev": "node scripts/android-icons.mjs && tauri android dev",
-		"android:build": "node scripts/android-signing.mjs && node scripts/android-icons.mjs && tauri android build --apk --target aarch64",
-		"android:build:all": "node scripts/android-signing.mjs && node scripts/android-icons.mjs && tauri android build --apk"
+		"android:init": "tauri android init && node scripts/android-permissions.mjs && node scripts/android-native.mjs && node scripts/android-icons.mjs",
+		"android:dev": "node scripts/android-native.mjs && node scripts/android-icons.mjs && tauri android dev",
+		"android:build": "node scripts/android-native.mjs && node scripts/android-signing.mjs && node scripts/android-icons.mjs && tauri android build --apk --target aarch64",
+		"android:build:all": "node scripts/android-native.mjs && node scripts/android-signing.mjs && node scripts/android-icons.mjs && tauri android build --apk"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-static": "^3.0.10",

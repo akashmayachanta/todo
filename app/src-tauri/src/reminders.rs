@@ -1,18 +1,18 @@
 //! Task reminders as system notifications.
 //!
-//! - Windows: a loop checks `remind_at` every 30 s and shows a toast for each
+//! - Windows: a loop sleeps until the next `remind_at` (30 s at most, and woken
+//!   by every edit and sync) and shows a toast for each
 //!   reminder that came due (one missed while the app was closed shows if it is
 //!   under a day old). Each fires once: fired `id:remind_at` keys are kept in
 //!   the DB. The toast has Snooze and Complete buttons. They run through a
 //!   tasks-app: link instead of a callback, so they still work from the
 //!   notification centre and after the app was closed: Windows starts the exe with
 //!   the link, and the single-instance plugin hands it to the running copy.
-//! - Android: scheduled notifications (AlarmManager), so they fire while the
-//!   app is closed and the phone is offline. After every sync or edit the app
-//!   cancels the ones it scheduled last time and schedules the open tasks with
-//!   a future `remind_at`. Tapping one opens its task. The plugin only restores
-//!   alarms after a reboot for notifications sent in a batch, which its Rust API
-//!   doesn't offer, so after a reboot they come back when the app next opens.
+//! - Android: exact alarms set by the app's own Kotlin code (android.rs and
+//!   app/android/java), so they fire while the app is closed and the phone is
+//!   offline. After every sync or edit the upcoming reminders are handed over
+//!   whole; a background job syncs every 15 minutes while the app is closed, and
+//!   the alarms are set again after a reboot. Tapping one opens its task.
 
 use std::sync::Arc;
 
@@ -127,16 +127,43 @@ pub fn write_start_menu_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::err
     Ok(())
 }
 
-/// Called after each sync and edit. Windows needs nothing here: its loop reads the DB.
+/// Called after each sync and edit: wakes the loop, since the next reminder may
+/// now be sooner.
 #[cfg(desktop)]
-pub fn refresh(_app: &AppHandle, _st: &Arc<AppState>) {}
+pub fn refresh(_app: &AppHandle, st: &Arc<AppState>) {
+    st.reminders_wake.notify_one();
+}
+
+/// The longest the loop sleeps, even with no reminder coming. It catches a missed
+/// wake, a clock change, or the PC waking from sleep (a timer doesn't count
+/// time spent asleep).
+#[cfg(desktop)]
+const MAX_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
 #[cfg(desktop)]
 pub async fn run(app: AppHandle, st: Arc<AppState>) {
     loop {
         fire_due(&app, &st);
-        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        let wait = until_next(&st).unwrap_or(MAX_WAIT).min(MAX_WAIT);
+        tokio::select! {
+            _ = st.reminders_wake.notified() => {}
+            _ = tokio::time::sleep(wait) => {}
+        }
     }
+}
+
+/// How long until the next open reminder is due, so it fires on the second.
+#[cfg(desktop)]
+fn until_next(st: &AppState) -> Option<std::time::Duration> {
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let next = {
+        let conn = crate::state::lock(&st.db);
+        let from = tasks_core::time::iso(chrono::Utc::now());
+        tasks_core::ops::upcoming_reminders(&conn, &from).ok()?.into_iter().next()?
+    };
+    let at = tasks_core::time::instant_ms(next.remind_at.as_deref()?)?;
+    // A little past the due time, so fire_due's window includes it.
+    Some(std::time::Duration::from_millis((at - now_ms).max(0) as u64 + 200))
 }
 
 #[cfg(desktop)]
@@ -315,65 +342,69 @@ fn shift_days(at: &str, days: i64) -> Option<String> {
     Some(tasks_core::time::iso(moved.with_timezone(&Utc)))
 }
 
-/// A notification id for a task (Android wants an i32).
-#[cfg(mobile)]
-fn notification_id(task_id: &str) -> i32 {
-    // FNV-1a, folded to a positive i32.
-    let mut h: u32 = 0x811c9dc5;
-    for b in task_id.bytes() {
-        h ^= b as u32;
-        h = h.wrapping_mul(0x01000193);
-    }
-    (h & 0x7fff_ffff) as i32
-}
 
 /// Android keeps a limited number of alarms per app; the soonest are scheduled.
 #[cfg(mobile)]
 const MAX_SCHEDULED: usize = 200;
 
+/// The open tasks' upcoming reminders, soonest first, as Android's scheduler
+/// takes them (android/java/Reminders.kt): `[{id, title, at}]`, at in ms.
 #[cfg(mobile)]
-pub fn refresh(app: &AppHandle, st: &Arc<AppState>) {
-    use tauri_plugin_notification::{NotificationExt, Schedule};
-
+pub fn upcoming_json(st: &AppState) -> String {
     let upcoming = {
         let conn = crate::state::lock(&st.db);
-        let now = tasks_core::time::iso(chrono::Utc::now() + chrono::Duration::seconds(5));
-        tasks_core::ops::upcoming_reminders(&conn, &now).unwrap_or_default()
+        let from = tasks_core::time::iso(chrono::Utc::now() + chrono::Duration::seconds(5));
+        tasks_core::ops::upcoming_reminders(&conn, &from).unwrap_or_default()
     };
-    let n = app.notification();
-    // cancel_all() only knows ids the plugin saved, and show() saves none, so
-    // the ids scheduled last time are kept here and cancelled by name.
+    let list: Vec<serde_json::Value> = upcoming
+        .into_iter()
+        .filter_map(|t| {
+            let at = tasks_core::time::instant_ms(t.remind_at.as_deref()?)?;
+            Some(serde_json::json!({ "id": t.id, "title": tasks_core::plain_title(&t.title), "at": at }))
+        })
+        .take(MAX_SCHEDULED)
+        .collect();
+    serde_json::to_string(&list).unwrap_or_else(|_| "[]".into())
+}
+
+/// The schedule last handed to Android, so an unchanged one isn't set again.
+#[cfg(mobile)]
+static LAST_SCHEDULE: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+#[cfg(mobile)]
+pub fn refresh(app: &AppHandle, st: &Arc<AppState>) {
+    forget_plugin_alarms(app, st);
+    let json = upcoming_json(st);
+    {
+        let mut last = crate::state::lock(&LAST_SCHEDULE);
+        if *last == json {
+            return;
+        }
+        *last = json.clone();
+    }
+    #[cfg(target_os = "android")]
+    crate::android::schedule(app, &st.dir, json);
+}
+
+/// The notification ids the notification plugin scheduled, before the app
+/// scheduled its own (android.rs). Cancelled once, so nothing fires twice.
+#[cfg(mobile)]
+const SCHEDULED_KEY: &str = "reminders_scheduled";
+
+#[cfg(mobile)]
+fn forget_plugin_alarms(app: &AppHandle, st: &AppState) {
+    use tauri_plugin_notification::NotificationExt;
+
     let previous: Vec<i32> = tasks_core::db::get_state(&crate::state::lock(&st.db), SCHEDULED_KEY)
         .ok()
         .flatten()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
     if !previous.is_empty() {
-        let _ = n.cancel(previous);
+        let _ = app.notification().cancel(previous);
+        let _ = tasks_core::db::set_state(&crate::state::lock(&st.db), SCHEDULED_KEY, "[]");
     }
-    let mut scheduled = Vec::new();
-    for task in upcoming.into_iter().take(MAX_SCHEDULED) {
-        let Some(ms) = task.remind_at.as_deref().and_then(tasks_core::time::instant_ms) else { continue };
-        let Ok(date) = time::OffsetDateTime::from_unix_timestamp_nanos(ms as i128 * 1_000_000) else { continue };
-        let id = notification_id(&task.id);
-        scheduled.push(id);
-        let _ = n
-            .builder()
-            .id(id)
-            .title("Task reminder")
-            .body(&tasks_core::plain_title(&task.title))
-            .extra("task_id", &task.id)
-            .auto_cancel()
-            .schedule(Schedule::At { date, repeating: false, allow_while_idle: true })
-            .show();
-    }
-    let text = serde_json::to_string(&scheduled).unwrap_or_default();
-    let _ = tasks_core::db::set_state(&crate::state::lock(&st.db), SCHEDULED_KEY, &text);
 }
-
-/// The notification ids scheduled by the last refresh().
-#[cfg(mobile)]
-const SCHEDULED_KEY: &str = "reminders_scheduled";
 
 /// Mobile has no loop; scheduling is done by refresh().
 #[cfg(mobile)]

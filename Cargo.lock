@@ -4019,6 +4019,7 @@ name = "tasks-app"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "jni",
  "keyring",
  "rusqlite",
  "serde",
@@ -4032,7 +4033,6 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
  "tauri-plugin-window-state",
- "time",
  "tokio",
  "windows",
  "winreg",

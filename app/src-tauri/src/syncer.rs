@@ -1,5 +1,5 @@
 //! The sync loop: push the local changes, then pull since the last seq. It runs
-//! at start, ~2 s after a change, every 2 minutes, and while it can't sync:
+//! at start, ~2 s after a change, every 30 s, and while it can't sync:
 //! every 30 s when this device is offline, every minute when the server is
 //! down. The page also wakes it when the network comes back or the app is
 //! brought back to the front. A forced round (the force-sync button) starts at
@@ -17,7 +17,7 @@ use tauri::{AppHandle, Emitter};
 
 use crate::state::{lock, AppState, SyncStatus, FIRST_SYNC_KEY};
 
-const EVERY: Duration = Duration::from_secs(120);
+const EVERY: Duration = Duration::from_secs(30);
 const RETRY: Duration = Duration::from_secs(30);
 const RETRY_SERVER: Duration = Duration::from_secs(60);
 const IDLE: Duration = Duration::from_secs(3600);
@@ -44,7 +44,7 @@ fn pending(st: &AppState) -> i64 {
 }
 
 /// One round; returns how long to wait before the next one.
-async fn round(app: &AppHandle, st: &Arc<AppState>) -> Duration {
+pub(crate) async fn round(app: &AppHandle, st: &Arc<AppState>) -> Duration {
     let _round = st.sync_lock.lock().await;
     let force = st.force_sync.swap(false, Ordering::Relaxed);
     let server = lock(&st.config).server.clone();

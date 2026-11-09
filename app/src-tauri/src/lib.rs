@@ -1,6 +1,8 @@
 //! Tasks app (Windows and Android): the Tasks UI on a local tasks
 //! DB that works offline and syncs with tasks-server.
 
+#[cfg(target_os = "android")]
+mod android;
 mod commands;
 mod reminders;
 mod state;
@@ -11,7 +13,7 @@ mod widgets;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 
 use state::AppState;
 
@@ -142,6 +144,11 @@ pub fn run() {
             );
     }
 
+    #[cfg(target_os = "android")]
+    {
+        builder = builder.plugin(android::init());
+    }
+
     builder
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
@@ -156,23 +163,9 @@ pub fn run() {
             #[cfg(desktop)]
             desktop_setup(app)?;
 
-            // A tapped notification opens its task (Android; desktop toasts carry no task).
-            {
-                use tauri_plugin_notification::NotificationExt;
-                let handle = app.handle().clone();
-                let tapped = st.clone();
-                let _ = app.notification().on_action(move |action| {
-                    let task = action
-                        .notification()
-                        .and_then(|n| n.extra().get("task_id"))
-                        .and_then(|v| v.as_str())
-                        .map(String::from);
-                    if let Some(task) = task {
-                        *state::lock(&tapped.open_task) = Some(task.clone());
-                        let _ = handle.emit(EVENT_OPEN_TASK, task);
-                    }
-                });
-            }
+            // A tapped reminder opens its task (Android: android.rs).
+            #[cfg(target_os = "android")]
+            android::set_app(app.handle(), &st);
 
             if let Some(w) = app.get_webview_window("main") {
                 if !st.minimized.load(Ordering::Relaxed) {
@@ -233,6 +226,8 @@ pub fn run() {
             commands::app_quick_hide,
             commands::app_set_taskbar_badge,
             commands::app_ask_notification_permission,
+            commands::app_reminder_health,
+            commands::app_open_reminder_setting,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Tasks app");

@@ -11,15 +11,15 @@
   --font-serif: var(--font-prose);
   --font-mono: var(--font-outlier);
 
-  /* Square corners: controls 2px, surfaces 0 (rounded-full stays round) */
-  --radius-xs: 2px;
-  --radius-sm: 2px;
-  --radius-md: 2px;
-  --radius-lg: 2px;
-  --radius-xl: 0px;
-  --radius-2xl: 0px;
-  --radius-3xl: 0px;
-  --radius-4xl: 0px;
+  /* Squircle corners (see the corner-shape rule below; rounded-full stays round) */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-2xl: 18px;
+  --radius-3xl: 24px;
+  --radius-4xl: 32px;
 
   /* No drop shadows: depth is a rule and a paper step */
   --shadow-2xs: 0 0 0 0 transparent;
@@ -687,4 +687,17 @@ select:focus-visible,
 
 .skip-link:focus {
   transform: translateY(0);
+}
+
+/* Squircle corners everywhere a radius is set (Chromium's corner-shape; older
+   WebViews fall back to plain round corners). Full circles and pills opt back
+   into round with corner-shape: round next to their 999px radius. */
+@layer base {
+  *, ::before, ::after {
+    corner-shape: squircle;
+  }
+}
+@utility rounded-full {
+  border-radius: calc(infinity * 1px);
+  corner-shape: round;
 }

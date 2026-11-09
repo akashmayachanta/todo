@@ -2,11 +2,13 @@
 // the WSL copy (gen/android is never synced from Windows):
 // - android/java/*.kt into the app's package (reminders, background sync, the plugin)
 // - android/res/** into its resources (the reminder's status bar icon)
-// - the receivers, the update installer's FileProvider and their permissions
-//   into AndroidManifest.xml
+// - the receivers, the crash log's provider and the battery permission into
+//   AndroidManifest.xml
 // - WorkManager into app/build.gradle.kts
+// It also takes out what earlier versions put in and the app no longer has
+// (REMOVED below), since gen/android keeps whatever was copied into it.
 // Runs before every Android build. Safe to run again.
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -33,17 +35,29 @@ function copyTree(from, to) {
 copyTree(join(SRC, 'java'), join(MAIN, 'java/dev/tasks/app'));
 copyTree(join(SRC, 'res'), join(MAIN, 'res'));
 
+// The in-app updater, dropped on Android: REQUEST_INSTALL_PACKAGES made Play
+// Protect flag the app as harmful (see src-tauri/src/updates.rs).
+const REMOVED = {
+	files: ['java/dev/tasks/app/UpdateFileProvider.kt', 'res/xml/update_paths.xml'],
+	permissions: ['android.permission.REQUEST_INSTALL_PACKAGES'],
+	blocks: ['tasks-native: updates'],
+};
+for (const file of REMOVED.files) rmSync(join(MAIN, file), { force: true });
+
 // ── Manifest ─────────────────────────────────────────────────────────────────
 const manifestPath = join(MAIN, 'AndroidManifest.xml');
 let manifest = readFileSync(manifestPath, 'utf8');
-// Battery: background sync. Install packages: app updates from the server (updates.rs).
-for (const permission of [
-	'android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
-	'android.permission.REQUEST_INSTALL_PACKAGES',
-]) {
-	if (!manifest.includes(`"${permission}"`)) {
-		manifest = manifest.replace(/(<manifest[^>]*>)/, `$1\n    <uses-permission android:name="${permission}" />`);
-	}
+for (const permission of REMOVED.permissions) {
+	manifest = manifest.replace(new RegExp(`\\n[ \\t]*<uses-permission android:name="${permission.replaceAll('.', '\\.')}"\\s*/>`, 'g'), '');
+}
+for (const marker of REMOVED.blocks) {
+	// The marker comment and the <provider> after it.
+	manifest = manifest.replace(new RegExp(`\\n[ \\t]*<!-- ${marker} [^>]*-->\\s*<provider[\\s\\S]*?</provider>`, 'g'), '');
+}
+// Battery: background sync.
+const PERMISSION = 'android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS';
+if (!manifest.includes(`"${PERMISSION}"`)) {
+	manifest = manifest.replace(/(<manifest[^>]*>)/, `$1\n    <uses-permission android:name="${PERMISSION}" />`);
 }
 const RECEIVERS = `
         <!-- tasks-native: reminders (scripts/android-native.mjs) -->
@@ -59,18 +73,16 @@ const RECEIVERS = `
 if (!manifest.includes('tasks-native: reminders')) {
 	manifest = manifest.replace(/(\s*<\/application>)/, `${RECEIVERS.trimEnd()}$1`);
 }
-const PROVIDER = `
-        <!-- tasks-native: updates (scripts/android-native.mjs) -->
+// Crash reports to Downloads/Tasks (CrashLog.kt). A provider starts with the process.
+const CRASH_LOG = `
+        <!-- tasks-native: crash log (scripts/android-native.mjs) -->
         <provider
-            android:name=".UpdateFileProvider"
-            android:authorities="\${applicationId}.updates"
-            android:exported="false"
-            android:grantUriPermissions="true">
-            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/update_paths" />
-        </provider>
+            android:name=".CrashLogProvider"
+            android:authorities="\${applicationId}.crashlog"
+            android:exported="false" />
 `;
-if (!manifest.includes('tasks-native: updates')) {
-	manifest = manifest.replace(/(\s*<\/application>)/, `${PROVIDER.trimEnd()}$1`);
+if (!manifest.includes('tasks-native: crash log')) {
+	manifest = manifest.replace(/(\s*<\/application>)/, `${CRASH_LOG.trimEnd()}$1`);
 }
 writeFileSync(manifestPath, manifest);
 

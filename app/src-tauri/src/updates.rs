@@ -5,8 +5,9 @@
 //! - Windows: the running exe can't be overwritten but can be renamed, so it
 //!   becomes tasks-app.exe.old, the download takes its name, and the app starts
 //!   the new one and exits. The .old file goes on the next start.
-//! - Android: the APK goes to the app's cache and Android's installer opens on
-//!   it (TasksPlugin.kt), where the user taps Install.
+//! - Android: no updates. An app that can install APKs needs
+//!   REQUEST_INSTALL_PACKAGES, which makes Play Protect flag a sideloaded app as
+//!   harmful, so the APK is installed by hand (adb or the file).
 //!
 //! A build is newer when its version is higher. Each build gets a new version
 //! (scripts/bump-version.mjs), and on Windows a different hash with the same
@@ -80,6 +81,9 @@ fn is_newer(current: &str, release: &Release) -> bool {
 /// older server without updates) are None too: there's nothing to offer.
 #[tauri::command]
 pub async fn app_update_check(app: AppHandle, st: St<'_>) -> Result<Option<UpdateInfo>, String> {
+    if cfg!(target_os = "android") {
+        return Ok(None);
+    }
     let Ok((client, token)) = client(&st) else { return Ok(None) };
     let Ok(Some(release)) = client.latest_release(&token, PLATFORM).await else { return Ok(None) };
     let current = app.package_info().version.to_string();
@@ -160,18 +164,7 @@ async fn install(app: &AppHandle, _st: &AppState, bytes: Vec<u8>) -> Result<(), 
     Ok(())
 }
 
-#[cfg(not(any(windows, target_os = "android")))]
+#[cfg(not(windows))]
 async fn install(_app: &AppHandle, _st: &AppState, _bytes: Vec<u8>) -> Result<(), String> {
-    Err("Updates only install on Windows and Android".into())
-}
-
-#[cfg(target_os = "android")]
-async fn install(app: &AppHandle, _st: &AppState, bytes: Vec<u8>) -> Result<(), String> {
-    use tauri::Manager;
-
-    let dir = app.path().app_cache_dir().map_err(|e| e.to_string())?.join("updates");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let apk = dir.join("tasks.apk");
-    std::fs::write(&apk, &bytes).map_err(|e| format!("Can't save the update: {e}"))?;
-    crate::android::install_apk(app, &apk).await
+    Err("Updates only install on Windows".into())
 }

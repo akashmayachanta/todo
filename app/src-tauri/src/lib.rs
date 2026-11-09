@@ -120,6 +120,9 @@ fn desktop_setup(app: &mut tauri::App) -> tauri::Result<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "android")]
+    android::install_panic_log();
+
     // Only the desktop block below reassigns this, so Android sees an unused `mut`.
     #[cfg_attr(mobile, allow(unused_mut))]
     let mut builder = tauri::Builder::default();

@@ -36,6 +36,9 @@ rsync -a \
   --exclude node_modules --exclude target --exclude app/build \
   --exclude .svelte-kit --exclude app/src-tauri/gen/android \
   "$SRC/" "$DEST/"
+# The app's own Android code is mirrored, deletes included: a file removed on
+# Windows must not linger here and be copied into the Android project again.
+rsync -a --delete "$SRC/app/android/" "$DEST/app/android/"
 
 APK="$DEST/app/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk"
 

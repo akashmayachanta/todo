@@ -89,14 +89,35 @@ pub async fn open_setting(app: &AppHandle, kind: String) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-/// Opens Android's installer on a downloaded APK (an app update, updates.rs).
-pub async fn install_apk(app: &AppHandle, apk: &Path) -> Result<(), String> {
-    let handle = bridge(app).ok_or("The Android bridge isn't loaded, so the update can't open the installer")?;
-    handle
-        .run_mobile_plugin_async::<serde_json::Value>("installApk", serde_json::json!({ "path": apk.to_string_lossy() }))
-        .await
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+// ── Panics ───────────────────────────────────────────────────────────────────
+
+#[link(name = "log")]
+extern "C" {
+    fn __android_log_write(prio: std::os::raw::c_int, tag: *const std::os::raw::c_char, text: *const std::os::raw::c_char) -> std::os::raw::c_int;
+}
+
+/// Logs Rust panics to logcat (tag "tasks-panic"), with a backtrace. On Android
+/// a panic's message goes to stderr, which is thrown away. CrashLog.kt puts the
+/// app's logcat into each crash report in Downloads/Tasks.
+pub fn install_panic_log() {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let thread = std::thread::current();
+        let text = format!(
+            "panic on thread '{}': {info}\n{}",
+            thread.name().unwrap_or("?"),
+            std::backtrace::Backtrace::force_capture()
+        );
+        // logcat cuts long lines, so the backtrace goes a line at a time.
+        const ERROR: std::os::raw::c_int = 6;
+        let tag = b"tasks-panic\0".as_ptr().cast::<std::os::raw::c_char>();
+        for line in text.lines() {
+            if let Ok(line) = std::ffi::CString::new(line.replace('\0', " ")) {
+                unsafe { __android_log_write(ERROR, tag, line.as_ptr()) };
+            }
+        }
+        previous(info);
+    }));
 }
 
 // ── Called from Kotlin ───────────────────────────────────────────────────────

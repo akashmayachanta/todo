@@ -21,7 +21,8 @@ function megabytes(bytes: number): string {
 }
 
 export async function checkForUpdate(): Promise<void> {
-	if (busy) return;
+	// Android has no updater (see updates.rs).
+	if (busy || !isDesktop) return;
 	busy = true;
 	let downloading: number | null = null;
 	try {

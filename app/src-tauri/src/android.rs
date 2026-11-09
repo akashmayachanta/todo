@@ -29,7 +29,6 @@ static PENDING_TASK: Mutex<Option<String>> = Mutex::new(None);
 
 struct Bridge(Arc<PluginHandle<Wry>>);
 
-#[allow(dead_code)] // TEMP (crash test): not registered in lib.rs
 pub fn init() -> TauriPlugin<Wry> {
     Builder::<Wry>::new("tasks-android")
         .setup(|app, api| {

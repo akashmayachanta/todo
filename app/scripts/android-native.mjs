@@ -4,7 +4,7 @@
 // - android/res/** into its resources (the reminder's status bar icon)
 // - the receivers, the crash log's provider and the battery permission into
 //   AndroidManifest.xml
-// - WorkManager into app/build.gradle.kts
+// - WorkManager into app/build.gradle.kts, and R8 rules into app/proguard-tasks.pro
 // It also takes out what earlier versions put in and the app no longer has
 // (REMOVED below), since gen/android keeps whatever was copied into it.
 // Runs before every Android build. Safe to run again.
@@ -73,18 +73,36 @@ const RECEIVERS = `
 if (!manifest.includes('tasks-native: reminders')) {
 	manifest = manifest.replace(/(\s*<\/application>)/, `${RECEIVERS.trimEnd()}$1`);
 }
-// Crash reports to Downloads/Tasks (CrashLog.kt). A provider starts with the process.
+// Crash reports to Download/Tasks (CrashLog.kt). A provider starts with the
+// process; the high initOrder starts it before the others (WorkManager's), so a
+// crash in one of those is caught too.
 const CRASH_LOG = `
         <!-- tasks-native: crash log (scripts/android-native.mjs) -->
         <provider
             android:name=".CrashLogProvider"
             android:authorities="\${applicationId}.crashlog"
+            android:initOrder="1000"
             android:exported="false" />
 `;
-if (!manifest.includes('tasks-native: crash log')) {
-	manifest = manifest.replace(/(\s*<\/application>)/, `${CRASH_LOG.trimEnd()}$1`);
-}
+// Replaced each run, so an older entry (without initOrder) is updated.
+manifest = manifest.replace(/\n[ \t]*<!-- tasks-native: crash log [^>]*-->\s*<provider[^>]*?\/>/g, '');
+manifest = manifest.replace(/(\s*<\/application>)/, `${CRASH_LOG.trimEnd()}$1`);
 writeFileSync(manifestPath, manifest);
+
+// ── R8 ───────────────────────────────────────────────────────────────────────
+// The release build shrinks and optimizes the code with every *.pro file in app/.
+// R8 removed the constructor WorkManager makes its database with by reflection,
+// so the app crashed on every start (NoSuchMethodException
+// WorkDatabase_Impl.<init>). Our own classes are kept whole, too: Rust calls
+// Native and the plugin by name (JNI), and the manifest names the rest.
+writeFileSync(
+	join(APP, 'proguard-tasks.pro'),
+	`# Written by scripts/android-native.mjs. Edit it there, not here.
+-keep class * extends androidx.room.RoomDatabase { <init>(); }
+-keep class androidx.work.impl.WorkDatabase_Impl { <init>(); }
+-keep class dev.tasks.app.** { *; }
+`,
+);
 
 // ── Gradle ───────────────────────────────────────────────────────────────────
 const gradlePath = join(APP, 'build.gradle.kts');

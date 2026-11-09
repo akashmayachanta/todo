@@ -148,12 +148,10 @@ pub fn run() {
             );
     }
 
-    // TEMP (crash test): the tasks-android plugin is off. Put this back once the
-    // crash on launch is found.
-    // #[cfg(target_os = "android")]
-    // {
-    //     builder = builder.plugin(android::init());
-    // }
+    #[cfg(target_os = "android")]
+    {
+        builder = builder.plugin(android::init());
+    }
 
     builder
         .plugin(tauri_plugin_notification::init())

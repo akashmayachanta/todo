@@ -32,6 +32,7 @@ import java.util.concurrent.TimeUnit
 object CrashLog {
   private const val PREFS = "tasks-crash-log"
   private const val LAST_EXIT = "lastExit"
+  private const val CHECKED = "checkedVersion"
 
   fun install(context: Context) {
     val app = context.applicationContext
@@ -46,25 +47,63 @@ object CrashLog {
     }
   }
 
-  /** The app's crashes and freezes Android recorded since the last report. */
+  private fun reasonName(reason: Int) = when (reason) {
+    ApplicationExitInfo.REASON_CRASH -> "crash"
+    ApplicationExitInfo.REASON_CRASH_NATIVE -> "native-crash"
+    ApplicationExitInfo.REASON_ANR -> "freeze"
+    ApplicationExitInfo.REASON_INITIALIZATION_FAILURE -> "init-failure"
+    ApplicationExitInfo.REASON_SIGNALED -> "signaled"
+    ApplicationExitInfo.REASON_EXIT_SELF -> "exit-self"
+    ApplicationExitInfo.REASON_LOW_MEMORY -> "low-memory"
+    ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE -> "excessive-resources"
+    ApplicationExitInfo.REASON_DEPENDENCY_DIED -> "dependency-died"
+    ApplicationExitInfo.REASON_PERMISSION_CHANGE -> "permission-change"
+    ApplicationExitInfo.REASON_USER_REQUESTED -> "user-requested"
+    ApplicationExitInfo.REASON_USER_STOPPED -> "user-stopped"
+    ApplicationExitInfo.REASON_OTHER -> "other"
+    else -> "reason-$reason"
+  }
+
+  /** Exits that are normal: the user closed the app, or it ended itself cleanly. */
+  private fun isNormal(exit: ApplicationExitInfo) = when (exit.reason) {
+    ApplicationExitInfo.REASON_USER_REQUESTED, ApplicationExitInfo.REASON_USER_STOPPED -> true
+    ApplicationExitInfo.REASON_EXIT_SELF -> exit.status == 0
+    else -> false
+  }
+
+  /**
+   * The app's abnormal exits Android recorded since the last report, each to its
+   * own file. Once per app version it also writes tasks-check-<version>.txt,
+   * listing every recorded exit, so it shows the logger runs at all.
+   */
   private fun saveRecordedExits(context: Context) {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+    val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    val version = versionName(context)
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+      if (prefs.getString(CHECKED, null) != version) {
+        save(context, "check-$version", "The crash log runs. Android ${Build.VERSION.RELEASE} keeps no exit history, so only Kotlin/Java crashes are saved.", logcat = false)
+        prefs.edit().putString(CHECKED, version).apply()
+      }
+      return
+    }
     try {
-      val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
       val last = prefs.getLong(LAST_EXIT, 0)
       val am = context.getSystemService(ActivityManager::class.java)
-      val exits = am.getHistoricalProcessExitReasons(context.packageName, 0, 10)
-        .filter { it.timestamp > last }
+      val all = am.getHistoricalProcessExitReasons(context.packageName, 0, 20)
+      if (prefs.getString(CHECKED, null) != version) {
+        val list = if (all.isEmpty()) "(none recorded)" else all.joinToString("\n") {
+          "${stamp(it.timestamp)}  ${reasonName(it.reason)}  status ${it.status}  ${it.description ?: ""}"
+        }
+        save(context, "check-$version", "The crash log runs. Exits Android recorded for this app:\n$list", logcat = false)
+        prefs.edit().putString(CHECKED, version).apply()
+      }
+      val exits = all.filter { it.timestamp > last }
       if (exits.isEmpty()) return
       prefs.edit().putLong(LAST_EXIT, exits.maxOf { it.timestamp }).apply()
-      // The first start after installing has the old build's exits; they're still useful.
       for (exit in exits.sortedBy { it.timestamp }) {
-        val kind = when (exit.reason) {
-          ApplicationExitInfo.REASON_CRASH -> "crash"
-          ApplicationExitInfo.REASON_CRASH_NATIVE -> "native-crash"
-          ApplicationExitInfo.REASON_ANR -> "freeze"
-          else -> continue
-        }
+        // Kotlin/Java crashes were already saved, with their stack, as they happened.
+        if (isNormal(exit) || exit.reason == ApplicationExitInfo.REASON_CRASH) continue
+        val kind = reasonName(exit.reason)
         val trace = try {
           exit.traceInputStream?.bufferedReader()?.use { it.readText() }
         } catch (_: Throwable) {
@@ -76,13 +115,23 @@ object CrashLog {
           buildString {
             append("Happened: ${stamp(exit.timestamp)}\n")
             append("Description: ${exit.description}\n")
-            append("Process: ${exit.processName}, status ${exit.status}\n\n")
+            append("Process: ${exit.processName}, reason ${reasonName(exit.reason)}, status ${exit.status}\n\n")
             append(trace ?: "(Android kept no trace for this one)")
           },
         )
       }
-    } catch (_: Throwable) {
+    } catch (e: Throwable) {
+      try {
+        save(context, "logger-error", e.stackTraceToString(), logcat = false)
+      } catch (_: Throwable) {
+      }
     }
+  }
+
+  private fun versionName(context: Context): String = try {
+    context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "?"
+  } catch (_: Throwable) {
+    "?"
   }
 
   private fun stamp(ms: Long) = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date(ms))
@@ -97,36 +146,39 @@ object CrashLog {
     "(couldn't read logcat: ${e.message})"
   }
 
-  private fun save(context: Context, kind: String, body: String) {
+  private fun save(context: Context, kind: String, body: String, logcat: Boolean = true) {
     val name = "tasks-$kind-${SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())}.txt"
-    val version = try {
-      context.packageManager.getPackageInfo(context.packageName, 0).versionName
-    } catch (_: Throwable) {
-      "?"
-    }
+    val version = versionName(context)
     val text = buildString {
       append("Tasks $version, Android ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT}), ")
       append("${Build.MANUFACTURER} ${Build.MODEL}\n")
       append("Saved: ${stamp(System.currentTimeMillis())}\n\n")
       append(body)
-      append("\n\n──── logcat (this app) ────\n")
-      append(ownLogcat())
+      if (logcat) {
+        append("\n\n──── logcat (this app) ────\n")
+        append(ownLogcat())
+      }
     }
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-      // Downloads/Tasks through MediaStore: no storage permission needed.
-      val values = ContentValues().apply {
-        put(MediaStore.Downloads.DISPLAY_NAME, name)
-        put(MediaStore.Downloads.MIME_TYPE, "text/plain")
-        put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/Tasks")
+      try {
+        // Download/Tasks through MediaStore: no storage permission needed.
+        val values = ContentValues().apply {
+          put(MediaStore.Downloads.DISPLAY_NAME, name)
+          put(MediaStore.Downloads.MIME_TYPE, "text/plain")
+          put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/Tasks")
+        }
+        val resolver = context.contentResolver
+        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+          ?: throw IllegalStateException("MediaStore refused the file")
+        resolver.openOutputStream(uri)?.use { it.write(text.toByteArray()) }
+        return
+      } catch (_: Throwable) {
+        // Falls through to the app's own folder.
       }
-      val resolver = context.contentResolver
-      val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return
-      resolver.openOutputStream(uri)?.use { it.write(text.toByteArray()) }
-    } else {
-      // Android 9 and older: the app's own folder, Android/data/dev.tasks.app/files/crash.
-      val dir = File(context.getExternalFilesDir(null), "crash").apply { mkdirs() }
-      File(dir, name).writeText(text)
     }
+    // Android 9 and older, or MediaStore failed: Android/data/dev.tasks.app/files/crash.
+    val dir = File(context.getExternalFilesDir(null), "crash").apply { mkdirs() }
+    File(dir, name).writeText(text)
   }
 }
 

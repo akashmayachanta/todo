@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The folder UpdateFileProvider shares: app updates downloaded by updates.rs. -->
+<paths>
+    <cache-path name="updates" path="updates/" />
+</paths>

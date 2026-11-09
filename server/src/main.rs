@@ -7,6 +7,7 @@
 mod auth;
 mod config;
 mod error;
+mod releases;
 mod routes;
 mod store;
 #[cfg(windows)]
@@ -26,6 +27,7 @@ pub struct AppState {
     pub config: Config,
     pub store: Arc<store::Store>,
     pub accounts: Arc<auth::Accounts>,
+    pub releases: Arc<releases::Releases>,
 }
 
 /// RUST_LOG, or the default log levels.
@@ -145,7 +147,10 @@ impl Server {
         let addr = format!("{}:{}", config.host, config.port);
         let listener = TcpListener::bind(&addr).await.map_err(|e| format!("Could not listen on {addr}: {e}"))?;
         tracing::info!("listening on http://{addr}{}", config.base_path);
-        let state = Arc::new(AppState { store: Arc::new(store::Store::new(config.clone())), accounts: Arc::new(accounts), config });
+        let state = Arc::new(AppState { store: Arc::new(store::Store::new(config.clone())), accounts: Arc::new(accounts),
+            releases: Arc::new(releases::Releases::new()),
+            config,
+        });
         Ok(Server { listener, state })
     }
 

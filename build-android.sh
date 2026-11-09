@@ -2,6 +2,9 @@
 # Builds the signed release APK inside WSL2 Ubuntu.
 # Run from Ubuntu:  bash /mnt/c/Drive/Vault/todo/build-android.sh
 # One-time setup (SDK, NDK, JDK, keystore, android:init): see BUILD.md, section 3.
+# Each build raises the version (app/scripts/bump-version.mjs) and writes it to
+# target/apk/tasks.apk.version, which copy-release.bat puts next to the server
+# for app updates.
 set -euo pipefail
 
 SRC="$(cd "$(dirname "$0")" && pwd)"   # the Windows repo, seen from WSL
@@ -23,6 +26,9 @@ export NDK_HOME="${NDK_HOME:-$(ls -d "$ANDROID_HOME"/ndk/* | sort -V | tail -n 1
 export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-17-openjdk-amd64}"
 export PATH="$ANDROID_HOME/platform-tools:$PATH"
 
+# In the Windows repo, so the new version is synced below and stays there.
+VERSION="$(node "$SRC/app/scripts/bump-version.mjs")"
+
 # Copy only code into Linux. Excluded paths are never copied or deleted, and
 # there is no --delete, so the Linux node_modules, build output and Android
 # project survive every run. Later runs copy only files changed since the last.
@@ -42,7 +48,8 @@ npm run android:build
 # Put the APK where Windows can reach it (target/ is git-ignored).
 mkdir -p "$SRC/target/apk"
 cp "$APK" "$SRC/target/apk/tasks.apk"
+echo "$VERSION" > "$SRC/target/apk/tasks.apk.version"
 
 echo
-echo "Done: $SRC/target/apk/tasks.apk"
+echo "Done: $SRC/target/apk/tasks.apk, version $VERSION"
 echo "Install from Windows:  adb install -r $(wslpath -w "$SRC/target/apk/tasks.apk")"

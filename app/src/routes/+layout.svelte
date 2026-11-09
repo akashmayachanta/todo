@@ -22,6 +22,7 @@
 	import FirstSync from '$shell/FirstSync.svelte';
 	import AccountMenu from '$shell/AccountMenu.svelte';
 	import PaneStatus from '$shell/PaneStatus.svelte';
+	import { checkForUpdate } from '$shell/updates';
 	import SettingsDialog, { type SettingsTab } from '$shell/SettingsDialog.svelte';
 
 	// Before any page loads: tasks come from the local DB (Rust). Reminders are
@@ -78,7 +79,10 @@
 			}),
 		];
 		if (!widget) {
-			call<AppStatus>('app_status').then((s) => (status = s));
+			call<AppStatus>('app_status').then((s) => {
+				status = s;
+				if (s.configured && s.sync.ready) checkForUpdate();
+			});
 			call<string | null>('app_take_open_task').then((id) => id && openTask(id));
 			call('app_ask_notification_permission').catch(() => {});
 			stops.push(
@@ -97,6 +101,7 @@
 			if (document.visibilityState !== 'visible') return;
 			syncNow();
 			tasksChanged();
+			if (!widget && ready) checkForUpdate();
 		}
 		window.addEventListener('online', syncNow);
 		document.addEventListener('visibilitychange', onVisible);

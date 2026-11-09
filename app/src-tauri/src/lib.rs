@@ -7,6 +7,7 @@ mod commands;
 mod reminders;
 mod state;
 mod syncer;
+mod updates;
 #[cfg(desktop)]
 mod widgets;
 
@@ -144,10 +145,12 @@ pub fn run() {
             );
     }
 
-    #[cfg(target_os = "android")]
-    {
-        builder = builder.plugin(android::init());
-    }
+    // TEMP (crash test): the tasks-android plugin is off. Put this back once the
+    // crash on launch is found.
+    // #[cfg(target_os = "android")]
+    // {
+    //     builder = builder.plugin(android::init());
+    // }
 
     builder
         .plugin(tauri_plugin_notification::init())
@@ -162,6 +165,8 @@ pub fn run() {
 
             #[cfg(desktop)]
             desktop_setup(app)?;
+            #[cfg(windows)]
+            updates::clean_up();
 
             // A tapped reminder opens its task (Android: android.rs).
             #[cfg(target_os = "android")]
@@ -228,6 +233,8 @@ pub fn run() {
             commands::app_ask_notification_permission,
             commands::app_reminder_health,
             commands::app_open_reminder_setting,
+            updates::app_update_check,
+            updates::app_update_install,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Tasks app");

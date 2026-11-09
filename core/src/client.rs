@@ -202,6 +202,43 @@ impl Client {
             .await?;
         Ok(check(res).await?.json().await?)
     }
+
+    /// The newest build of the app the server has for `platform` ("windows" or
+    /// "android"), or None when it has none.
+    pub async fn latest_release(&self, token: &str, platform: &str) -> Result<Option<Release>, ClientError> {
+        let res = self
+            .http
+            .get(self.server.tasks_url("/app/latest"))
+            .query(&[("platform", platform)])
+            .bearer_auth(token)
+            .send()
+            .await?;
+        if res.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        Ok(Some(check(res).await?.json().await?))
+    }
+
+    /// Downloads that build. It can be tens of MB, so it gets longer than a sync call.
+    pub async fn download_release(&self, token: &str, platform: &str) -> Result<Vec<u8>, ClientError> {
+        let res = self
+            .http
+            .get(self.server.tasks_url("/app/download"))
+            .query(&[("platform", platform)])
+            .bearer_auth(token)
+            .timeout(Duration::from_secs(15 * 60))
+            .send()
+            .await?;
+        Ok(check(res).await?.bytes().await?.to_vec())
+    }
+}
+
+/// A build of the app on the server (GET /app/latest).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Release {
+    pub version: String,
+    pub sha256: String,
+    pub size: u64,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]

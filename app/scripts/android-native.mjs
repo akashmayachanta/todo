@@ -2,7 +2,8 @@
 // the WSL copy (gen/android is never synced from Windows):
 // - android/java/*.kt into the app's package (reminders, background sync, the plugin)
 // - android/res/** into its resources (the reminder's status bar icon)
-// - the receivers and the battery permission into AndroidManifest.xml
+// - the receivers, the update installer's FileProvider and their permissions
+//   into AndroidManifest.xml
 // - WorkManager into app/build.gradle.kts
 // Runs before every Android build. Safe to run again.
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -35,9 +36,14 @@ copyTree(join(SRC, 'res'), join(MAIN, 'res'));
 // ── Manifest ─────────────────────────────────────────────────────────────────
 const manifestPath = join(MAIN, 'AndroidManifest.xml');
 let manifest = readFileSync(manifestPath, 'utf8');
-const PERMISSION = 'android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS';
-if (!manifest.includes(`"${PERMISSION}"`)) {
-	manifest = manifest.replace(/(<manifest[^>]*>)/, `$1\n    <uses-permission android:name="${PERMISSION}" />`);
+// Battery: background sync. Install packages: app updates from the server (updates.rs).
+for (const permission of [
+	'android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
+	'android.permission.REQUEST_INSTALL_PACKAGES',
+]) {
+	if (!manifest.includes(`"${permission}"`)) {
+		manifest = manifest.replace(/(<manifest[^>]*>)/, `$1\n    <uses-permission android:name="${permission}" />`);
+	}
 }
 const RECEIVERS = `
         <!-- tasks-native: reminders (scripts/android-native.mjs) -->
@@ -52,6 +58,19 @@ const RECEIVERS = `
 `;
 if (!manifest.includes('tasks-native: reminders')) {
 	manifest = manifest.replace(/(\s*<\/application>)/, `${RECEIVERS.trimEnd()}$1`);
+}
+const PROVIDER = `
+        <!-- tasks-native: updates (scripts/android-native.mjs) -->
+        <provider
+            android:name=".UpdateFileProvider"
+            android:authorities="\${applicationId}.updates"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/update_paths" />
+        </provider>
+`;
+if (!manifest.includes('tasks-native: updates')) {
+	manifest = manifest.replace(/(\s*<\/application>)/, `${PROVIDER.trimEnd()}$1`);
 }
 writeFileSync(manifestPath, manifest);
 

@@ -2,7 +2,8 @@
 //
 // The app's own Tauri plugin ("tasks-android" in app/src-tauri/src/android.rs):
 // schedules reminders, reports whether Android will deliver them on time, and
-// opens the settings that fix it. A tapped reminder's task goes to Rust from here.
+// opens the settings that fix it, and opens the installer on a downloaded app
+// update (updates.rs). A tapped reminder's task goes to Rust from here.
 package dev.tasks.app
 
 import android.app.Activity
@@ -13,6 +14,8 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.webkit.WebView
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.FileProvider
+import java.io.File
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
@@ -29,6 +32,11 @@ class ScheduleArgs {
 @InvokeArg
 class SettingArgs {
   var kind: String = ""
+}
+
+@InvokeArg
+class InstallArgs {
+  var path: String = ""
 }
 
 @TauriPlugin
@@ -86,6 +94,26 @@ class TasksPlugin(private val activity: Activity) : Plugin(activity) {
       activity.startActivity(appDetails(pkg))
     }
     invoke.resolve()
+  }
+
+  /** Opens Android's installer on an APK in the cache (see UpdateFileProvider). */
+  @Command
+  fun installApk(invoke: Invoke) {
+    val file = File(invoke.parseArgs(InstallArgs::class.java).path)
+    if (!file.isFile) {
+      invoke.reject("The downloaded update is missing")
+      return
+    }
+    val uri = FileProvider.getUriForFile(activity, UpdateFileProvider.authority(activity), file)
+    val intent = Intent(Intent.ACTION_VIEW)
+      .setDataAndType(uri, "application/vnd.android.package-archive")
+      .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+    try {
+      activity.startActivity(intent)
+      invoke.resolve()
+    } catch (e: Exception) {
+      invoke.reject("Can't open the installer: ${e.message}")
+    }
   }
 
   private fun appDetails(pkg: String) = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$pkg"))

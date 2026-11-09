@@ -17,6 +17,7 @@ use tasks_core::{ops, Category, CategoryIn, Completions, Ctx, Filter, FilterIn, 
 
 use crate::auth::{AuthUser, Device};
 use crate::error::{ApiError, ApiResult};
+use crate::releases::{Platform, Release};
 use crate::AppState;
 
 type St = State<Arc<AppState>>;
@@ -80,6 +81,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(&p("/auth/devices/{id}/revoke"), post(revoke_device))
         .route(&p("/sync/push"), post(push))
         .route(&p("/sync/pull"), get(pull))
+        .route(&p("/app/latest"), get(latest_release))
+        .route(&p("/app/download"), get(download_release))
         .route(&p("/{id}"), get(get_task).post(update_task))
         .route(&p("/{id}/delete"), post(delete_task))
         .layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024))
@@ -293,4 +296,25 @@ struct PullQuery {
 async fn pull(State(s): St, u: AuthUser, Q(q): Q<PullQuery>) -> ApiResult<Json<PullResponse>> {
     let limit = q.limit.unwrap_or(500).clamp(1, 2000);
     Ok(Json(s.store.run(u.user_id, move |c| sync::changes_since(c, q.since, limit)).await?))
+}
+
+// ── App updates (releases.rs) ────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct PlatformQuery {
+    platform: Platform,
+}
+
+/// The newest build of the app for a platform: its version, SHA-256 and size.
+async fn latest_release(State(s): St, _u: AuthUser, Q(q): Q<PlatformQuery>) -> ApiResult<Json<Release>> {
+    let releases = s.releases.clone();
+    let release = tokio::task::spawn_blocking(move || releases.latest(q.platform))
+        .await
+        .map_err(|e| ApiError::internal(e.to_string()))??;
+    Ok(Json(release))
+}
+
+async fn download_release(State(s): St, _u: AuthUser, Q(q): Q<PlatformQuery>) -> ApiResult<axum::response::Response> {
+    let releases = s.releases.clone();
+    tokio::task::spawn_blocking(move || releases.download(q.platform)).await.map_err(|e| ApiError::internal(e.to_string()))?
 }

@@ -29,6 +29,7 @@ static PENDING_TASK: Mutex<Option<String>> = Mutex::new(None);
 
 struct Bridge(Arc<PluginHandle<Wry>>);
 
+#[allow(dead_code)] // TEMP (crash test): not registered in lib.rs
 pub fn init() -> TauriPlugin<Wry> {
     Builder::<Wry>::new("tasks-android")
         .setup(|app, api| {
@@ -83,6 +84,16 @@ pub async fn open_setting(app: &AppHandle, kind: String) -> Result<(), String> {
     let handle = bridge(app).ok_or("The Android bridge isn't loaded")?;
     handle
         .run_mobile_plugin_async::<serde_json::Value>("openSetting", serde_json::json!({ "kind": kind }))
+        .await
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+/// Opens Android's installer on a downloaded APK (an app update, updates.rs).
+pub async fn install_apk(app: &AppHandle, apk: &Path) -> Result<(), String> {
+    let handle = bridge(app).ok_or("The Android bridge isn't loaded, so the update can't open the installer")?;
+    handle
+        .run_mobile_plugin_async::<serde_json::Value>("installApk", serde_json::json!({ "path": apk.to_string_lossy() }))
         .await
         .map(|_| ())
         .map_err(|e| e.to_string())

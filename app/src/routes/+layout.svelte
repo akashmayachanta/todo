@@ -24,6 +24,7 @@
 	import PaneStatus from '$shell/PaneStatus.svelte';
 	import { checkForUpdate } from '$shell/updates';
 	import SettingsDialog, { type SettingsTab } from '$shell/SettingsDialog.svelte';
+	import { startProfile } from '$shell/profile';
 
 	// Before any page loads: tasks come from the local DB (Rust). Reminders are
 	// system notifications scheduled there too (src-tauri/src/reminders.rs).
@@ -43,6 +44,11 @@
 	// Settings, open on one of its sections.
 	let settingsTab = $state<SettingsTab | null>(null);
 	let ready = $derived(!!status && status.configured && !showSetup && !waitingForFirstSync);
+
+	// The signed-in account's photo and name, from the local DB (they sync with the tasks).
+	$effect(() => {
+		if (status?.configured && status.username) startProfile(status.username, status.sync.ready);
+	});
 
 	// The account menu tops the Tasks pane (lib/components/tasks/TasksPane.svelte).
 	setPaneHeader(paneHeader);

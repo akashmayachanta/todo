@@ -290,3 +290,49 @@ fn a_sync_merge_keeps_a_long_subtask() {
     assert_eq!(applied.ignored, 0);
     assert_eq!(ops::get_task(&server, &sub.id).unwrap().title, long);
 }
+
+// ── Profile ──────────────────────────────────────────────────────────────────
+
+fn photo(n: usize) -> String {
+    format!("data:image/jpeg;base64,{}", "A".repeat(n))
+}
+
+#[test]
+fn a_profile_is_checked_and_syncs_to_another_device() {
+    let (a, ctx_a) = setup();
+    assert!(ops::get_profile(&a).unwrap().display_name.is_none());
+
+    let patch = |v: serde_json::Value| from::<tasks_core::ProfilePatch>(v);
+    assert!(ops::update_profile(&a, &ctx_a, patch(json!({ "photo": "data:image/png;base64,AAAA" }))).is_err());
+    assert!(ops::update_profile(&a, &ctx_a, patch(json!({ "photo": photo(40_000) }))).is_err());
+    assert!(ops::update_profile(&a, &ctx_a, patch(json!({ "display_name": "x".repeat(61) }))).is_err());
+    assert_eq!(sync::pending_count(&a).unwrap(), 0);
+
+    let p = ops::update_profile(&a, &ctx_a, patch(json!({ "display_name": "  Akash  ", "photo": photo(100) }))).unwrap();
+    assert_eq!(p.display_name.as_deref(), Some("Akash"));
+    // Leaving a field out keeps it; saving the same thing again writes nothing.
+    ops::update_profile(&a, &ctx_a, patch(json!({ "display_name": "Akash" }))).unwrap();
+    assert_eq!(sync::pending_count(&a).unwrap(), 1);
+
+    // Through the server to a second device.
+    let server = db::open_in_memory().unwrap();
+    sync::apply(&server, &Ctx::server(), &sync::dirty_rows(&a, 100).unwrap()).unwrap();
+    let b = db::open_in_memory().unwrap();
+    let pulled = sync::changes_since(&server, 0, 100).unwrap();
+    sync::apply(&b, &Ctx::device("device-b"), &pulled.rows).unwrap();
+    let got = ops::get_profile(&b).unwrap();
+    assert_eq!(got.display_name.as_deref(), Some("Akash"));
+    assert_eq!(got.photo, Some(photo(100)));
+
+    // Clearing the photo is a later version and travels too.
+    ops::update_profile(&a, &ctx_a, patch(json!({ "photo": null }))).unwrap();
+    assert!(ops::get_profile(&a).unwrap().photo.is_none());
+}
+
+#[test]
+fn a_sync_row_from_an_unknown_table_is_skipped() {
+    let (conn, _) = setup();
+    let row: sync::SyncRow = from(json!({ "table": "from_the_future", "row": { "id": "x" } }));
+    let applied = sync::apply(&conn, &Ctx::server(), &[row]).unwrap();
+    assert_eq!((applied.accepted, applied.ignored), (0, 1));
+}

@@ -58,8 +58,14 @@
 	let hasPhoto = $derived(!!status.username && !!$photos[status.username]);
 	let displayName = $state(untrack(() => (status.username ? $displayNames[status.username] ?? '' : '')));
 
-	function saveName() {
-		if (status.username) setDisplayName(status.username, displayName);
+	async function saveName() {
+		if (status.username) {
+			try {
+				await setDisplayName(status.username, displayName);
+			} catch (err) {
+				toast.error(errorDetail(err));
+			}
+		}
 		displayName = status.username ? $displayNames[status.username] ?? '' : '';
 	}
 
@@ -227,7 +233,7 @@
 										{photoBusy ? 'Saving…' : hasPhoto ? 'Change photo' : 'Upload photo'}
 									</button>
 									{#if hasPhoto}
-										<button type="button" class="btn btn-ghost set-text-btn" onclick={() => status.username && removePhoto(status.username)}>Remove</button>
+										<button type="button" class="btn btn-ghost set-text-btn" onclick={() => status.username && removePhoto(status.username).catch((err) => toast.error(errorDetail(err)))}>Remove</button>
 									{/if}
 								</div>
 								<p class="set-hint">Kept on this device. A square crop of the middle of the picture.</p>
@@ -248,7 +254,7 @@
 								onchange={saveName}
 								onkeydown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
 							/>
-							<span class="set-hint">Shown in the sidebar and menus on this device.</span>
+							<span class="set-hint">Shown in the sidebar and menus, on all your devices.</span>
 						</label>
 						<label class="set-group">
 							<span class="set-label">Username</span>

@@ -47,6 +47,8 @@ export interface TasksClient {
 	update(id: string, patch: TaskPatch): Promise<Task>;
 	/** Its subtasks go with it. */
 	delete(id: string): Promise<void>;
+	/** Deletes the done ones among these ids (with their subtasks); returns how many. */
+	deleteCompleted(ids: string[]): Promise<number>;
 	/** Sibling tasks in the new order; returns them in that order. */
 	reorder(ids: string[]): Promise<Task[]>;
 }

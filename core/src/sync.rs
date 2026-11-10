@@ -63,6 +63,11 @@ pub const TABLES: &[Table] = &[
         columns: &["id", "task_id", "completed_at", "created_at"],
         required: &["completed_at", "created_at"],
     },
+    Table {
+        name: "profile",
+        columns: &["id", "display_name", "photo", "created_at"],
+        required: &["created_at"],
+    },
 ];
 
 const SYNC_COLUMNS: &[&str] = &["updated_at", "updated_by", "deleted_at"];
@@ -333,7 +338,12 @@ pub struct Applied {
 pub fn apply(conn: &Connection, ctx: &Ctx, rows: &[SyncRow]) -> Result<Applied> {
     let mut applied = Applied::default();
     for r in rows {
-        let t = table(&r.table)?;
+        // A table this build doesn't know (a newer version added it): skip it
+        // rather than fail the whole sync.
+        let Some(t) = TABLES.iter().find(|t| t.name == r.table) else {
+            applied.ignored += 1;
+            continue;
+        };
         let id = r
             .row
             .get("id")

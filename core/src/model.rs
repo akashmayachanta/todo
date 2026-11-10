@@ -382,3 +382,23 @@ impl FilterIn {
         })
     }
 }
+
+// ── Profile ──────────────────────────────────────────────────────────────────
+
+/// The account's display name and photo, synced to every device. `None` means
+/// the username, and no photo.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct Profile {
+    pub display_name: Option<String>,
+    /// A small square JPEG as a data URL.
+    pub photo: Option<String>,
+}
+
+/// A partial update: a field left out stays as it is, and null clears it.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct ProfilePatch {
+    #[serde(default, deserialize_with = "double")]
+    pub display_name: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double")]
+    pub photo: Option<Option<String>>,
+}

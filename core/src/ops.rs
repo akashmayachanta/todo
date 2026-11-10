@@ -603,6 +603,22 @@ pub fn delete_task(conn: &Connection, ctx: &Ctx, id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Deletes the given tasks, but only ones that are done; open ones are skipped.
+/// Returns how many were deleted.
+pub fn delete_completed(conn: &Connection, ctx: &Ctx, ids: &[String]) -> Result<usize> {
+    let mut n = 0;
+    for id in ids {
+        match get_task(conn, id) {
+            Ok(t) if t.completed_at.is_some() => {
+                delete_task(conn, ctx, id)?;
+                n += 1;
+            }
+            _ => {}
+        }
+    }
+    Ok(n)
+}
+
 fn log_completion(conn: &Connection, ctx: &Ctx, task_id: &str, completed_at: &str) -> Result<()> {
     let id = new_id();
     conn.execute(
@@ -792,4 +808,60 @@ pub fn list_completions(conn: &Connection, since: &str) -> Result<Completions> {
     )?;
     let total = conn.query_row("SELECT count(*) FROM task_completions WHERE deleted_at IS NULL", [], |r| r.get(0))?;
     Ok(Completions { total, items })
+}
+
+// ── Profile ──────────────────────────────────────────────────────────────────
+
+const PROFILE_ID: &str = "me";
+const PROFILE_NAME_MAX: usize = 60;
+const PROFILE_PHOTO_PREFIX: &str = "data:image/jpeg;base64,";
+/// The most a photo's data URL may take (a 128 px JPEG is around 10 KB).
+pub const PROFILE_PHOTO_MAX: usize = 32_000;
+
+pub fn get_profile(conn: &Connection) -> Result<Profile> {
+    Ok(conn
+        .query_row(
+            "SELECT display_name, photo FROM profile WHERE id = ?1 AND deleted_at IS NULL",
+            [PROFILE_ID],
+            |r| Ok(Profile { display_name: r.get(0)?, photo: r.get(1)? }),
+        )
+        .optional()?
+        .unwrap_or_default())
+}
+
+/// Changes the name and/or photo. An empty name goes back to the username;
+/// the photo must be a small JPEG data URL. Nothing is written (so nothing
+/// syncs) when the result is the same as what is stored.
+pub fn update_profile(conn: &Connection, ctx: &Ctx, patch: ProfilePatch) -> Result<Profile> {
+    let mut next = get_profile(conn)?;
+    if let Some(name) = patch.display_name {
+        let name = name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
+        if name.as_ref().is_some_and(|n| n.chars().count() > PROFILE_NAME_MAX) {
+            return Err(Error::Invalid(format!("A display name is at most {PROFILE_NAME_MAX} characters")));
+        }
+        next.display_name = name;
+    }
+    if let Some(photo) = patch.photo {
+        if let Some(p) = &photo {
+            if !p.starts_with(PROFILE_PHOTO_PREFIX) {
+                return Err(Error::Invalid("The photo must be a JPEG".into()));
+            }
+            if p.len() > PROFILE_PHOTO_MAX {
+                return Err(Error::Invalid("The photo is too big".into()));
+            }
+        }
+        next.photo = photo;
+    }
+    let current = get_profile(conn)?;
+    if next.display_name == current.display_name && next.photo == current.photo {
+        return Ok(current);
+    }
+    conn.execute(
+        "INSERT INTO profile (id, display_name, photo, created_at) VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT (id) DO UPDATE SET display_name = excluded.display_name, photo = excluded.photo,
+                                        deleted_at = NULL",
+        params![PROFILE_ID, next.display_name, next.photo, now_iso()],
+    )?;
+    touch(conn, ctx, "profile", PROFILE_ID)?;
+    Ok(next)
 }

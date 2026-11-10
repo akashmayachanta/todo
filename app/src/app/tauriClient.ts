@@ -45,7 +45,7 @@ export const EVENT_LOCAL_CHANGED = 'tasks://local-changed';
 
 /** A write. The pins and the main window each keep their own copy of the tasks, and
  *  `tasks://changed` only fires after a sync, so a write tells the others itself. */
-async function write<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+export async function write<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
 	const out = await call<T>(cmd, args);
 	emit(EVENT_LOCAL_CHANGED, getCurrentWindow().label).catch(() => { /* the others catch up on the next sync */ });
 	return out;
@@ -88,5 +88,6 @@ export const tauriTasksClient: TasksClient = {
 	create: (data) => write('tasks_create', { data }),
 	update: (id, patch) => write('tasks_update', { id, patch }),
 	delete: (id) => write('tasks_delete', { id }).then(done),
+	deleteCompleted: (ids) => write<number>('tasks_delete_completed', { ids }),
 	reorder: (ids) => write('tasks_reorder', { ids }),
 };

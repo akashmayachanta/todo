@@ -11,7 +11,7 @@ use rusqlite::Connection;
 use serde::Serialize;
 use tasks_core::client::{diagnose, Client, ClientError, ServerInfo};
 use tasks_core::{
-    ops, Category, CategoryIn, Completions, Ctx, Filter, FilterIn, Project, ProjectIn, Task, TaskIn, TaskPatch, TaskQuery,
+    ops, Category, CategoryIn, Completions, Ctx, Filter, FilterIn, Profile, ProfilePatch, Project, ProjectIn, Task, TaskIn, TaskPatch, TaskQuery,
 };
 use tauri::{AppHandle, Emitter, State, WebviewWindow};
 
@@ -121,6 +121,18 @@ pub fn tasks_filters_delete(st: St, id: String) -> Res<Ok> {
     db(&st, true, |c, x| ops::delete_filter(c, x, &id)).map(|_| OK)
 }
 
+// ── Profile ──────────────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn profile_get(st: St) -> Res<Profile> {
+    db(&st, false, |c, _| ops::get_profile(c))
+}
+
+#[tauri::command]
+pub fn profile_update(st: St, patch: ProfilePatch) -> Res<Profile> {
+    db(&st, true, |c, x| ops::update_profile(c, x, patch))
+}
+
 // ── Tasks ────────────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -152,6 +164,11 @@ pub fn tasks_update(st: St, id: String, patch: TaskPatch) -> Res<Task> {
 #[tauri::command]
 pub fn tasks_delete(st: St, id: String) -> Res<Ok> {
     db(&st, true, |c, x| ops::delete_task(c, x, &id)).map(|_| OK)
+}
+
+#[tauri::command]
+pub fn tasks_delete_completed(st: St, ids: Vec<String>) -> Res<usize> {
+    db(&st, true, |c, x| ops::delete_completed(c, x, &ids))
 }
 
 #[tauri::command]
@@ -226,7 +243,7 @@ fn adopt_user(st: &AppState, user_id: i64) -> Res<()> {
     if previous.as_deref().is_some_and(|p| p != user_id.to_string()) {
         conn.execute_batch(
             "DELETE FROM task_completions; DELETE FROM tasks; DELETE FROM task_filters;
-             DELETE FROM task_categories; DELETE FROM task_projects;
+             DELETE FROM task_categories; DELETE FROM task_projects; DELETE FROM profile;
              DELETE FROM sync_state WHERE key IN ('last_seq', 'reminders_fired', 'server_epoch');",
         )
         .map_err(|e| core_err(e.into()))?;

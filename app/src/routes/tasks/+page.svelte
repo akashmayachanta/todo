@@ -823,6 +823,23 @@
 		}
 	}
 
+	async function clearCompleted() {
+		const ids = completed.map((t) => t.id);
+		if (!ids.length) return;
+		if (!(await confirmDialog(`Delete all ${ids.length} completed task${ids.length > 1 ? 's' : ''} here? This can't be undone.`))) return;
+		try {
+			await api.tasks.deleteCompleted(ids);
+			const gone = new Set(ids);
+			tasks = tasks.filter((t) => !gone.has(t.id) && !(t.parent_id && gone.has(t.parent_id)));
+			completed = [];
+			if (taskId && gone.has(taskId)) closeTask();
+			toast.success('Completed tasks deleted');
+			await reloadTasks();
+		} catch (e) {
+			toast.error(errorDetail(e));
+		}
+	}
+
 	// ── Projects and categories ────────────────────────────────────────────────
 
 	function newProject() {
@@ -1466,7 +1483,12 @@
 
 			{#if completedShown && (view === 'project' || view === 'inbox') && layout !== 'calendar'}
 				<section class="task-group">
-					<h2 class="task-group-head">Completed <span class="task-group-count">{completed.length}</span></h2>
+					<h2 class="task-group-head">
+						Completed <span class="task-group-count">{completed.length}</span>
+						{#if completed.length}
+							<button type="button" class="ml-3 text-xs font-normal underline opacity-70 hover:opacity-100" onclick={clearCompleted}>Delete all</button>
+						{/if}
+					</h2>
 					{#each completed as task (task.id)}
 						{@render row(task, false, false)}
 					{:else}

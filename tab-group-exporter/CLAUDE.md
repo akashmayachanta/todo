@@ -1,10 +1,10 @@
-# AGENTS.md
+# CLAUDE.md
 
 Guidance for agents working in the **Tab Group Exporter** repository.
 
 ## What this is
 
-A Chrome **Manifest V3** extension (v1.6.0) that exports your browser's **open and
+A Chrome **Manifest V3** extension (v1.7.0) that exports your browser's **open and
 closed tab groups** as a single list you can copy, save, or share. The extension
 has no build step, no dependencies to install, and no test suite.
 
@@ -107,6 +107,11 @@ after a newer one bails out instead of overwriting the UI.
 - `tasksConfig` — `{ serverUrl, token, username, deviceId }` for the Tasks server.
   `serverUrl` includes the base path (e.g. `http://host:8050/tasks-api`). The
   password is never stored; signing out revokes the device token on the server.
+- `tasksSynced` — `{ "<serverUrl>|<username>": ["<group title, lower case>"] }`,
+  the group titles this extension has synced to each Tasks account. Written
+  empty on install; its absence after an update means a pre-1.7 install.
+- `tasksCleanupPending` — `true` after updating from a version without
+  `tasksSynced`; the next sync runs the one-time cleanup, then removes it.
 
 `chrome.storage.session`:
 
@@ -170,6 +175,17 @@ and `liveSession` both match the group currently being written.
   other windows are left as they are. Subtasks are posted one at a time, in tab
   order, so their positions follow the group. A completed group task is not
   returned by the server's list, so re-adding that group makes a new task.
+- **A group removed from the archive closes its task.** Every sync, whatever
+  is sent, checks the titles in `tasksSynced` against the whole archive (all
+  windows, open and closed). A title no longer there (removed with ×, "Forget
+  closed", or renamed) has its open video subtasks ticked off, and its task
+  completed once no subtask is left open. Completing a parent on the server
+  also ticks its open subtasks, so a task with a hand-typed subtask still
+  open stays open and only gets its time updated. Only titles in
+  `tasksSynced` are touched, so another browser's groups in the same account
+  are safe. The one exception is the one-time cleanup after updating from
+  1.6 or older: every group task with a video subtask that matches no
+  archived group is treated as removed. "Ungrouped tabs" is never tracked.
 - **Subtask titles are `[label](https://www.youtube.com/watch?v=<id>)`.** The
   Tasks app's link pattern has no escaped brackets, so `[ ]` in the label
   become `( )`; the label is cut to 255 characters (the server's subtask limit).
@@ -214,7 +230,7 @@ and `liveSession` both match the group currently being written.
 ## Versioning and releases
 
 - The version lives in **one place**: `version` in `manifest.json` (currently
-  `1.6.0`). Chrome reads it there.
+  `1.7.0`). Chrome reads it there.
 - Use **semver**, and bump it whenever behavior changes (not for docs/comment-only
   edits). Chrome only applies an update if this number increases, so a behavior
   change without a bump can be silently ignored on reload.

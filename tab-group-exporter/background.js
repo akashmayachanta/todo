@@ -1,4 +1,5 @@
 import { snapshot } from './archive.js';
+import { initSynced } from './tasks.js';
 
 // Wait for bursts of tab events (opening a window, closing a group) to settle
 // before saving, so a half-closed group never overwrites its full tab list.
@@ -8,7 +9,10 @@ function scheduleSnapshot() {
   timer = setTimeout(() => snapshot().catch(console.error), 1500);
 }
 
-chrome.runtime.onInstalled.addListener(scheduleSnapshot);
+chrome.runtime.onInstalled.addListener(({ reason }) => {
+  initSynced(reason).catch(console.error);
+  scheduleSnapshot();
+});
 chrome.runtime.onStartup.addListener(scheduleSnapshot);
 
 chrome.tabGroups.onCreated.addListener(scheduleSnapshot);

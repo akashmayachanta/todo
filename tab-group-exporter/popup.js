@@ -1,7 +1,7 @@
 import { GROUP_COLORS, snapshot, forgetClosed, forgetGroup } from './archive.js';
 import { attachDurations, formatDuration, groupTime, videoId } from './durations.js';
 import qrcode from './vendor/qrcode.js';
-import { addGroups, DEFAULT_SERVER, loadConfig, normalizeServerUrl, originPattern, signIn, signOut } from './tasks.js';
+import { addGroups, DEFAULT_SERVER, loadConfig, normalizeServerUrl, originPattern, signIn, signOut, UNGROUPED_TITLE } from './tasks.js';
 
 qrcode.stringToBytes = qrcode.stringToBytesFuncs['UTF-8'];
 
@@ -51,7 +51,7 @@ async function collectGroups({ currentWindowOnly, includeUngrouped, includeClose
   }
 
   if (includeUngrouped && ungrouped.length) {
-    ordered.push({ title: 'Ungrouped tabs', color: null, open: true, tabs: ungrouped });
+    ordered.push({ title: UNGROUPED_TITLE, color: null, open: true, tabs: ungrouped });
   }
   return ordered;
 }
@@ -106,7 +106,7 @@ function renderPills(groups) {
       const remove = document.createElement('button');
       remove.className = 'remove';
       remove.textContent = '×';
-      remove.title = 'Remove from this list';
+      remove.title = 'Remove from this list (its task is closed on the next Add to Tasks)';
       remove.setAttribute('aria-label', `Remove ${g.title}`);
       remove.addEventListener('click', async () => {
         await forgetGroup(g.key);
@@ -423,13 +423,14 @@ async function tasksSignOut() {
   await renderTasks();
 }
 
-function describeResult({ added, timed, reopened, ticked, skipped, groups }) {
+function describeResult({ added, timed, reopened, ticked, skipped, removed, groups }) {
   const changed = groups.filter((g) => g.added > 0);
   const same = groups.filter((g) => !g.added && !g.timed && !g.reopened && !g.ticked).length;
   const parts = [];
   if (changed.length === 1) parts.push(`Added ${plural(added, 'video')} to ${changed[0].title}`);
   else if (changed.length > 1) parts.push(`Added ${plural(added, 'video')} to ${plural(changed.length, 'group')}`);
   if (ticked) parts.push(`Ticked off ${plural(ticked, 'closed video')}`);
+  if (removed) parts.push(`Closed ${plural(removed, 'removed group')}`);
   if (reopened) parts.push(`Reopened ${plural(reopened, 'ticked-off video')}`);
   if (timed) parts.push(`Set the time on ${plural(timed, 'video')}`);
   if (same) parts.push(`${plural(same, 'group')} up to date`);

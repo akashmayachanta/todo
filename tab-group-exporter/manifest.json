@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Tab Group Exporter",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Export your open and closed tab groups as one list you can copy or share.",
   "permissions": ["tabs", "tabGroups", "storage", "downloads"],
   "host_permissions": ["https://www.youtube.com/*"],

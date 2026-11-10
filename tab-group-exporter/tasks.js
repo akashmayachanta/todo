@@ -2,14 +2,26 @@
 // Learning project, YT category, and each of its videos becomes a subtask.
 // The browser is the source of truth: a video in the group is an open
 // subtask (added, or reopened if it was ticked off), and a video subtask
-// whose tab is gone is ticked off. Nothing is ever deleted or renamed.
+// whose tab is gone is ticked off. A group removed from the archive has its
+// task closed. Nothing is ever deleted or renamed.
 
+import { loadArchive } from './archive.js';
 import { attachDurations, videoId } from './durations.js';
 
 export const PROJECT = 'Learning';
 export const CATEGORY = 'YT';
+// The popup's pseudo-group for tabs outside any group. It is never in the
+// archive, so it must not count as a removed group.
+export const UNGROUPED_TITLE = 'Ungrouped tabs';
 
 const CONFIG_KEY = 'tasksConfig';
+// { "<serverUrl>|<username>": ["<group title, lower case>", ...] }: the groups
+// this extension has synced to each account. Only these can be closed as
+// removed, so another browser's groups in the same account are left alone.
+const SYNCED_KEY = 'tasksSynced';
+// Set once by background.js on updating from a version without SYNCED_KEY,
+// so the first sync also closes the tasks of groups removed before then.
+const CLEANUP_KEY = 'tasksCleanupPending';
 const DEVICE_NAME = 'Tab Group Exporter';
 // The server's limit on a subtask's title, counted on the plain text
 // (SUBTASK_TITLE_MAX in tasks-core).
@@ -37,6 +49,15 @@ function parentMinutes(task, subtasks) {
 }
 
 // ---------- Config ----------
+
+// A fresh install starts with an empty record; an update from a version
+// without one asks the next sync for a one-time cleanup instead.
+export async function initSynced(reason) {
+  const { [SYNCED_KEY]: synced } = await chrome.storage.local.get(SYNCED_KEY);
+  if (synced) return;
+  if (reason === 'install') await chrome.storage.local.set({ [SYNCED_KEY]: {} });
+  else if (reason === 'update') await chrome.storage.local.set({ [CLEANUP_KEY]: true });
+}
 
 // { serverUrl, token, username, deviceId }. The password is never stored.
 export async function loadConfig() {
@@ -137,7 +158,8 @@ export async function signOut() {
 
 // ---------- Matching ----------
 
-const sameName = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
+const titleKey = (s) => s.trim().toLowerCase();
+const sameName = (a, b) => titleKey(a) === titleKey(b);
 
 // Task titles are stored as typed, so "[label](url)" shows only "label".
 const plainText = (s) => s.replace(/\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, '$1').trim();
@@ -183,31 +205,65 @@ async function findOrCreateCategory(projectId) {
 function mergeByTitle(groups) {
   const merged = new Map();
   for (const group of groups) {
-    const key = group.title.trim().toLowerCase();
+    const key = titleKey(group.title);
     if (merged.has(key)) merged.get(key).tabs.push(...group.tabs);
     else merged.set(key, { title: group.title, tabs: [...group.tabs] });
   }
   return [...merged.values()];
 }
 
-// Returns { created, added, timed, reopened, ticked, skipped,
+async function patchTask(task, body) {
+  Object.assign(task, await api(`/${encodeURIComponent(task.id)}`, { method: 'POST', body }));
+}
+
+// A removed group's videos count as watched: its open video subtasks are
+// ticked off, and the task is completed once nothing in it is left open.
+// Completing a task on the server also ticks its open subtasks, so a task
+// with a hand-typed subtask still open stays open, with its time updated.
+async function closeRemoved(task, tasks) {
+  const subtasks = tasks.filter((t) => t.parent_id === task.id);
+  for (const sub of subtasks) {
+    if (sub.completed_at != null || !videoIdsIn(sub.title).length) continue;
+    await patchTask(sub, { completed_at: new Date().toISOString() });
+  }
+  if (subtasks.every((s) => s.completed_at != null)) {
+    await patchTask(task, { completed_at: new Date().toISOString() });
+    return;
+  }
+  const total = parentMinutes(task, subtasks);
+  if (total !== undefined) await patchTask(task, { duration_minutes: total });
+}
+
+// Returns { created, added, timed, reopened, ticked, skipped, removed,
 //   groups: [{ title, created, added, timed, reopened, ticked }] }.
 // `timed` counts existing subtasks that had no duration and got one;
 // `reopened` counts ticked-off subtasks set back to open;
 // `ticked` counts video subtasks ticked off because their tab is gone;
-// `skipped` counts groups with no YouTube videos and no task.
+// `skipped` counts groups with no YouTube videos and no task;
+// `removed` counts tasks closed because their group left the archive.
 export async function addGroups(groups) {
   // Lengths come from the shared cache, so this is quick when the popup has
   // already fetched them; any it can't find leave that subtask without a time.
   await attachDurations(groups);
+
+  const config = await loadConfig();
+  const account = `${config.serverUrl}|${titleKey(config.username || '')}`;
+  const stored = await chrome.storage.local.get([SYNCED_KEY, CLEANUP_KEY]);
+  const syncedByAccount = stored[SYNCED_KEY] || {};
+  const synced = new Set(syncedByAccount[account] || []);
+  const saveSynced = () => chrome.storage.local.set({
+    [SYNCED_KEY]: { ...syncedByAccount, [account]: [...synced] }
+  });
 
   const project = await findOrCreateProject();
   const category = await findOrCreateCategory(project.id);
   // One call: the open top-level tasks in the project, plus every subtask of
   // an open task, ticked off or not.
   const tasks = await api(`/?project_id=${encodeURIComponent(project.id)}`);
+  const groupTask = (key) => tasks.find((t) => t.parent_id == null && t.category_id === category.id
+    && titleKey(plainText(t.title)) === key);
 
-  const result = { created: 0, added: 0, timed: 0, reopened: 0, ticked: 0, skipped: 0, groups: [] };
+  const result = { created: 0, added: 0, timed: 0, reopened: 0, ticked: 0, skipped: 0, removed: 0, groups: [] };
 
   for (const group of mergeByTitle(groups)) {
     const videos = [];
@@ -216,8 +272,7 @@ export async function addGroups(groups) {
       if (id) videos.push({ id, tab });
     }
 
-    let task = tasks.find((t) => t.parent_id == null && t.category_id === category.id
-      && sameName(plainText(t.title), group.title));
+    let task = groupTask(titleKey(group.title));
     // A group whose videos are all closed still syncs an existing task, so
     // the last ones get ticked off; it just never creates one.
     if (!task && !videos.length) { result.skipped++; continue; }
@@ -228,6 +283,7 @@ export async function addGroups(groups) {
       created = true;
       result.created++;
     }
+    if (group.title !== UNGROUPED_TITLE) synced.add(titleKey(group.title));
 
     const subtasks = tasks.filter((t) => t.parent_id === task.id);
     const byId = new Map(); // video id -> subtask
@@ -299,5 +355,35 @@ export async function addGroups(groups) {
     result.ticked += ticked;
     result.groups.push({ title: group.title, created, added, timed, reopened, ticked });
   }
+  await saveSynced();
+
+  // Groups synced before but no longer in the archive (removed with ×,
+  // "Forget closed", or renamed) are checked whatever was sent, since the
+  // archive covers every window, open and closed.
+  const archive = await loadArchive();
+  const present = new Set(Object.values(archive).map((e) => titleKey(e.title)));
+  const candidates = new Set(synced);
+  if (stored[CLEANUP_KEY]) {
+    // One-time: groups removed before this was tracked. Any group task with
+    // a video subtask counts as one this extension made.
+    for (const t of tasks) {
+      if (t.parent_id != null || t.category_id !== category.id) continue;
+      if (tasks.some((s) => s.parent_id === t.id && videoIdsIn(s.title).length)) {
+        candidates.add(titleKey(plainText(t.title)));
+      }
+    }
+  }
+  for (const key of candidates) {
+    if (present.has(key) || key === titleKey(UNGROUPED_TITLE)) continue;
+    const task = groupTask(key);
+    // Already completed or deleted in the app: the server no longer lists it.
+    if (task) {
+      await closeRemoved(task, tasks);
+      result.removed++;
+    }
+    synced.delete(key);
+    await saveSynced();
+  }
+  if (stored[CLEANUP_KEY]) await chrome.storage.local.remove(CLEANUP_KEY);
   return result;
 }

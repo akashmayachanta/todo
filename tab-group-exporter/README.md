@@ -3,7 +3,7 @@
 A small Chrome extension that turns your browser's tab groups into one list you
 can copy, save, or share — including groups you've already closed.
 
-![version](https://img.shields.io/badge/version-1.6.0-blue)
+![version](https://img.shields.io/badge/version-1.7.0-blue)
 
 ## Why
 
@@ -45,6 +45,8 @@ card in `chrome://extensions`.
 
 Closed groups appear as dashed outline pills; the `×` on one removes it from your
 list (this can't be undone). **Forget closed** clears all closed groups at once.
+If a removed group was sent to Tasks, the next **Add to Tasks** ticks off its
+videos and completes its task.
 
 ## Permissions and privacy
 
@@ -83,4 +85,4 @@ its length; lengths are cached so each video is fetched once.
 | `YT-List.md` | A sample export. |
 | `YT-List.html` | A standalone viewer for a sample export. |
 
-If you're contributing to the code, see [`AGENTS.md`](AGENTS.md).
+If you're contributing to the code, see [`CLAUDE.md`](CLAUDE.md).

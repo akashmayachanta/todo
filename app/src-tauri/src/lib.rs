@@ -234,6 +234,7 @@ pub fn run() {
             commands::app_pin_close,
             commands::app_quick_hide,
             commands::app_set_taskbar_badge,
+            commands::app_set_title_bar,
             commands::app_ask_notification_permission,
             commands::app_reminder_health,
             commands::app_open_reminder_setting,

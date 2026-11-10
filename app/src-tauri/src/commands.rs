@@ -386,6 +386,36 @@ pub fn app_set_taskbar_badge(app: AppHandle, size: u32, rgba: Option<Vec<u8>>) -
     }
 }
 
+/// Paints the window's own title bar like the app's sidebar: `caption` and `text` are
+/// RGB, `dark` gives the min/max/close glyphs their dark-mode colour. Windows 11 only;
+/// Windows 10 keeps its usual title bar.
+#[tauri::command]
+pub fn app_set_title_bar(window: WebviewWindow, caption: [u8; 3], text: [u8; 3], dark: bool) -> Res<()> {
+    #[cfg(windows)]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::Graphics::Dwm::{
+            DwmSetWindowAttribute, DWMWA_CAPTION_COLOR, DWMWA_TEXT_COLOR, DWMWA_USE_IMMERSIVE_DARK_MODE,
+        };
+        let hwnd = HWND(window.hwnd().map_err(|e| fail(500, e.to_string()))?.0);
+        // COLORREF is 0x00BBGGRR.
+        let colorref = |[r, g, b]: [u8; 3]| u32::from(r) | u32::from(g) << 8 | u32::from(b) << 16;
+        let set = |attr, value: u32| unsafe {
+            // Fails on Windows 10, which has no caption colour; that's fine.
+            let _ = DwmSetWindowAttribute(hwnd, attr, &value as *const u32 as *const _, std::mem::size_of::<u32>() as u32);
+        };
+        set(DWMWA_USE_IMMERSIVE_DARK_MODE, u32::from(dark));
+        set(DWMWA_CAPTION_COLOR, colorref(caption));
+        set(DWMWA_TEXT_COLOR, colorref(text));
+        Result::Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (window, caption, text, dark);
+        Result::Ok(())
+    }
+}
+
 #[tauri::command]
 pub fn app_ask_notification_permission(app: AppHandle) {
     use tauri_plugin_notification::{NotificationExt, PermissionState};

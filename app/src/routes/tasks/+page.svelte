@@ -83,6 +83,8 @@
 
 	/** The task being dragged across the board, and the column it is over. */
 	let dragging = $state<Task | null>(null);
+	/** Where a dragged card would land in a board column: by this card, before or after it. */
+	let cardDropAt = $state<{ id: string; after: boolean } | null>(null);
 	let dropOver = $state<string | null>(null);
 
 	let projectDialog = $state<{ id: string | null; name: string; color: string } | null>(null);
@@ -94,6 +96,8 @@
 	let categoryName = $state('');
 	/** The category being moved to another project. */
 	let movingCategory = $state<TaskCategory | null>(null);
+	/** The task being moved to another project or category (its "⋯" menu). */
+	let movingTask = $state<Task | null>(null);
 	let pane = $state<TasksPane | null>(null);
 
 	// ── Where we are (kept in the URL) ─────────────────────────────────────────
@@ -415,6 +419,18 @@
 	function cardDragEnd() {
 		dragging = null;
 		dropOver = null;
+		cardDropAt = null;
+	}
+
+	/** The card a drop lands by: before the first one whose middle is below the pointer, else after the last. */
+	function cardSpot(colEl: HTMLElement, y: number, id: string): { id: string; after: boolean } | null {
+		const cards = [...colEl.querySelectorAll<HTMLElement>('[data-card-id]')].filter((c) => c.dataset.cardId !== id);
+		for (const c of cards) {
+			const r = c.getBoundingClientRect();
+			if (y < r.top + r.height / 2) return { id: c.dataset.cardId!, after: false };
+		}
+		const last = cards.at(-1);
+		return last ? { id: last.dataset.cardId!, after: true } : null;
 	}
 
 	/** A subtask follows its parent, so it can't be dropped on a project or category. */
@@ -428,23 +444,56 @@
 		e.preventDefault();
 		if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
 		dropOver = col.key;
+		// Where the lists keep an order, the card goes where it's dropped, not just in the column.
+		if (sortable && dragging.parent_id === null) {
+			const next = cardSpot(e.currentTarget as HTMLElement, e.clientY, dragging.id);
+			if (next?.id !== cardDropAt?.id || next?.after !== cardDropAt?.after) cardDropAt = next;
+		}
 	}
 
 	function colDragLeave(e: DragEvent, col: Column) {
 		const el = e.currentTarget as HTMLElement;
-		if (dropOver === col.key && !el.contains(e.relatedTarget as Node | null)) dropOver = null;
+		if (dropOver === col.key && !el.contains(e.relatedTarget as Node | null)) {
+			dropOver = null;
+			cardDropAt = null;
+		}
 	}
 
 	function colDrop(e: DragEvent, col: Column) {
 		e.preventDefault();
 		const task = dragging;
+		const at = cardDropAt;
 		cardDragEnd();
-		if (!task || !col.drop || !canDrop(task, col)) return;
+		if (task) dropOnColumn(task, col, at);
+	}
+
+	/** A card held by touch and let go (sortHold): in a column, by the card it landed next to. */
+	function boardDrop(d: SortDrop) {
+		if (d.kind === 'sub') return dropTask(d);
+		const task = tasks.find((t) => t.id === d.id);
+		const col = columns.find((c) => c.key === d.scope);
+		if (task && col) dropOnColumn(task, col, d.targetId && !d.into ? { id: d.targetId, after: d.after } : null);
+	}
+
+	/** Puts a card in a column, by the card `at` where the column keeps an order. */
+	async function dropOnColumn(task: Task, col: Column, at: { id: string; after: boolean } | null) {
+		if (!col.drop || !canDrop(task, col)) return;
 		// Only send what actually changes; dropping back on its own column does nothing.
 		const patch = Object.fromEntries(
 			Object.entries(col.drop).filter(([k, v]) => task[k as keyof Task] !== v),
 		) as TaskPatch;
-		if (Object.keys(patch).length) patchTask(task, patch);
+		if (!sortable || task.parent_id !== null) {
+			if (Object.keys(patch).length) patchTask(task, patch);
+			return;
+		}
+		// The column's other change (a priority, say) first; then dropTask sets the category and the place.
+		const { category_id: _, ...rest } = patch;
+		if (Object.keys(rest).length) await patchTask(task, rest);
+		const categoryId = col.drop && 'category_id' in col.drop ? col.drop.category_id ?? null : task.category_id;
+		await dropTask({
+			id: task.id, kind: 'top', targetId: at?.id ?? null, after: at?.after ?? true, into: false,
+			zone: at ? null : categoryId ?? 'none', scope: col.key,
+		});
 	}
 
 	// ── Rearranging by the grip ────────────────────────────────────────────────
@@ -520,10 +569,14 @@
 			? subtasksOf(task.parent_id!).filter((s) => !!s.completed_at === !!task.completed_at)
 			: topSiblings(task.project_id, task.category_id);
 		const other = list[list.findIndex((t) => t.id === id) + by];
-		if (other) dropTask({ id, kind, targetId: other.id, after: by === 1, into: false, zone: null });
+		if (other) dropTask({ id, kind, targetId: other.id, after: by === 1, into: false, zone: null, scope: null });
 	}
 
 	const sortApi: SortApi = { ondrop: dropTask, onstep: stepTask };
+	/** A board's cards, which can also go to another column when held by touch. */
+	const boardSortApi: SortApi = { ondrop: boardDrop, onstep: stepTask };
+	/** A mouse: board cards drag by HTML5 drag. Touch holds them instead (sortHold). */
+	const canHover = typeof window !== 'undefined' && !!window.matchMedia?.('(hover: hover)').matches;
 	/** Lists in manual order have grips; Today, Upcoming, filters and search sort themselves. */
 	let sortable = $derived(view === 'inbox' || view === 'project');
 
@@ -823,6 +876,40 @@
 		}
 	}
 
+	/** Its subtasks go with it (patchTask reloads them). */
+	async function moveTask(task: Task, projectId: string | null, categoryId: string | null) {
+		movingTask = null;
+		if (task.project_id === projectId && task.category_id === categoryId) return;
+		await patchTask(task, { project_id: projectId, category_id: categoryId });
+		const to = placeName({ project_id: projectId, category_id: categoryId }, projects, categories);
+		toast.success(`Moved to ${to}`);
+	}
+
+	/** An open copy just under it, with copies of its subtasks. */
+	async function duplicateTask(task: Task) {
+		const copy = (t: Task, parentId: string | null): TaskIn => ({
+			title: t.title, description: t.description, project_id: t.project_id, category_id: t.category_id, parent_id: parentId,
+			priority: t.priority, due_date: t.due_date, due_time: t.due_time, duration_minutes: t.duration_minutes,
+			location: t.location, remind_at: t.remind_at, recurrence: t.recurrence,
+		});
+		try {
+			const siblings = task.parent_id ? [...subtasksOf(task.parent_id)].sort(byPosition) : topSiblings(task.project_id, task.category_id);
+			const created = await api.tasks.create(copy(task, task.parent_id));
+			if (task.parent_id === null) {
+				for (const sub of [...subtasksOf(task.id)].sort(byPosition)) await api.tasks.create(copy(sub, created.id));
+			}
+			const ids = siblings.map((t) => t.id);
+			ids.splice(ids.indexOf(task.id) + 1, 0, created.id);
+			await api.tasks.reorder(ids);
+			await reloadTasks();
+			if (created.remind_at) askReminderPermission();
+			if (task.parent_id !== null && task.duration_minutes) await syncParentMinutes(task.parent_id);
+			toast.success(`Duplicated "${plainText(task.title)}"`);
+		} catch (e) {
+			toast.error(errorDetail(e));
+		}
+	}
+
 	/** Works whether or not the Completed section is shown, so it asks the DB for this page's done tasks. */
 	async function clearCompleted(category?: TaskCategory) {
 		let ids: string[];
@@ -1025,7 +1112,7 @@
 
 	function onKeydown(e: KeyboardEvent) {
 		if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') {
-			if (projectDialog || filterDialog || movingCategory) return;
+			if (projectDialog || filterDialog || movingCategory || movingTask) return;
 			e.preventDefault();
 			if (taskId) closeTask();
 			pane?.focusSearch();
@@ -1039,10 +1126,14 @@
 			movingCategory = null;
 			return;
 		}
+		if (e.key === 'Escape' && movingTask) {
+			movingTask = null;
+			return;
+		}
 		if (e.key !== 'q' || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
 		const el = e.target as HTMLElement | null;
 		if (el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName))) return;
-		if (projectDialog || filterDialog || movingCategory || taskId || view === 'karma' || view === 'search') return;
+		if (projectDialog || filterDialog || movingCategory || movingTask || taskId || view === 'karma' || view === 'search') return;
 		e.preventDefault();
 		addingAt = mainAddKey();
 	}
@@ -1089,11 +1180,11 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-{#snippet row(task: Task, nested: boolean, withPlace: boolean, sorted = false)}
+{#snippet row(task: Task, nested: boolean, withPlace: boolean, sorted: boolean | SortApi = false)}
 	<TaskRow
 		{task}
 		parent={parentOf(task)}
-		sort={sorted ? sortApi : null}
+		sort={sorted === true ? sortApi : sorted || null}
 		{subtasksOf}
 		nested={(nested || (view === 'today' && !task.completed_at)) && settings.showSubtasks}
 		subtaskFilter={view === 'today' ? dueSubtasks : null}
@@ -1107,6 +1198,8 @@
 		ontoggle={toggleTask}
 		onopen={openTask}
 		onedit={(t) => { addingAt = null; inlineEditId = t.id; }}
+		onmove={(t) => (movingTask = t)}
+		onduplicate={duplicateTask}
 		onpin={isDesktop ? (t) => pin({ kind: 'task', id: t.id }) : null}
 		ondelete={deleteTask}
 	/>
@@ -1339,7 +1432,7 @@
 			{:else if view === 'filter' && !filter}
 				<p class="tasks-empty">This filter doesn't exist any more.</p>
 			{:else if layout === 'board'}
-				<div class="task-board">
+				<div class="task-board" data-sort-board>
 					{#each columns as col (col.key)}
 						<section
 							id={col.category ? `task-cat-${col.category.id}` : undefined}
@@ -1362,12 +1455,15 @@
 									<div
 										class="task-card"
 										class:task-card-dragging={dragging?.id === task.id}
-										draggable={inlineEditId === null || (inlineEditId !== task.id && !subtasksOf(task.id).some((s) => s.id === inlineEditId))}
+										class:card-drop-before={cardDropAt?.id === task.id && !cardDropAt.after}
+										class:card-drop-after={cardDropAt?.id === task.id && cardDropAt.after}
+										data-card-id={task.id}
+										draggable={canHover && (inlineEditId === null || (inlineEditId !== task.id && !subtasksOf(task.id).some((s) => s.id === inlineEditId)))}
 										role="listitem"
 										ondragstart={(e) => cardDragStart(e, task)}
 										ondragend={cardDragEnd}
 									>
-										{@render row(task, sortable, !sortable, sortable)}
+										{@render row(task, sortable, !sortable, boardSortApi)}
 									</div>
 								{/each}
 								{#if col.add}{@render adder(col.add.key, col.add.defaults)}{/if}
@@ -1549,6 +1645,7 @@
 		onnext={neighbours.next ? () => openTask(neighbours.next!) : null}
 		sort={drawerTask.completed_at ? null : sortApi}
 		onpin={isDesktop ? (t) => pin({ kind: 'task', id: t.id }) : null}
+		onduplicate={duplicateTask}
 		onpatch={patchTask}
 		ontoggle={toggleTask}
 		onaddsubtask={addSubtask}
@@ -1590,6 +1687,47 @@
 								<span class="truncate">{p.name}</span>
 							</button>
 						</li>
+					{/each}
+				</ul>
+			</div>
+		</div>
+	</div>
+{/if}
+
+{#if movingTask}
+	{@const moving = movingTask}
+	{@const here = (projectId: string | null, categoryId: string | null) => moving.project_id === projectId && moving.category_id === categoryId}
+	<div class="modal-backdrop" onclick={() => (movingTask = null)} aria-hidden="true"></div>
+	<div class="modal-overlay">
+		<div class="modal-panel max-w-sm" role="dialog" aria-modal="true" aria-labelledby="move-task-title">
+			<div class="modal-header">
+				<h2 id="move-task-title" class="modal-title truncate">Move "{plainText(moving.title)}" to</h2>
+				<button onclick={() => (movingTask = null)} class="modal-close" aria-label="Close">
+					<svg aria-hidden="true" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+				</button>
+			</div>
+			<div class="modal-body">
+				<ul class="category-move-list" use:focusFirstButton>
+					<li>
+						<button type="button" class="category-move-option" aria-current={here(null, null) || undefined} onclick={() => moveTask(moving, null, null)}>
+							<span class="tasks-dot" style="background-color: var(--text-muted)"></span>
+							<span class="truncate">Inbox</span>
+						</button>
+					</li>
+					{#each projects as p (p.id)}
+						<li>
+							<button type="button" class="category-move-option" aria-current={here(p.id, null) || undefined} onclick={() => moveTask(moving, p.id, null)}>
+								<span class="tasks-dot" style="background-color: {projectColor(p.color)}"></span>
+								<span class="truncate">{p.name}</span>
+							</button>
+						</li>
+						{#each categories.filter((c) => c.project_id === p.id).sort((a, b) => a.position - b.position) as c (c.id)}
+							<li>
+								<button type="button" class="category-move-option category-move-sub" aria-current={here(p.id, c.id) || undefined} onclick={() => moveTask(moving, p.id, c.id)}>
+									<span class="truncate">{c.name}</span>
+								</button>
+							</li>
+						{/each}
 					{/each}
 				</ul>
 			</div>

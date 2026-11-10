@@ -69,15 +69,15 @@
 [data-theme^="light-"] {
   color-scheme: light;
 
-  --bg-base: oklch(92.5% 0.010 245);    /* the page under the content */
-  --bg-surface: oklch(87.5% 0.012 245); /* slate stock: sidebar, top bar, panels */
-  --bg-card: oklch(95.5% 0.007 245);    /* the sheet: tables, cards, dialogs */
-  --bg-raised: oklch(89% 0.012 245);    /* a paper step: hover rows, wells */
-  --bg-input: oklch(97.5% 0.005 245);
-  --bg-hover: oklch(18% 0.020 245 / 0.07);
+  --bg-base: oklch(98.8% 0.003 245);    /* the page under the content: near white */
+  --bg-surface: oklch(96.3% 0.006 245); /* sidebar, panels, and the window's title bar (app/titlebar.ts) */
+  --bg-card: oklch(100% 0 0);           /* the sheet: tables, cards, dialogs */
+  --bg-raised: oklch(94.5% 0.008 245);  /* a paper step: hover rows, wells */
+  --bg-input: oklch(100% 0 0);
+  --bg-hover: oklch(18% 0.020 245 / 0.06);
 
-  --clr-border: oklch(80% 0.013 240);       /* the hairline */
-  --clr-border-light: oklch(68% 0.014 240); /* a firmer hairline */
+  --clr-border: oklch(89% 0.008 240);       /* the hairline */
+  --clr-border-light: oklch(80% 0.012 240); /* a firmer hairline */
   --clr-field: oklch(56% 0.016 245);        /* a field's edge, 3:1 on the sheet */
   --clr-rule-firm: oklch(28% 0.018 240);    /* the 2px bar under a head */
 

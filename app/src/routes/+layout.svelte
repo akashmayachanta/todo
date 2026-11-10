@@ -23,6 +23,7 @@
 	import AccountMenu from '$shell/AccountMenu.svelte';
 	import PaneStatus from '$shell/PaneStatus.svelte';
 	import { checkForUpdate } from '$shell/updates';
+	import { followTitleBar } from '$shell/titlebar';
 	import SettingsDialog, { type SettingsTab } from '$shell/SettingsDialog.svelte';
 	import { startProfile } from '$shell/profile';
 
@@ -91,6 +92,7 @@
 			});
 			call<string | null>('app_take_open_task').then((id) => id && openTask(id));
 			call('app_ask_notification_permission').catch(() => {});
+			stops.push(followTitleBar());
 			stops.push(
 				listen<SyncStatus>('tasks://sync', (e) => {
 					if (status) status = { ...status, sync: e.payload, configured: e.payload.state !== 'signed_out' && status.configured };

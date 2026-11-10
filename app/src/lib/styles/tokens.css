@@ -27,6 +27,6 @@
   --tracking-display: -0.02em; --display-weight: 600;
 
   /* The two papers as fixed swatches, for the mode picker's preview */
-  --preview-paper-light: oklch(95.5% 0.007 245);
+  --preview-paper-light: oklch(98.8% 0.003 245);
   --preview-paper-dark: oklch(18% 0.018 245);
 }

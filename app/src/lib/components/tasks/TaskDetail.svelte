@@ -23,7 +23,7 @@
 	 * "/Category", "every monday", "!30m" typed into them set those fields. The arrows in
 	 * the head (or k / j) step to the previous and next task of the view.
 	 */
-	let { task, parent = null, subtasks, showDoneSubtasks = true, projects, categories, onprev = null, onnext = null, sort = null, onpin = null, onpatch, ontoggle, onaddsubtask, onopen, ondelete, onclose }: {
+	let { task, parent = null, subtasks, showDoneSubtasks = true, projects, categories, onprev = null, onnext = null, sort = null, onpin = null, onduplicate = null, onpatch, ontoggle, onaddsubtask, onopen, ondelete, onclose }: {
 		task: Task;
 		/** The task this is a subtask of. */
 		parent?: Task | null;
@@ -39,6 +39,7 @@
 		sort?: SortApi | null;
 		/** Pins it to the desktop; null where there are no pins. */
 		onpin?: ((task: Task) => void) | null;
+		onduplicate?: ((task: Task) => void) | null;
 		onpatch: (task: Task, patch: TaskPatch) => Promise<void>;
 		ontoggle: (task: Task) => void;
 		onaddsubtask: (parent: Task, data: Omit<TaskIn, 'parent_id' | 'project_id' | 'category_id'>) => Promise<void>;
@@ -308,6 +309,7 @@
 	function onMenu(id: string) {
 		if (id === 'delete') ondelete(task);
 		else if (id === 'pin') onpin?.(task);
+		else if (id === 'duplicate') onduplicate?.(task);
 		else if (id === 'copy') {
 			navigator.clipboard?.writeText(location.href).catch(() => { /* nothing to copy to */ });
 		}
@@ -364,6 +366,7 @@
 					ariaLabel="Task actions"
 					items={[
 						{ id: 'copy', label: 'Copy link to task' },
+						...(onduplicate ? [{ id: 'duplicate', label: 'Duplicate' }] : []),
 						...(onpin ? [{ id: 'pin', label: 'Pin to desktop' }] : []),
 						{ id: 'delete', label: 'Delete task', danger: true },
 					]}

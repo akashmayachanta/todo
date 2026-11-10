@@ -115,7 +115,7 @@
   flex-shrink: 0;
   min-height: 0;
   padding: var(--space-sm) var(--space-xs) var(--space-xs);
-  border-right: var(--rule-hair) solid var(--clr-border);
+  /* No rule on its edge: its shade alone sets it off from the page, as in Todoist. */
   background-color: var(--bg-surface);
 }
 
@@ -536,12 +536,23 @@
   margin-right: calc(var(--space-sm) * -0.5);
 }
 
-/* Touch has no hover, and a thumb needs it in the row. */
+/* Touch has no hover, and a thumb needs it in the row. A task row has none: it's
+   touched and held to move (sortHold), and holding mustn't select its text. */
 @media (hover: none) {
   .task-grip {
     position: static;
     margin-right: calc(var(--space-sm) * -0.5);
     opacity: 0.7;
+  }
+
+  .task-row > .task-grip {
+    display: none;
+  }
+
+  .task-item[data-sort-id] {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
   }
 }
 
@@ -799,16 +810,17 @@ html.sort-active * {
   margin-left: auto;
 }
 
+/* One "⋯" menu (edit, move, duplicate, pin, delete), showing on hover so the title keeps the room. */
 .task-actions {
   display: flex;
   flex-shrink: 0;
-  gap: 0.125rem;
   opacity: 0;
   transition: opacity var(--dur-micro) var(--ease-out);
 }
 
 .task-row:hover .task-actions,
-.task-actions:focus-within {
+.task-actions:focus-within,
+.task-actions:has([aria-expanded="true"]) {
   opacity: 1;
 }
 
@@ -1428,6 +1440,18 @@ button.task-modal-crumb:hover {
   background-color: var(--bg-hover);
 }
 
+/* A category under its project in "Move to…". */
+.category-move-sub {
+  padding-left: 1.75rem;
+  color: var(--text-secondary);
+}
+
+/* Where the task already is. */
+.category-move-option[aria-current] {
+  color: var(--color-brand);
+  font-weight: 600;
+}
+
 .project-swatches {
   display: flex;
   flex-wrap: wrap;
@@ -1609,8 +1633,77 @@ button.task-modal-crumb:hover {
   margin-left: 0;
 }
 
+/* On a card the "⋯" floats over the corner instead of taking a column, so the title
+   runs the card's full width. */
+.task-card .task-row > .task-actions {
+  position: absolute;
+  top: 0.4375rem;
+  right: -0.25rem;
+  border-radius: var(--radius-control);
+  background-color: var(--bg-card);
+  box-shadow: -0.5rem 0 0.5rem var(--bg-card);
+}
+
+/* Touch has no hover: a card opens with a tap, and its details have the actions. */
+@media (hover: none) {
+  .task-card .task-row > .task-actions {
+    display: none;
+  }
+}
+
 .task-card-dragging {
   opacity: 0.4;
+}
+
+/* A board card moves by dragging it anywhere (touch: holding it first), so it has no grip. */
+.task-card .task-grip {
+  display: none;
+}
+
+/* A card held by touch: its place in the gap above or below the card it lands by. */
+.task-card > .task-item.sort-drop-before::before,
+.task-card > .task-item.sort-drop-after::after {
+  left: calc(-1 * var(--space-sm) - 1px);
+  right: calc(-1 * var(--space-sm) - 1px);
+}
+
+.task-card > .task-item.sort-drop-before::before {
+  top: calc(-1 * var(--space-xs) / 2 - 2px);
+}
+
+.task-card > .task-item.sort-drop-after::after {
+  bottom: calc(-1 * var(--space-xs) / 2 - 2px);
+}
+
+/* A held card lifts a little, so it's clear it's picked up. */
+.task-card:has(> .sort-dragging) {
+  box-shadow: 0 6px 18px color-mix(in oklab, var(--color-scrim) 25%, transparent);
+}
+
+/* Where a dragged card will land: a line in the gap above or below this one. */
+.task-card {
+  position: relative;
+}
+
+.card-drop-before::before,
+.card-drop-after::after {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  left: 0;
+  right: 0;
+  height: 2px;
+  border-radius: 1px;
+  background-color: var(--color-brand);
+  pointer-events: none;
+}
+
+.card-drop-before::before {
+  top: calc(-1 * var(--space-xs) / 2 - 2px);
+}
+
+.card-drop-after::after {
+  bottom: calc(-1 * var(--space-xs) / 2 - 2px);
 }
 
 .task-col .task-add {

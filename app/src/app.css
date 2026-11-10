@@ -23,17 +23,17 @@
 	z-index: 30;
 	display: grid;
 	place-items: center;
-	width: 3.25rem;
-	height: 3.25rem;
-	border-radius: 14px;
+	width: 2.5rem;
+	height: 2.5rem;
+	border-radius: 11px;
 	background: var(--color-brand);
 	color: var(--color-brand-text);
-	box-shadow: 0 6px 18px -4px color-mix(in oklch, var(--color-brand) 55%, transparent), 0 2px 6px rgb(0 0 0 / 0.12);
+	box-shadow: 0 4px 12px -4px color-mix(in oklch, var(--color-brand) 50%, transparent), 0 1px 4px rgb(0 0 0 / 0.1);
 	transition: transform var(--dur-short) var(--ease-out), box-shadow var(--dur-short) var(--ease-out);
 }
 .fab svg {
-	width: 1.5rem;
-	height: 1.5rem;
+	width: 1.125rem;
+	height: 1.125rem;
 	transition: transform var(--dur-short) var(--ease-out);
 }
 .fab:hover {
@@ -56,5 +56,8 @@
 	.fab {
 		bottom: calc(4.75rem + env(safe-area-inset-bottom));
 		right: calc(1rem + env(safe-area-inset-right));
+		/* A thumb's size on a phone. */
+		width: 2.875rem;
+		height: 2.875rem;
 	}
 }

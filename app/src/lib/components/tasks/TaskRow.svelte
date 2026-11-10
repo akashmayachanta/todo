@@ -1,8 +1,9 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import type { Task, TaskRowField } from '$lib/api';
+	import DropdownMenu, { type MenuItem } from '$lib/components/DropdownMenu.svelte';
 	import { plainText } from '$lib/links';
-	import type { SortApi } from '$lib/sortable';
+	import { sortHold, type SortApi } from '$lib/sortable';
 	import { describeDue, formatDuration } from '$lib/taskParse';
 	import LinkedText from './LinkedText.svelte';
 	import TaskGrip from './TaskGrip.svelte';
@@ -13,15 +14,15 @@
 	 * One task: a round check ringed in its priority colour, the title, and a line of what
 	 * else it has (due, reminder, recurrence, subtasks done/total, location, where it lives).
 	 * With `nested`, its open subtasks are listed under it (its done ones too with
-	 * `showDoneSubtasks`). A click opens it; Alt+click (or the pencil) edits it in place,
-	 * where the page's `editor` takes the row's place. With `sort`, a grip moves it. `compact`
+	 * `showDoneSubtasks`). A click opens it; Alt+click (or Edit in its "⋯" menu) edits it in place,
+	 * where the page's `editor` takes the row's place. With `sort`, its grip moves it, or by touch, holding it. `compact`
 	 * is for a pinned window: no edit or delete, and without them it can leave out `ondelete`.
 	 * `parent` names a subtask's task where the subtask isn't listed under it.
 	 * `subtaskFilter` narrows the subtasks listed under it (Today).
 	 */
 	let {
 		task, parent = null, subtasksOf, nested = false, subtaskFilter = null, showDoneSubtasks = false, showNote = true, place = null, fields = null, now,
-		editingId = null, editor, sort = null, compact = false, ontoggle, onopen, onedit, onpin = null, ondelete,
+		editingId = null, editor, sort = null, compact = false, ontoggle, onopen, onedit, onmove = null, onduplicate = null, onpin = null, ondelete,
 	}: {
 		task: Task;
 		/** The task this subtask belongs to, when the list doesn't already show it. */
@@ -47,6 +48,9 @@
 		ontoggle: (task: Task) => void;
 		onopen: (task: Task) => void;
 		onedit?: (task: Task) => void;
+		/** Moves it to another project or category; offered for tasks, not subtasks. */
+		onmove?: ((task: Task) => void) | null;
+		onduplicate?: ((task: Task) => void) | null;
 		/** Pins it to the desktop; null where there are no pins (Android). */
 		onpin?: ((task: Task) => void) | null;
 		ondelete?: (task: Task) => void;
@@ -72,6 +76,23 @@
 	);
 	let editing = $derived(!!editor && editingId === task.id);
 
+	/** The "⋯" menu, which holds what the row used to show as icons. */
+	let menuItems = $derived<MenuItem[]>([
+		...(onedit ? [{ id: 'edit', label: 'Edit' }] : []),
+		...(onmove && !task.parent_id ? [{ id: 'move', label: 'Move to…' }] : []),
+		...(onduplicate ? [{ id: 'duplicate', label: 'Duplicate' }] : []),
+		...(onpin ? [{ id: 'pin', label: 'Pin to desktop' }] : []),
+		{ id: 'delete', label: 'Delete', danger: true },
+	]);
+
+	function onMenu(id: string) {
+		if (id === 'edit') onedit?.(task);
+		else if (id === 'move') onmove?.(task);
+		else if (id === 'duplicate') onduplicate?.(task);
+		else if (id === 'pin') onpin?.(task);
+		else ondelete?.(task);
+	}
+
 	function onMainClick(e: MouseEvent) {
 		if (e.altKey && onedit) {
 			e.preventDefault();
@@ -82,7 +103,12 @@
 	}
 </script>
 
-<div class="task-item" data-sort-id={sort ? task.id : undefined} data-sort-kind={sort ? (task.parent_id ? 'sub' : 'top') : undefined}>
+<div
+	class="task-item"
+	data-sort-id={sort ? task.id : undefined}
+	data-sort-kind={sort ? (task.parent_id ? 'sub' : 'top') : undefined}
+	use:sortHold={sort && !editing ? { id: task.id, kind: task.parent_id ? 'sub' : 'top', ondrop: sort.ondrop, onstep: sort.onstep } : null}
+>
 	{#if editing && editor}
 		{@render editor(task)}
 	{:else}
@@ -149,21 +175,17 @@
 			</div>
 
 			{#if !compact}
-			<div class="task-actions">
-				{#if onedit}
-					<button type="button" class="tasks-icon-btn" onclick={() => onedit(task)} title="Edit here (Alt+click)" aria-label="Edit {name}">
-						<svg aria-hidden="true" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-					</button>
-				{/if}
-				{#if onpin}
-					<button type="button" class="tasks-icon-btn" onclick={() => onpin(task)} title="Pin to desktop" aria-label="Pin {name} to desktop">
-						<svg aria-hidden="true" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 17v5M7 17h10l-1.5-4.5V6a2 2 0 00-2-2h-3a2 2 0 00-2 2v6.5L7 17z" /></svg>
-					</button>
-				{/if}
-				<button type="button" class="tasks-icon-btn tasks-icon-btn-danger" onclick={() => ondelete?.(task)} title="Delete" aria-label="Delete {name}">
-					<svg aria-hidden="true" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-				</button>
-			</div>
+				<DropdownMenu
+					class="task-actions"
+					triggerClass="tasks-icon-btn"
+					ariaLabel="Actions for {name}"
+					items={menuItems}
+					onselect={onMenu}
+				>
+					{#snippet icon()}
+						<svg aria-hidden="true" class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path d="M6 10a2 2 0 11-4 0 2 2 0 014 0zm6 0a2 2 0 11-4 0 2 2 0 014 0zm6 0a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+					{/snippet}
+				</DropdownMenu>
 			{/if}
 		</div>
 	{/if}
@@ -171,7 +193,7 @@
 	{#if nested && shownSubtasks.length}
 		<div class="task-subtasks">
 			{#each shownSubtasks as sub (sub.id)}
-				<TaskRow task={sub} {subtasksOf} {showNote} {fields} {now} {editingId} {editor} {sort} {compact} {ontoggle} {onopen} {onedit} {onpin} {ondelete} />
+				<TaskRow task={sub} {subtasksOf} {showNote} {fields} {now} {editingId} {editor} {sort} {compact} {ontoggle} {onopen} {onedit} {onmove} {onduplicate} {onpin} {ondelete} />
 			{/each}
 		</div>
 	{/if}

@@ -29,6 +29,28 @@ html.widget-transparent body {
   border: 0;
 }
 
+/* The line takes the width; the tips button sits at its top right. */
+.widget-quick-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2xs);
+}
+
+.widget-quick-row > .quick-add {
+  flex: 1;
+  min-width: 0;
+}
+
+.widget-quick-row > .smart-tips {
+  margin-top: var(--space-2xs);
+}
+
+/* The popup window is short, so the tips card scrolls inside it. */
+.widget-quick .smart-tips-card {
+  max-height: calc(100vh - 5rem);
+  overflow-y: auto;
+}
+
 .widget-quick-added {
   padding: var(--space-sm) var(--space-xs);
   font-size: var(--text-sm);

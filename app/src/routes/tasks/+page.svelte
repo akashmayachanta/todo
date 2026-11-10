@@ -823,15 +823,30 @@
 		}
 	}
 
-	async function clearCompleted() {
-		const ids = completed.map((t) => t.id);
-		if (!ids.length) return;
-		if (!(await confirmDialog(`Delete all ${ids.length} completed task${ids.length > 1 ? 's' : ''} here? This can't be undone.`))) return;
+	/** Works whether or not the Completed section is shown, so it asks the DB for this page's done tasks. */
+	async function clearCompleted(category?: TaskCategory) {
+		let ids: string[];
+		try {
+			const done = category
+				? (await api.tasks.list({ completed: true, project_id: category.project_id })).filter((t) => t.category_id === category.id)
+				: projectId
+					? await api.tasks.list({ completed: true, project_id: projectId })
+					: await api.tasks.list({ completed: true, inbox: true });
+			ids = done.map((t) => t.id);
+		} catch (e) {
+			toast.error(errorDetail(e));
+			return;
+		}
+		if (!ids.length) {
+			toast.success('No completed tasks here');
+			return;
+		}
+		if (!(await confirmDialog(`Delete all ${ids.length} completed task${ids.length > 1 ? 's' : ''} ${category ? `in "${category.name}"` : 'here'}? This can't be undone.`))) return;
 		try {
 			await api.tasks.deleteCompleted(ids);
 			const gone = new Set(ids);
 			tasks = tasks.filter((t) => !gone.has(t.id) && !(t.parent_id && gone.has(t.parent_id)));
-			completed = [];
+			completed = completed.filter((t) => !gone.has(t.id));
 			if (taskId && gone.has(taskId)) closeTask();
 			toast.success('Completed tasks deleted');
 			await reloadTasks();
@@ -953,6 +968,8 @@
 			movingCategory = c;
 		} else if (id === 'pin') {
 			pin({ kind: 'category', id: c.id });
+		} else if (id === 'clear') {
+			clearCompleted(c);
 		} else {
 			deleteCategory(c);
 		}
@@ -1160,6 +1177,7 @@
 					{ id: 'rename', label: 'Rename' },
 					...(projects.length > 1 ? [{ id: 'move', label: 'Move to project…' }] : []),
 					...(isDesktop ? [{ id: 'pin', label: 'Pin to desktop' }] : []),
+					{ id: 'clear', label: 'Delete completed tasks', danger: true },
 					{ id: 'delete', label: 'Delete category', danger: true },
 				]}
 				onselect={(id) => onCategoryMenu(c, id)}
@@ -1270,8 +1288,12 @@
 						<DropdownMenu
 							triggerClass="tasks-icon-btn"
 							ariaLabel="Project actions"
-							items={[{ id: 'edit', label: 'Rename or recolour' }, { id: 'delete', label: 'Delete project', danger: true }]}
-							onselect={(id) => (id === 'edit' ? editProject(project!) : deleteProject(project!))}
+							items={[
+								{ id: 'edit', label: 'Rename or recolour' },
+								{ id: 'clear', label: 'Delete completed tasks', danger: true },
+								{ id: 'delete', label: 'Delete project', danger: true },
+							]}
+							onselect={(id) => (id === 'edit' ? editProject(project!) : id === 'clear' ? clearCompleted() : deleteProject(project!))}
 						>
 							{#snippet icon()}
 								<svg aria-hidden="true" class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M6 10a2 2 0 11-4 0 2 2 0 014 0zm6 0a2 2 0 11-4 0 2 2 0 014 0zm6 0a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
@@ -1486,7 +1508,7 @@
 					<h2 class="task-group-head">
 						Completed <span class="task-group-count">{completed.length}</span>
 						{#if completed.length}
-							<button type="button" class="ml-3 text-xs font-normal underline opacity-70 hover:opacity-100" onclick={clearCompleted}>Delete all</button>
+							<button type="button" class="ml-3 text-xs font-normal underline opacity-70 hover:opacity-100" onclick={() => clearCompleted()}>Delete all</button>
 						{/if}
 					</h2>
 					{#each completed as task (task.id)}

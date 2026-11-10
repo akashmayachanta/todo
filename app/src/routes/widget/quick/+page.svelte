@@ -4,6 +4,7 @@
 	import { api, errorDetail } from '$lib/api';
 	import type { TaskCategory, TaskIn, TaskProject } from '$lib/api';
 	import QuickAdd from '$lib/components/tasks/QuickAdd.svelte';
+	import SmartTips from '$lib/components/tasks/SmartTips.svelte';
 	import { placeName } from '$lib/components/tasks/shared';
 	import { toast } from '$lib/stores/toast';
 	import { askReminderPermission } from '$lib/stores/taskReminders';
@@ -82,9 +83,12 @@
 		{#if added}
 			<p class="widget-quick-added" role="status">{added}</p>
 		{:else}
-			{#key session}
-				<QuickAdd {projects} {categories} onadd={add} oncancel={hideQuickAdd} />
-			{/key}
+			<div class="widget-quick-row">
+				{#key session}
+					<QuickAdd {projects} {categories} onadd={add} oncancel={hideQuickAdd} />
+				{/key}
+				<SmartTips />
+			</div>
 		{/if}
 	</div>
 </div>

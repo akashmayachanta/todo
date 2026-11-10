@@ -360,6 +360,24 @@
 							{/each}
 						</div>
 					</div>
+					<div class="set-group">
+						<span class="set-label">Quick add</span>
+						<div class="set-toggles">
+							<label class="set-toggle">
+								<span class="set-toggle-text">
+									<span class="set-toggle-label">File tasks by their words</span>
+									<span class="set-hint">Picks the project and category your past tasks point to. Click the place chip to undo.</span>
+								</span>
+								<input
+									type="checkbox"
+									role="switch"
+									class="set-switch"
+									checked={$taskSettings.autoPlace}
+									onchange={(e) => taskSettings.update('autoPlace', e.currentTarget.checked)}
+								/>
+							</label>
+						</div>
+					</div>
 					{#if health}
 						<div class="set-group">
 							<span class="set-label">Reminders on this phone</span>

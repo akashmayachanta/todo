@@ -4,9 +4,16 @@
  */
 import { writable } from 'svelte/store';
 import { browser } from '$app/environment';
-import { DEFAULT_TASK_SETTINGS, loadTaskSettings, saveTaskSettings, type TaskSettings } from '$lib/components/tasks/shared';
+import { DEFAULT_TASK_SETTINGS, loadTaskSettings, saveTaskSettings, SETTINGS_KEY, type TaskSettings } from '$lib/components/tasks/shared';
 
 const store = writable<TaskSettings>(browser ? loadTaskSettings() : { ...DEFAULT_TASK_SETTINGS });
+
+// The desktop's small windows stay loaded; a change made in the main window reaches them here.
+if (browser) {
+	window.addEventListener('storage', (e) => {
+		if (e.key === SETTINGS_KEY) store.set(loadTaskSettings());
+	});
+}
 
 export const taskSettings = {
 	subscribe: store.subscribe,

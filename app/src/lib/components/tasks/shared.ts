@@ -40,6 +40,8 @@ export type TaskSettings = {
 	showCompleted: boolean;
 	/** The view `/tasks` opens on. */
 	startView: 'today' | 'inbox' | 'upcoming';
+	/** Quick add files a task in the project and category its words point to ($lib/suggestPlace). */
+	autoPlace: boolean;
 	/** Karma: tasks to complete a day, and a week. */
 	dailyGoal: number;
 	weeklyGoal: number;
@@ -56,18 +58,19 @@ export const DEFAULT_TASK_SETTINGS: TaskSettings = {
 	showCounts: true,
 	showCompleted: false,
 	startView: 'today',
+	autoPlace: true,
 	dailyGoal: 5,
 	weeklyGoal: 25,
 };
 
-const SETTINGS_KEY = 'tasks.settings';
+export const SETTINGS_KEY = 'tasks.settings';
 
 export function loadTaskSettings(): TaskSettings {
 	const out = { ...DEFAULT_TASK_SETTINGS };
 	try {
 		const raw = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}');
 		if (!raw || typeof raw !== 'object') return out;
-		for (const k of ['showSubtasks', 'showNotes', 'showPlace', 'showCounts', 'showCompleted'] as const) {
+		for (const k of ['showSubtasks', 'showNotes', 'showPlace', 'showCounts', 'showCompleted', 'autoPlace'] as const) {
 			if (typeof raw[k] === 'boolean') out[k] = raw[k];
 		}
 		if (['today', 'inbox', 'upcoming'].includes(raw.startView)) out.startView = raw.startView;

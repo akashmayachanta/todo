@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Calendar } from 'vanilla-calendar-pro';
 	import { modeStore } from '$lib/stores/theme';
+	import { datePrefs } from '$lib/datePrefs.svelte';
 	import 'vanilla-calendar-pro/styles/layout.css';
 	import 'vanilla-calendar-pro/styles/themes/light.css';
 	import 'vanilla-calendar-pro/styles/themes/dark.css';
@@ -54,7 +55,7 @@
 			selectedDates: value ? [value] : [],
 			selectedMonth: current.getMonth() as Calendar['selectedMonth'],
 			selectedYear: current.getFullYear(),
-			firstWeekday: 1,
+			firstWeekday: datePrefs.weekStart as Calendar['firstWeekday'],
 			selectedWeekends: [],
 			onClickDate(self) {
 				const [picked] = self.context.selectedDates;

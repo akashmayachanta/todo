@@ -3,7 +3,7 @@ name = "tasks-server"
 description = "Tasks sync server: accounts, a REST API for tasks, and /sync for the apps"
 # Its own version, apart from the workspace's: bumped when the server changes.
 # 0.1.1: live sync notices (GET /sync/events).
-version = "0.1.1"
+version = "0.2.0"
 edition.workspace = true
 license.workspace = true
 

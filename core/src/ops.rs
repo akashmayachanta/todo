@@ -5,7 +5,8 @@
 //! - A task with no project is in the Inbox.
 //! - A subtask is one level deep and shares its parent's project and category.
 //!   Its title shows at most 255 characters; a task's stored title at most 500.
-//! - A time needs a date; clearing the date clears the time.
+//! - A time needs a date; clearing the date clears the time and the reminder
+//!   (unless the same change sets a new reminder).
 //! - Moving a category moves its tasks; moving a task moves its subtasks.
 //! - A subtask can move to another task; it takes that task's project and category.
 //! - Completing a task completes its open subtasks (they aren't logged).
@@ -296,6 +297,28 @@ pub fn update_category(conn: &Connection, ctx: &Ctx, id: &str, input: CategoryIn
     }
     set_columns(conn, ctx, "task_categories", id, changes)?;
     get_category(conn, id)
+}
+
+/// Sets a project's categories to positions 1..n in the order given. Its
+/// categories left out keep their relative order after the listed ones; ids
+/// that aren't the project's are ignored. Only the rows that change are written.
+pub fn reorder_categories(conn: &Connection, ctx: &Ctx, project_id: &str, ids: &[String]) -> Result<Vec<Category>> {
+    get_project(conn, project_id)?;
+    let mut rest = list_categories(conn, Some(project_id))?;
+    let mut ordered = Vec::with_capacity(rest.len());
+    for id in ids {
+        if let Some(i) = rest.iter().position(|c| &c.id == id) {
+            ordered.push(rest.remove(i));
+        }
+    }
+    ordered.append(&mut rest);
+    for (i, category) in ordered.iter().enumerate() {
+        let position = i as i64 + 1;
+        if category.position != position {
+            set_columns(conn, ctx, "task_categories", &category.id, vec![("position", SqlValue::Integer(position))])?;
+        }
+    }
+    list_categories(conn, Some(project_id))
 }
 
 /// Its tasks stay in the project, without a category.
@@ -672,9 +695,13 @@ pub fn update_task(conn: &Connection, ctx: &Ctx, id: &str, patch: TaskPatch) -> 
     let completes_occurrence = p.completes_occurrence.unwrap_or(false);
 
     // A time belongs to a date: clearing the date clears the time, and a time
-    // can't be set on a task that has no date.
+    // can't be set on a task that has no date. Clearing the date clears the
+    // reminder too, unless the same change sets a new one.
     if matches!(p.due_date, Some(None)) {
         p.due_time = Some(None);
+        if !matches!(p.remind_at, Some(Some(_))) {
+            p.remind_at = Some(None);
+        }
     } else if matches!(p.due_time, Some(Some(_))) {
         let date = match &p.due_date {
             Some(d) => d.clone(),

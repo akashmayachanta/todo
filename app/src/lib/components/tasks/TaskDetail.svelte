@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { formatInstant } from '$lib/datePrefs.svelte';
 	import { onMount, tick } from 'svelte';
 	import type { Task, TaskCategory, TaskIn, TaskPatch, TaskPriority, TaskProject } from '$lib/api';
 	import DatePicker from '$lib/components/DatePicker.svelte';
@@ -128,7 +129,7 @@
 		...(dueAt === null ? [] : REMINDER_MINUTES.map((m) => ({ value: String(m), label: reminderLabel(m) }))),
 		// A reminder set another way (e.g. "!5pm" in the quick add) shows as its time.
 		...(reminderValue === 'other'
-			? [{ value: 'other', label: new Date(task.remind_at!).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) }]
+			? [{ value: 'other', label: formatInstant(task.remind_at!) }]
 			: []),
 	]);
 

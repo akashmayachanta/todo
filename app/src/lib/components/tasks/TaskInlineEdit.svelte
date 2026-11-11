@@ -1,10 +1,11 @@
 <script lang="ts">
+	import { formatInstant } from '$lib/datePrefs.svelte';
 	import { onMount, untrack } from 'svelte';
 	import type { Task, TaskCategory, TaskPatch, TaskProject } from '$lib/api';
 	import { askReminderPermission } from '$lib/stores/taskReminders';
 	import { describeDue, formatDuration } from '$lib/taskParse';
 	import SmartTaskInput from './SmartTaskInput.svelte';
-	import { finishPatch, smartPatch, smartTitle, titleEdit } from './smartEdit';
+	import { finishPatch, settlePatch, smartPatch, smartTitle, titleEdit } from './smartEdit';
 	import { SUBTASK_MAX, placeName, projectColor, subtaskLimit } from './shared';
 
 	/**
@@ -29,8 +30,8 @@
 
 	let st = $derived(smartTitle(title, task, projects, categories));
 	let limit = $derived(task.parent_id ? subtaskLimit(st.smart.title, task.title) : null);
-	/** The task as it will be once saved. */
-	let next = $derived({ ...task, ...smartPatch(st.smart, task) });
+	/** The task as it will be once saved, with the reminder a new due time brings or moves. */
+	let next = $derived({ ...task, ...settlePatch(task, smartPatch(st.smart, task)) });
 	let due = $derived(describeDue(next));
 	let project = $derived(projects.find((p) => p.id === next.project_id) ?? null);
 
@@ -118,6 +119,12 @@
 			<span class="task-chip" data-kind="date">
 				<svg aria-hidden="true" class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
 				{due.label}
+			</span>
+		{/if}
+		{#if next.remind_at}
+			<span class="task-chip" data-kind="reminder" title="Reminder {new Date(next.remind_at).toLocaleString()}">
+				<svg aria-hidden="true" class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l2.5 2.5M5 3L2 6m20 0l-3-3M12 21a8 8 0 100-16 8 8 0 000 16z" /></svg>
+				{formatInstant(next.remind_at)}
 			</span>
 		{/if}
 		{#if next.duration_minutes}

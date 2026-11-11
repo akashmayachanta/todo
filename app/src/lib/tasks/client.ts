@@ -30,6 +30,8 @@ export interface TasksClient {
 		update(id: string, data: { project_id: string; name: string }): Promise<TaskCategory>;
 		/** Its tasks stay in the project, without a category. */
 		delete(id: string): Promise<void>;
+		/** A project's category ids in the new order; returns its categories in that order. */
+		reorder(projectId: string, ids: string[]): Promise<TaskCategory[]>;
 	};
 	filters: {
 		list(): Promise<TaskFilter[]>;

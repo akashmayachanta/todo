@@ -95,6 +95,11 @@ pub fn tasks_categories_update(st: St, id: String, data: CategoryIn) -> Res<Cate
 }
 
 #[tauri::command]
+pub fn tasks_categories_reorder(st: St, project: String, ids: Vec<String>) -> Res<Vec<Category>> {
+    db(&st, true, |c, x| ops::reorder_categories(c, x, &project, &ids))
+}
+
+#[tauri::command]
 pub fn tasks_categories_delete(st: St, id: String) -> Res<Ok> {
     db(&st, true, |c, x| ops::delete_category(c, x, &id)).map(|_| OK)
 }
@@ -261,7 +266,9 @@ async fn finish_sign_in(app: &AppHandle, st: &Arc<AppState>, server: ServerInfo,
     // Pins point at this account's lists, so another account starts without them.
     let previous = lock(&st.config).clone();
     let pins = if previous.user_id == Some(user_id) { previous.pins } else { Vec::new() };
-    st.save_config(AppConfig { server: Some(server), username, user_id: Some(user_id), pins }).map_err(|e| fail(500, e))?;
+    // Settings → Desktop belongs to the device, so it stays.
+    let desktop = previous.desktop;
+    st.save_config(AppConfig { server: Some(server), username, user_id: Some(user_id), pins, desktop }).map_err(|e| fail(500, e))?;
     #[cfg(desktop)]
     {
         crate::widgets::close_windows(app);
@@ -434,6 +441,44 @@ pub fn app_ask_notification_permission(app: AppHandle) {
     let n = app.notification();
     if !matches!(n.permission_state(), Ok(PermissionState::Granted)) {
         let _ = n.request_permission();
+    }
+}
+
+/// Settings → General's 12-hour / 24-hour choice, kept on this device for the reminder toasts.
+#[tauri::command]
+pub fn app_set_clock(st: St, hour12: bool) -> Res<()> {
+    tasks_core::db::set_state(&lock(&st.db), crate::reminders::CLOCK_12H_KEY, if hour12 { "1" } else { "0" })
+        .map_err(core_err)
+}
+
+/// Settings → Desktop: `{quick_add, show_hide, launch_at_startup, start_minimized}`. None off the desktop.
+#[tauri::command]
+pub fn app_desktop_get(app: AppHandle) -> Option<serde_json::Value> {
+    #[cfg(desktop)]
+    {
+        serde_json::to_value(crate::desktop::get(&app)).ok()
+    }
+    #[cfg(not(desktop))]
+    {
+        let _ = app;
+        None
+    }
+}
+
+/// Saves Settings → Desktop and puts it in effect; fails (changing nothing) when a
+/// shortcut can't be registered.
+#[tauri::command]
+pub fn app_desktop_set(app: AppHandle, st: St, data: serde_json::Value) -> Res<serde_json::Value> {
+    #[cfg(desktop)]
+    {
+        let data: crate::desktop::DesktopSettings = serde_json::from_value(data).map_err(|e| fail(400, e.to_string()))?;
+        let saved = crate::desktop::set(&app, &st, data).map_err(|e| fail(400, e))?;
+        serde_json::to_value(saved).map_err(|e| fail(500, e.to_string()))
+    }
+    #[cfg(not(desktop))]
+    {
+        let _ = (app, st, data);
+        Err(fail(400, "Only on the desktop"))
     }
 }
 

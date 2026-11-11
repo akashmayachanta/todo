@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { formatInstantLong } from '$lib/datePrefs.svelte';
 	import type { Snippet } from 'svelte';
 	import type { Task, TaskRowField } from '$lib/api';
 	import DropdownMenu, { type MenuItem } from '$lib/components/DropdownMenu.svelte';
@@ -105,6 +106,7 @@
 
 <div
 	class="task-item"
+	data-flip={task.id}
 	data-sort-id={sort ? task.id : undefined}
 	data-sort-kind={sort ? (task.parent_id ? 'sub' : 'top') : undefined}
 	use:sortHold={sort && !editing ? { id: task.id, kind: task.parent_id ? 'sub' : 'top', ondrop: sort.ondrop, onstep: sort.onstep } : null}
@@ -136,7 +138,7 @@
 				{#if due || reminder || repeat || duration || subtaskCount || task.location || place}
 					<span class="task-meta">
 						{#if due}
-							<span class="task-due" class:task-due-overdue={due.overdue && !done} class:task-due-today={due.today && !due.overdue} class:task-due-progress={due.inProgress && !done}>
+							<span class="task-due" class:task-due-overdue={due.overdue && !done} class:task-due-today={due.today && !due.overdue} class:task-due-tomorrow={due.tomorrow && !done} class:task-due-week={due.thisWeek && !done} class:task-due-progress={due.inProgress && !done}>
 								<svg aria-hidden="true" class="task-meta-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
 								{due.label}
 							</span>
@@ -148,7 +150,7 @@
 							<span class="task-meta-icon" title={repeat} aria-label="Repeats {repeat}">↻</span>
 						{/if}
 						{#if reminder}
-							<span class="task-meta-icon" title="Reminder {new Date(reminder).toLocaleString()}">
+							<span class="task-meta-icon" title="Reminder {formatInstantLong(reminder)}">
 								<svg aria-label="Has a reminder" class="task-meta-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l2.5 2.5M5 3L2 6m20 0l-3-3M12 21a8 8 0 100-16 8 8 0 000 16z" /></svg>
 							</span>
 						{/if}

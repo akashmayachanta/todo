@@ -117,12 +117,93 @@
   padding: var(--space-sm) var(--space-xs) var(--space-xs);
   /* No rule on its edge: its shade alone sets it off from the page, as in Todoist. */
   background-color: var(--bg-surface);
+  /* Slides in and out with the sidebar button (hidden, below, once it's out). */
+  transition: margin-left var(--dur-short) var(--ease-out), opacity var(--dur-short) var(--ease-out), visibility 0s;
 }
 
-/* The account (photo, name, menu) and the Settings gear, then the lists, which scroll. */
+/* The account (photo, name, menu), the Settings gear and the sidebar button, then the lists, which scroll. */
 .tasks-pane-top {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
   flex-shrink: 0;
   margin: 0 0 var(--space-sm);
+}
+
+.tasks-pane-account {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The sidebar button: in the pane's top row, and in the page's bar while the pane is hidden. */
+.tasks-pane-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  flex-shrink: 0;
+  border-radius: 8px;
+  color: var(--text-muted);
+  transition: color var(--dur-micro) var(--ease-out), background-color var(--dur-micro) var(--ease-out);
+}
+
+.tasks-pane-toggle:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-hover);
+}
+
+.tasks-pane-toggle svg {
+  width: 1.2rem;
+  height: 1.2rem;
+}
+
+/* Pane hidden: no pane at all, and a slim bar over the page with the sidebar
+   button, back and forward, and where the list lives. */
+.tasks-page {
+  overflow: hidden;
+}
+
+.tasks-page-collapsed .tasks-pane {
+  margin-left: -16rem;
+  opacity: 0;
+  visibility: hidden;
+  transition: margin-left var(--dur-short) var(--ease-out), opacity var(--dur-short) var(--ease-out), visibility 0s var(--dur-short);
+}
+
+.tasks-topbar {
+  animation: tasks-fade-in var(--dur-short) var(--ease-out);
+}
+
+@keyframes tasks-fade-in {
+  from { opacity: 0; }
+}
+
+.tasks-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+  padding: var(--space-xs) var(--space-sm);
+  background-color: var(--bg-base);
+}
+
+.tasks-topbar-nav svg {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.tasks-topbar-nav:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.tasks-topbar-crumb {
+  margin-left: var(--space-xs);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
 }
 
 /* The search box, above the views. */
@@ -560,8 +641,109 @@
   position: relative;
 }
 
+/* Picked up: a copy lifts off the page and follows the pointer (sortable.ts sets its
+   translate) while the item waits faded in its place. On letting go the item glides
+   from the copy's spot into its new place (flip.ts). The copy is fixed, so a list or
+   board that scrolls can't clip it. */
 .sort-dragging {
-  opacity: 0.45;
+  opacity: 0.35;
+}
+
+.sort-ghost {
+  position: fixed !important;
+  z-index: 60;
+  margin: 0 !important;
+  pointer-events: none;
+  scale: 1.02;
+  border-radius: var(--task-radius);
+  background-color: var(--bg-card);
+  box-shadow: 0 10px 28px color-mix(in oklab, var(--color-scrim) 22%, transparent);
+  will-change: translate;
+  animation: sort-pick-up var(--dur-micro) var(--ease-out);
+}
+
+@keyframes sort-pick-up {
+  from {
+    scale: 1;
+    box-shadow: 0 0 0 transparent;
+  }
+}
+
+/* The line where it will land fades in rather than blinking on. */
+.sort-drop-before::before,
+.sort-drop-after::after {
+  animation: tasks-fade-in var(--dur-micro) var(--ease-out);
+}
+
+.sort-drop-zone {
+  transition: background-color var(--dur-micro) var(--ease-out);
+}
+
+/* A category is picked up by its head: grabbed with the mouse, held with a finger. */
+[data-cat-id] {
+  position: relative;
+}
+
+[data-cat-id] > .task-category-head {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+@media (hover: hover) {
+  [data-cat-id] > .task-category-head {
+    cursor: grab;
+  }
+}
+
+/* In the list, its line sits in the gap above or below the category. */
+.task-group[data-cat-id].sort-drop-before::before {
+  top: calc(var(--space-lg) / -2 - 1px);
+}
+
+.task-group[data-cat-id].sort-drop-after::after {
+  bottom: calc(var(--space-lg) / -2 - 1px);
+}
+
+/* On the board, in the gap left or right of the column. */
+.task-col[data-cat-id].sort-drop-before::before,
+.task-col[data-cat-id].sort-drop-after::after {
+  top: 0;
+  bottom: 0;
+  left: auto;
+  right: auto;
+  width: 2px;
+  height: auto;
+}
+
+.task-col[data-cat-id].sort-drop-before::before {
+  left: calc(var(--space-lg) / -2 - 1px);
+}
+
+.task-col[data-cat-id].sort-drop-after::after {
+  right: calc(var(--space-lg) / -2 - 1px);
+}
+
+/* A picked-up category reads as a card: its colour spreads a little past its edge,
+   with the shadow under that. */
+.sort-ghost-group {
+  box-shadow:
+    0 0 0 var(--space-xs) var(--bg-card),
+    0 12px 32px color-mix(in oklab, var(--color-scrim) 22%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tasks-pane,
+  .tasks-page-collapsed .tasks-pane {
+    transition: none;
+  }
+
+  .tasks-topbar,
+  .sort-ghost,
+  .sort-drop-before::before,
+  .sort-drop-after::after {
+    animation: none;
+  }
 }
 
 .sort-drop-before::before,
@@ -785,6 +967,14 @@ html.sort-active * {
 
 .task-due-today {
   color: var(--color-success);
+}
+
+.task-due-tomorrow {
+  color: var(--color-warning);
+}
+
+.task-due-week {
+  color: var(--color-week);
 }
 
 .task-due-overdue {
@@ -1959,6 +2149,17 @@ button.tcal-day:hover {
   color: var(--color-danger);
 }
 
+/* Like a task row's date: tomorrow orange, later this week purple. */
+.tcal-chip-tomorrow .tcal-chip-title,
+.tcal-chip-tomorrow .tcal-chip-time {
+  color: var(--color-warning);
+}
+
+.tcal-chip-week .tcal-chip-title,
+.tcal-chip-week .tcal-chip-time {
+  color: var(--color-week);
+}
+
 .tcal-chip-icon {
   color: var(--text-muted);
 }
@@ -2011,10 +2212,19 @@ button.tcal-day:hover {
     display: none;
   }
 
+  /* Phones have the Browse tab instead: the sidebar button does nothing here. */
+  .tasks-topbar,
+  .tasks-pane-top-toggle {
+    display: none;
+  }
+
   .tasks-page-browsing .tasks-pane {
     display: flex;
     flex: 1;
     width: auto;
+    margin-left: 0;
+    opacity: 1;
+    visibility: visible;
     /* Clear of the tab bar and the add button above it. */
     padding: var(--space-sm) var(--space-sm) calc(8.5rem + env(safe-area-inset-bottom));
     border-right: 0;

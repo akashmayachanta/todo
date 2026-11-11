@@ -1,6 +1,7 @@
 import type { Task, TaskCategory, TaskPatch, TaskPriority, TaskProject } from '$lib/api';
 import { plainText } from '$lib/links';
 import { daysBetween, localInstant, nextOccurrence } from '$lib/taskParse';
+import { DEFAULT_DATE_PREFS, type DatePrefs } from '$lib/datePrefs.svelte';
 
 export type TaskView = 'inbox' | 'today' | 'upcoming' | 'karma' | 'project' | 'filter' | 'search';
 
@@ -23,8 +24,8 @@ export function saveLayouts(layouts: Record<string, TaskLayout>) {
 	try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(layouts)); } catch { /* the choice just isn't remembered */ }
 }
 
-/** Display settings from the pane's Settings section, remembered in this browser. */
-export type TaskSettings = {
+/** Display settings from the pane's Settings section, remembered in this browser. Date & time is in DatePrefs. */
+export type TaskSettings = DatePrefs & {
 	/** Open subtasks listed under their task (Inbox and projects, list and board). */
 	showSubtasks: boolean;
 	/** The first line of a task's description under its title. */
@@ -61,6 +62,7 @@ export const DEFAULT_TASK_SETTINGS: TaskSettings = {
 	autoPlace: true,
 	dailyGoal: 5,
 	weeklyGoal: 25,
+	...DEFAULT_DATE_PREFS,
 };
 
 export const SETTINGS_KEY = 'tasks.settings';
@@ -70,7 +72,13 @@ export function loadTaskSettings(): TaskSettings {
 	try {
 		const raw = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}');
 		if (!raw || typeof raw !== 'object') return out;
-		for (const k of ['showSubtasks', 'showNotes', 'showPlace', 'showCounts', 'showCompleted', 'autoPlace'] as const) {
+		if (raw.timeFormat === '12h' || raw.timeFormat === '24h') out.timeFormat = raw.timeFormat;
+		if (raw.dateFormat === 'dmy' || raw.dateFormat === 'mdy') out.dateFormat = raw.dateFormat;
+		for (const k of ['weekStart', 'nextWeek'] as const) {
+			if (Number.isInteger(raw[k]) && raw[k] >= 0 && raw[k] <= 6) out[k] = raw[k];
+		}
+		if (raw.weekend === 0 || raw.weekend === 6) out.weekend = raw.weekend;
+		for (const k of ['showSubtasks', 'showNotes', 'showPlace', 'showCounts', 'showCompleted', 'autoPlace', 'smartDates'] as const) {
 			if (typeof raw[k] === 'boolean') out[k] = raw[k];
 		}
 		if (['today', 'inbox', 'upcoming'].includes(raw.startView)) out.startView = raw.startView;

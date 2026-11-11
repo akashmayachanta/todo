@@ -1,12 +1,14 @@
 /**
  * The app-wide quick add: a dialog in the root layout that adds a task from any
- * page. Alt+N (while the main window has focus) or the Tasks pane's "Add task" opens
- * it. From any other app, Alt+N shows the popup instead (routes/widget/quick).
+ * page. Its shortcut (Alt+N unless changed in Settings → Desktop) while the main window
+ * has focus, or the Tasks pane's "Add task", opens it. From any other app the shortcut
+ * shows the popup instead (routes/widget/quick).
  * The Tasks page tells it where a new task should go by default (the project or
  * day being viewed) and hears about each task it adds, so its list stays current.
  */
-import { writable } from 'svelte/store';
+import { get, writable } from 'svelte/store';
 import type { Task, TaskPriority } from '$lib/api';
+import { matchesKeys } from '$lib/shortcutKeys';
 
 export type QuickAddDefaults = {
 	project_id?: string | null;
@@ -48,7 +50,10 @@ export function taskAdded(task: Task) {
 	listeners.forEach((fn) => fn(task));
 }
 
-/** Alt+N, with no other modifier. Matched on the key's position so macOS Option+N works too. */
+/** The quick add shortcut (Settings → Desktop; Alt+N unless changed, null when off). */
+export const quickAddKeys = writable<string | null>('Alt+N');
+
+/** The quick add shortcut, pressed while the window has focus. */
 export function isQuickAddShortcut(e: KeyboardEvent): boolean {
-	return e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.code === 'KeyN';
+	return matchesKeys(e, get(quickAddKeys));
 }

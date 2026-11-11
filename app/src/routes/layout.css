@@ -90,6 +90,7 @@
   --color-success: oklch(46% 0.100 155);
   --color-warning: oklch(50% 0.110 70);
   --color-info: oklch(46% 0.120 250);
+  --color-week: oklch(48% 0.150 300);       /* a date later this week */
   --color-status-ink: oklch(97% 0.006 245);
 
   --color-scrim: oklch(18% 0.020 245 / 0.45);
@@ -127,6 +128,7 @@
   --color-success: oklch(76% 0.120 155);
   --color-warning: oklch(80% 0.120 80);
   --color-info: oklch(75% 0.100 245);
+  --color-week: oklch(76% 0.120 300);
   --color-status-ink: oklch(16% 0.020 245);
 
   --color-scrim: oklch(8% 0.015 245 / 0.65);

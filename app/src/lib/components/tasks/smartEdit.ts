@@ -1,3 +1,4 @@
+import { formatInstant } from '$lib/datePrefs.svelte';
 import type { Task, TaskCategory, TaskPatch, TaskProject } from '$lib/api';
 import { askReminderPermission } from '$lib/stores/taskReminders';
 import { dayLabel, formatDuration, formatTime, localInstant, parseEdit, type QuickAdd } from '$lib/taskParse';
@@ -12,7 +13,7 @@ import { defaultReminder, projectColor } from './shared';
 export function smartTitle(text: string, task: Task, projects: TaskProject[], categories: TaskCategory[]) {
 	const ps = task.parent_id ? [] : projects;
 	const cs = task.parent_id ? [] : categories;
-	const smart = parseEdit(text, task.title, ps, cs, new Date(), task.project_id, task.due_date);
+	const smart = parseEdit(text, task.title, ps, cs, new Date(), task.project_id, task.due_date, task.due_time);
 	const scope = smart.tokens.some((t) => t.kind === 'project' && !t.unknown) ? smart.project_id : task.project_id;
 	return { smart, projects: ps, categories: cs, scope };
 }
@@ -66,7 +67,7 @@ export function patchChips(p: TaskPatch, projects: TaskProject[], categories: Ta
 	if (p.duration_minutes) chips.push({ kind: 'duration', label: `for ${formatDuration(p.duration_minutes)}` });
 	if (p.recurrence) chips.push({ kind: 'recurrence', label: `↻ ${p.recurrence}` });
 	if (p.remind_at) {
-		chips.push({ kind: 'reminder', label: `Remind ${new Date(p.remind_at).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}` });
+		chips.push({ kind: 'reminder', label: `Remind ${formatInstant(p.remind_at)}` });
 	}
 	if (p.priority) chips.push({ kind: 'priority', label: `P${p.priority}`, priority: p.priority });
 	if ('project_id' in p) {
@@ -85,16 +86,23 @@ export function dueAtOf(task: Pick<Task, 'due_date' | 'due_time'>): number | nul
 /**
  * A patch as it should be saved: a task getting its first due time, with no reminder
  * yet, gets one at that time; a change of date or time moves an existing reminder
- * with it, the same time before.
+ * with it, the same time before; taking the date off takes the reminder off.
  */
 export function finishPatch(task: Task, patch: TaskPatch): TaskPatch {
+	const out = settlePatch(task, patch);
+	if (out.remind_at && !task.remind_at && !('remind_at' in patch)) askReminderPermission();
+	return out;
+}
+
+/** finishPatch without asking for permission, for showing what a save will do. */
+export function settlePatch(task: Task, patch: TaskPatch): TaskPatch {
+	// Taking the date off ("no date") takes the reminder off too, as tasks-core does.
+	if ('due_date' in patch && !patch.due_date && task.remind_at && !patch.remind_at) {
+		return { ...patch, remind_at: null };
+	}
 	if (patch.due_time && !task.due_time && !task.remind_at && !('remind_at' in patch)) {
 		const remind_at = defaultReminder(patch.due_date ?? task.due_date, patch.due_time);
-		if (remind_at) {
-			askReminderPermission();
-			return { ...patch, remind_at };
-		}
-		return patch;
+		return remind_at ? { ...patch, remind_at } : patch;
 	}
 	const dueAt = dueAtOf(task);
 	if (!task.remind_at || 'remind_at' in patch || dueAt === null) return patch;

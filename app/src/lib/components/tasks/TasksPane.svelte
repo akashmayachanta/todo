@@ -1,16 +1,20 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { slide } from 'svelte/transition';
 	import { page } from '$app/state';
 	import type { TaskCategory, TaskFilter, TaskProject } from '$lib/api';
 	import DropdownMenu from '$lib/components/DropdownMenu.svelte';
 	import { getPaneFooter, getPaneHeader } from '$lib/paneHeader';
 	import { formatDuration } from '$lib/taskParse';
+	import { motion, withFlip } from '$lib/flip';
 	import TaskSearchBox from './TaskSearchBox.svelte';
 	import TodayIcon from './TodayIcon.svelte';
+	import PaneToggle from './PaneToggle.svelte';
 	import { projectColor, type TaskSettings, type TaskView } from './shared';
 
 	/**
-	 * The Tasks page's own pane: the account (from the app shell) at the top, the fixed views
+	 * The Tasks page's own pane: the account (from the app shell) and the sidebar button
+	 * (which hides the whole pane; the page then shows its own) at the top, the fixed views
 	 * (Karma, the progress charts, last), the saved filters, then the projects.
 	 * A project with categories has an expander that lists them; a category links to
 	 * its section of the project. Projects are reordered by dragging them, or with
@@ -116,7 +120,7 @@
 	function step(p: TaskProject, by: -1 | 1) {
 		const i = projects.findIndex((x) => x.id === p.id);
 		const target = projects[i + by];
-		if (target) moveProject(p.id, target.id, by === 1);
+		if (target) withFlip(() => moveProject(p.id, target.id, by === 1));
 	}
 
 	function projectDragStart(e: DragEvent, p: TaskProject) {
@@ -144,7 +148,9 @@
 	function projectDrop(e: DragEvent) {
 		if (dragId === null) return;
 		e.preventDefault();
-		if (dropAt) moveProject(dragId, dropAt.id, dropAt.after);
+		const at = dropAt;
+		const id = dragId;
+		if (at) withFlip(() => moveProject(id, at.id, at.after));
 		projectDragEnd();
 	}
 
@@ -156,9 +162,10 @@
 </script>
 
 <nav class="tasks-pane" class:tasks-pane-browsing={browsing} aria-label="Task lists">
-	{#if header}
-		<div class="tasks-pane-top">{@render header()}</div>
-	{/if}
+	<div class="tasks-pane-top">
+		{#if header}<div class="tasks-pane-account">{@render header()}</div>{/if}
+		<PaneToggle class="tasks-pane-top-toggle" />
+	</div>
 	<TaskSearchBox bind:this={search} {query} {onsearch} class="tasks-pane-search" />
 	<div class="tasks-pane-lists">
 		<div class="tasks-pane-views">
@@ -221,6 +228,7 @@
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
 				class="tasks-pane-project"
+				data-flip="project:{p.id}"
 				class:tasks-pane-project-active={here}
 				class:tasks-pane-dragging={dragId === p.id}
 				class:tasks-pane-drop-before={dropAt?.id === p.id && !dropAt.after}
@@ -271,9 +279,15 @@
 				</DropdownMenu>
 			</div>
 			{#if open}
-				<ul id="tasks-pane-cats-{p.id}" class="tasks-pane-cats" aria-label="Categories of {p.name}">
+				<ul
+					id="tasks-pane-cats-{p.id}"
+					class="tasks-pane-cats"
+					aria-label="Categories of {p.name}"
+					data-flip="project-cats:{p.id}"
+					transition:slide={{ duration: motion(180) }}
+				>
 					{#each cats as c (c.id)}
-						<li>
+						<li data-flip="pane-cat:{c.id}">
 							<a
 								href="?project={p.id}#task-cat-{c.id}"
 								class="tasks-pane-link tasks-pane-cat"

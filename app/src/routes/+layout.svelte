@@ -13,8 +13,11 @@
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import QuickAddDialog from '$lib/components/tasks/QuickAddDialog.svelte';
 	import { setTasksClient, tasksChanged } from '$lib/tasks/client';
-	import { isQuickAddShortcut, openQuickAdd, quickAdd } from '$lib/stores/taskQuickAdd';
+	import { isQuickAddShortcut, openQuickAdd, quickAdd, quickAddKeys } from '$lib/stores/taskQuickAdd';
+	import { keyLabels } from '$lib/shortcutKeys';
 	import { applyTheme, followSystemTheme } from '$lib/stores/theme';
+	// Loaded in every window (the pins and popup too): it puts the date & time settings in effect.
+	import '$lib/stores/taskSettings';
 	import { setPaneFooter, setPaneHeader } from '$lib/paneHeader';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import { EVENT_LOCAL_CHANGED, call, tauriTasksClient, type AppStatus, type SyncStatus } from '$shell/tauriClient';
@@ -91,6 +94,10 @@
 				if (s.configured && s.sync.ready) checkForUpdate();
 			});
 			call<string | null>('app_take_open_task').then((id) => id && openTask(id));
+			// Settings → Desktop's quick add shortcut, for the window's own key handler below.
+			call<{ quick_add: string | null } | null>('app_desktop_get')
+				.then((d) => d && quickAddKeys.set(d.quick_add))
+				.catch(() => {});
 			call('app_ask_notification_permission').catch(() => {});
 			stops.push(followTitleBar());
 			stops.push(
@@ -117,7 +124,7 @@
 		window.addEventListener('online', syncNow);
 		document.addEventListener('visibilitychange', onVisible);
 
-		// Alt+N while the window has focus (the global shortcut covers the rest of Windows); Ctrl+, Settings.
+		// The quick add shortcut while the window has focus (the global one covers the rest of Windows); Ctrl+, Settings.
 		function onKey(e: KeyboardEvent) {
 			if (widget) return;
 			if (isQuickAddShortcut(e)) {
@@ -177,7 +184,7 @@
 			{@render children()}
 		</main>
 		{#if !$quickAdd}
-			<button type="button" class="fab" onclick={() => openQuickAdd()} aria-label="Add task" title="Add task (Alt+N)">
+			<button type="button" class="fab" onclick={() => openQuickAdd()} aria-label="Add task" title={$quickAddKeys ? `Add task (${keyLabels($quickAddKeys).join('+')})` : 'Add task'}>
 				<svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-width="2.25" d="M12 5v14m7-7H5" /></svg>
 			</button>
 		{/if}

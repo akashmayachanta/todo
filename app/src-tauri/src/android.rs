@@ -144,6 +144,56 @@ pub extern "system" fn Java_dev_tasks_app_Native_backgroundSync<'l>(mut env: JNI
     }
 }
 
+/// A reminder's Snooze or Complete button. Returns the reminders to schedule as
+/// JSON, or null when the app is running (its sync loop schedules them) or the
+/// button failed. Nothing changes when the task moved on since the reminder
+/// showed: done, or its reminder changed.
+#[no_mangle]
+pub extern "system" fn Java_dev_tasks_app_Native_reminderAction<'l>(
+    mut env: JNIEnv<'l>,
+    _class: JClass<'l>,
+    dir: JString<'l>,
+    action: JString<'l>,
+    id: JString<'l>,
+    remind_at: JString<'l>,
+) -> jstring {
+    let mut text = |s: &JString<'l>| env.get_string(s).map(String::from).ok();
+    let (Some(dir), Some(action), Some(id), Some(remind_at)) = (text(&dir), text(&action), text(&id), text(&remind_at)) else {
+        return std::ptr::null_mut();
+    };
+    let json = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| reminder_action(Path::new(&dir), &action, &id, &remind_at)))
+        .ok()
+        .flatten();
+    match json {
+        Some(json) => env.new_string(json).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut()),
+        None => std::ptr::null_mut(),
+    }
+}
+
+fn reminder_action(dir: &Path, action: &str, id: &str, remind_at: &str) -> Option<String> {
+    if !matches!(action, "snooze" | "complete") {
+        return None;
+    }
+    if let Some(app) = APP.get() {
+        // The write wakes the sync loop, which pushes it and schedules the alarms.
+        let st = app.try_state::<Arc<AppState>>()?.inner().clone();
+        match crate::reminders::run_button(&st, action, id, remind_at) {
+            Ok(true) => {
+                let _ = app.emit(crate::syncer::EVENT_CHANGED, 1);
+            }
+            Ok(false) => {}
+            Err(e) => eprintln!("Can't {action} the task: {e}"),
+        }
+        return None;
+    }
+    // Closed app: the caller schedules what this returns and runs a sync to push it.
+    let st = AppState::open(dir).ok()?;
+    if let Err(e) = crate::reminders::run_button(&st, action, id, remind_at) {
+        eprintln!("Can't {action} the task: {e}");
+    }
+    Some(crate::reminders::upcoming_json(&st))
+}
+
 /// One sync round, then the reminders to schedule. Uses the app's own state when
 /// the app is running in this process, else opens the DB itself.
 fn background_sync(dir: &Path) -> Option<String> {

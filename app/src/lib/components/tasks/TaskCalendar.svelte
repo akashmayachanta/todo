@@ -2,11 +2,12 @@
 	import { onMount, untrack } from 'svelte';
 	import type { Task } from '$lib/api';
 	import { plainText } from '$lib/links';
-	import { addDays, fromYmd, timeRange, ymd } from '$lib/taskParse';
+	import { addDays, daysBetween, fromYmd, timeRange, ymd } from '$lib/taskParse';
 	import { byDue } from './shared';
+	import { daysIntoWeek } from '$lib/datePrefs.svelte';
 
 	/**
-	 * The view's dated tasks by day, week or month (weeks start Monday). Each day has a + to
+	 * The view's dated tasks by day, week or month (weeks start on the day set in Settings → General). Each day has a + to
 	 * add a task on it, and its number opens it in the day view; dragging a task onto a day
 	 * moves it there. With `undated`, a "No date" tray under the calendar holds the rest:
 	 * drag one onto a day to schedule it, or a day's task onto the tray to clear its date.
@@ -64,7 +65,8 @@
 		setSpan('day');
 	}
 
-	const monday = (date: string) => addDays(date, -((fromYmd(date).getDay() + 6) % 7));
+	/** The first day (Settings → General → Week start) of the week a date is in. */
+	const weekStartOf = (date: string) => addDays(date, -daysIntoWeek(fromYmd(date).getDay()));
 	const firstOfMonth = (date: string) => `${date.slice(0, 7)}-01`;
 
 	function shift(by: -1 | 1) {
@@ -80,7 +82,7 @@
 	/** Whether today is in the range shown, so "Today" has nothing to do. */
 	let showsToday = $derived(
 		span === 'day' ? anchor === today
-		: span === 'week' ? monday(anchor) === monday(today)
+		: span === 'week' ? weekStartOf(anchor) === weekStartOf(today)
 		: anchor.slice(0, 7) === today.slice(0, 7),
 	);
 
@@ -89,7 +91,7 @@
 			return fromYmd(anchor).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 		}
 		if (span === 'week') {
-			const start = monday(anchor);
+			const start = weekStartOf(anchor);
 			const fmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 			return fmt.formatRange(fromYmd(start), fromYmd(addDays(start, 6)));
 		}
@@ -98,15 +100,15 @@
 
 	/**
 	 * The days shown, in rows of a week (or one row of one day). A month runs in whole weeks,
-	 * from the Monday on or before the 1st to the Sunday on or after the last day.
+	 * from the week's first day on or before the 1st to its last day on or after the month's last day.
 	 */
 	let weeks = $derived.by(() => {
 		if (span === 'day') return [[anchor]];
 		const week = (from: string) => Array.from({ length: 7 }, (_, i) => addDays(from, i));
-		if (span === 'week') return [week(monday(anchor))];
+		if (span === 'week') return [week(weekStartOf(anchor))];
 		const out: string[][] = [];
 		const prefix = anchor.slice(0, 7);
-		let day = monday(firstOfMonth(anchor));
+		let day = weekStartOf(firstOfMonth(anchor));
 		while (out.length === 0 || day.startsWith(prefix)) {
 			out.push(week(day));
 			day = addDays(day, 7);
@@ -161,10 +163,12 @@
 	}
 </script>
 
-{#snippet chip(task: Task, past: boolean)}
+{#snippet chip(task: Task, past: boolean, days: number)}
 	<div
 		class="tcal-chip"
 		class:tcal-chip-overdue={past}
+		class:tcal-chip-tomorrow={days === 1}
+		class:tcal-chip-week={days > 1 && days < 7}
 		class:tcal-chip-dragging={dragging?.id === task.id}
 		draggable="true"
 		role="listitem"
@@ -217,6 +221,7 @@
 			{#each week as date (date)}
 				{@const list = byDate.get(date) ?? []}
 				{@const past = date < today}
+				{@const days = daysBetween(today, date)}
 				<div
 					class="tcal-cell"
 					class:tcal-cell-out={span === 'month' && !date.startsWith(anchor.slice(0, 7))}
@@ -249,7 +254,7 @@
 						</button>
 					</div>
 					{#each list as task (task.id)}
-						{@render chip(task, past)}
+						{@render chip(task, past, days)}
 					{:else}
 						{#if span === 'day'}<p class="tcal-day-empty">Nothing due. Use + or drag a task here.</p>{/if}
 					{/each}
@@ -270,7 +275,7 @@
 			<h2 class="task-group-head">No date <span class="task-group-count">{undated.length}</span></h2>
 			<div class="tcal-tray-list" role="list">
 				{#each [...undated].sort(byDue) as task (task.id)}
-					{@render chip(task, false)}
+					{@render chip(task, false, 0)}
 				{:else}
 					<p class="tcal-tray-empty">Every task here has a date. Drag one here to clear it.</p>
 				{/each}

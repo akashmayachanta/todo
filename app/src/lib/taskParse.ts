@@ -8,6 +8,7 @@
 import * as chrono from 'chrono-node';
 import type { Task, TaskCategory, TaskPriority, TaskProject } from '$lib/api';
 import { blankLinks } from '$lib/links';
+import { clockOptions, datePrefs, daysIntoWeek } from '$lib/datePrefs.svelte';
 
 export type TokenKind = 'date' | 'priority' | 'project' | 'category' | 'recurrence' | 'reminder' | 'duration';
 
@@ -17,7 +18,7 @@ export interface ParsedToken {
 	start: number;
 	end: number;
 	text: string;
-	/** `#Name` or `/Name` that matches no project or category. */
+	/** `#Name` or `/Name` that matches no project or category, or a `!` with no due date to remind at. */
 	unknown?: boolean;
 }
 
@@ -251,44 +252,61 @@ function mask(text: string, tokens: ParsedToken[]): string {
 	return chars.join('');
 }
 
-// "12/11" is read the way the user's locale writes dates: day first unless it puts the month first.
-const dayFirst = (() => {
-	try {
-		const parts = new Intl.DateTimeFormat().formatToParts(new Date(2000, 11, 31));
-		return parts.findIndex((p) => p.type === 'day') < parts.findIndex((p) => p.type === 'month');
-	} catch {
-		return false;
+// "12/11" is read the way Settings → General → Date format says: day first or month first.
+function dateParser(base: chrono.Chrono): chrono.Chrono {
+	const dates = base.clone();
+
+	// Short forms: "tod" (today), "tom" / "tmr" / "tmrw" (tomorrow).
+	dates.parsers.push({
+		pattern: () => /\b(tod|tom|tmrw?)\b/i,
+		extract: (ctx, m) => {
+			const d = new Date(ctx.refDate);
+			if (m[1].toLowerCase() !== 'tod') d.setDate(d.getDate() + 1);
+			const c = ctx.createParsingComponents();
+			c.assign('day', d.getDate());
+			c.assign('month', d.getMonth() + 1);
+			c.assign('year', d.getFullYear());
+			return c;
+		},
+	});
+
+	// "10p", "9:30a": a time with a one-letter meridiem.
+	dates.parsers.push({
+		pattern: () => /\b(1[0-2]|0?[1-9])(?::([0-5]\d))?\s?([ap])\b/i,
+		extract: (ctx, m) => {
+			const pm = m[3].toLowerCase() === 'p';
+			const hour = (Number(m[1]) % 12) + (pm ? 12 : 0);
+			const c = ctx.createParsingComponents();
+			c.assign('hour', hour);
+			c.assign('minute', Number(m[2] ?? 0));
+			c.assign('meridiem', pm ? 1 : 0);
+			return c;
+		},
+	});
+
+	return dates;
+}
+
+const DAY_FIRST = dateParser(chrono.en.GB);
+const MONTH_FIRST = dateParser(chrono.casual);
+const datesNow = () => (datePrefs.dateFormat === 'dmy' ? DAY_FIRST : MONTH_FIRST);
+
+/** "next week", "weekend", "this weekend", "next weekend": the days set in Settings → General. */
+const WEEK_WORD_RE = /(^|\s)((?:next\s+week(?!end))|(?:(?:this|next)\s+)?weekend)(?=\s|$|[.,;])/i;
+
+/** The date a "next week" / "weekend" phrase stands for, from `today`. */
+function weekWordDate(phrase: string, today: string): string {
+	const p = phrase.toLowerCase().replace(/\s+/g, ' ');
+	const weekday = fromYmd(today).getDay();
+	if (p === 'next week') {
+		// The chosen day in the week after this one.
+		const nextWeekStart = addDays(today, 7 - daysIntoWeek(weekday));
+		return addDays(nextWeekStart, daysIntoWeek(datePrefs.nextWeek));
 	}
-})();
-const dates = (dayFirst ? chrono.en.GB : chrono.casual).clone();
-
-// Short forms: "tod" (today), "tom" / "tmr" / "tmrw" (tomorrow).
-dates.parsers.push({
-	pattern: () => /\b(tod|tom|tmrw?)\b/i,
-	extract: (ctx, m) => {
-		const d = new Date(ctx.refDate);
-		if (m[1].toLowerCase() !== 'tod') d.setDate(d.getDate() + 1);
-		const c = ctx.createParsingComponents();
-		c.assign('day', d.getDate());
-		c.assign('month', d.getMonth() + 1);
-		c.assign('year', d.getFullYear());
-		return c;
-	},
-});
-
-// "10p", "9:30a": a time with a one-letter meridiem.
-dates.parsers.push({
-	pattern: () => /\b(1[0-2]|0?[1-9])(?::([0-5]\d))?\s?([ap])\b/i,
-	extract: (ctx, m) => {
-		const pm = m[3].toLowerCase() === 'p';
-		const hour = (Number(m[1]) % 12) + (pm ? 12 : 0);
-		const c = ctx.createParsingComponents();
-		c.assign('hour', hour);
-		c.assign('minute', Number(m[2] ?? 0));
-		c.assign('meridiem', pm ? 1 : 0);
-		return c;
-	},
-});
+	// The coming weekend day (today if it is that day); "next weekend" is the one after.
+	const ahead = (datePrefs.weekend - weekday + 7) % 7;
+	return addDays(today, ahead + (p.startsWith('next') ? 7 : 0));
+}
 
 /** "no date", "no due date": takes the date and time off. */
 const NO_DATE_RE = /(^|\s)(no\s+(?:due\s+)?date)(?=\s|$|[.,;])/i;
@@ -305,11 +323,13 @@ function hasDay(c: chrono.ParsedComponents): boolean {
  * spaces; the longest match wins, and a project wins a tie), `p1`–`p4` the priority,
  * `every …` a recurrence, `!5pm` or `!tomorrow 9am` a reminder at that time,
  * `!30m` / `!1h` / `!1d` a reminder that long before the due time (or from now
- * when there is no due date), and any other date phrase chrono understands the
- * due date and time. `contextProjectId` is where a category is looked for
- * first when no project is named. `contextDate` is the day a time alone
- * ("5pm") falls on, e.g. the Upcoming group or calendar day being added to;
- * without one a time alone is today (or tomorrow once it has passed).
+ * when there is no due date), a lone `!` a reminder at the due time, and any
+ * other date phrase chrono understands the due date and time. `contextProjectId`
+ * is where a category is looked for first when no project is named. `contextDate`
+ * is the day a time alone ("5pm") falls on, e.g. the Upcoming group or calendar
+ * day being added to; without one a time alone is today (or tomorrow once it has
+ * passed). With no date in the line, a lone `!` reminds at `contextDate` and
+ * `contextTime` (9:00 without a time, as `localInstant` counts it).
  */
 export function parseQuickAdd(
 	line: string,
@@ -318,6 +338,7 @@ export function parseQuickAdd(
 	now = new Date(),
 	contextProjectId: string | null = null,
 	contextDate: string | null = null,
+	contextTime: string | null = null,
 ): QuickAdd {
 	// A link is left as it is: its label and address aren't dates or places.
 	const text = blankLinks(line);
@@ -380,8 +401,11 @@ export function parseQuickAdd(
 		add('priority', start, start + 2);
 	}
 
+	// Settings → General → Smart date recognition off: dates, times and repeats stay in the title.
+	const smart = datePrefs.smartDates;
+
 	// every …
-	const rec = RECURRENCE_RE.exec(mask(text, tokens));
+	const rec = smart ? RECURRENCE_RE.exec(mask(text, tokens)) : null;
 	if (rec) {
 		out.recurrence = normaliseMatch(rec);
 		add('recurrence', rec.index, rec.index + rec[0].length);
@@ -416,7 +440,7 @@ export function parseQuickAdd(
 			const at = m.index! + m[1].length;
 			if (overlaps(tokens, at, at + 1)) continue;
 			const tail = mask(text, tokens).slice(at + 1);
-			const [hit] = dates.parse(tail, now, { forwardDate: true });
+			const [hit] = datesNow().parse(tail, now, { forwardDate: true });
 			if (hit && hit.index === 0) {
 				reminderAt = hit.start;
 				add('reminder', at, at + 1 + hit.text.length);
@@ -425,16 +449,36 @@ export function parseQuickAdd(
 		}
 	}
 
+	// A lone !: a reminder at the due time, worked out once the date is read.
+	let atDue: ParsedToken | null = null;
+	if (reminderOffset === null && !reminderAt) {
+		for (const m of text.matchAll(/(^|\s)!(?=\s|$)/g)) {
+			const at = m.index! + m[1].length;
+			if (overlaps(tokens, at, at + 1)) continue;
+			add('reminder', at, at + 1);
+			atDue = tokens[tokens.length - 1];
+			break;
+		}
+	}
+
 	// "no date" clears the date and its time; any other date or time in the line is then left alone.
-	const noDate = NO_DATE_RE.exec(mask(text, tokens));
+	const noDate = smart ? NO_DATE_RE.exec(mask(text, tokens)) : null;
 	if (noDate) {
 		const start = noDate.index + noDate[1].length;
 		add('date', start, start + noDate[2].length);
 	}
 
+	// "next week", "weekend": the days chosen in Settings; a time with them is read below.
+	const weekWord = smart && !noDate ? WEEK_WORD_RE.exec(mask(text, tokens)) : null;
+	if (weekWord) {
+		const start = weekWord.index + weekWord[1].length;
+		out.due_date = weekWordDate(weekWord[2], ymd(now));
+		add('date', start, start + weekWord[2].length);
+	}
+
 	// Any other date phrase is the due date.
 	let timeOnly = false;
-	for (const hit of noDate ? [] : dates.parse(mask(text, tokens), now, { forwardDate: true })) {
+	for (const hit of noDate || !smart ? [] : datesNow().parse(mask(text, tokens), now, { forwardDate: true })) {
 		const c = hit.start;
 		const day = hasDay(c);
 		// A lone month name ("may", "march") is far more often a word of the title.
@@ -459,14 +503,24 @@ export function parseQuickAdd(
 	}
 
 	if (reminderOffset !== null) {
-		const base = out.due_date ? new Date(localInstant(out.due_date, out.due_time)).getTime() : now.getTime();
-		out.remind_at = new Date(out.due_date ? base - reminderOffset : base + reminderOffset).toISOString();
+		// Before the line's due time, else the edited task's (contextTime); from now with neither.
+		const due = out.due_date
+			? localInstant(out.due_date, out.due_time)
+			: !noDate && contextDate && contextTime ? localInstant(contextDate, contextTime) : null;
+		out.remind_at = due
+			? new Date(new Date(due).getTime() - reminderOffset).toISOString()
+			: new Date(now.getTime() + reminderOffset).toISOString();
 	} else if (reminderAt) {
 		// "!9am" with a due date reminds on that day.
 		const at = reminderAt.date();
 		out.remind_at = !hasDay(reminderAt) && out.due_date
 			? localInstant(out.due_date, timeOf(at))
 			: at.toISOString();
+	} else if (atDue) {
+		// The line's date, else the task's or the day being added to; "no date" leaves none.
+		const date = out.due_date ?? (noDate ? null : contextDate);
+		if (date) out.remind_at = localInstant(date, out.due_date ? out.due_time : contextTime);
+		else atDue.unknown = true;
 	}
 
 	tokens.sort((a, b) => a.start - b.start);
@@ -514,8 +568,9 @@ export function parseEdit(
 	now = new Date(),
 	contextProjectId: string | null = null,
 	contextDate: string | null = null,
+	contextTime: string | null = null,
 ): QuickAdd {
-	const parse = (t: string) => parseQuickAdd(t, projects, categories, now, contextProjectId, contextDate);
+	const parse = (t: string) => parseQuickAdd(t, projects, categories, now, contextProjectId, contextDate, contextTime);
 	const key = (t: ParsedToken) => `${t.kind}:${t.text.toLowerCase()}`;
 	const before = new Set(parse(original).tokens.map(key));
 	const all = parse(text);
@@ -534,14 +589,17 @@ export interface DueLabel {
 	/** Started and its duration hasn't run out yet. Never also overdue. */
 	inProgress: boolean;
 	today: boolean;
+	tomorrow: boolean;
+	/** Two to six days away: the dates labelled with a weekday. */
+	thisWeek: boolean;
 }
 
-/** "17:00" in the user's locale. */
+/** "17:00" or "5:00 PM", as Settings → General → Time format says. */
 export function formatTime(time: string): string {
 	const [h, m] = time.split(':').map(Number);
 	const d = new Date();
 	d.setHours(h, m, 0, 0);
-	return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+	return d.toLocaleTimeString(undefined, clockOptions());
 }
 
 /** "5:00 pm", or "5:00 pm – 5:45 pm" with a duration. */
@@ -589,5 +647,6 @@ export function describeDue(task: Pick<Task, 'due_date' | 'due_time'> & { durati
 	const inProgress = isInProgress(task.due_date, task.due_time, task.duration_minutes, now);
 	const overdue = !inProgress && (task.due_date < today || (task.due_date === today && !!task.due_time && task.due_time < timeOf(now)));
 	const label = dayLabel(task.due_date, now) + (task.due_time ? ` ${timeRange(task.due_time, task.duration_minutes)}` : '');
-	return { label, overdue, inProgress, today: task.due_date === today };
+	const days = daysBetween(today, task.due_date);
+	return { label, overdue, inProgress, today: days === 0, tomorrow: days === 1, thisWeek: days > 1 && days < 7 };
 }

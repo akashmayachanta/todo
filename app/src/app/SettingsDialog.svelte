@@ -1,5 +1,5 @@
 <script module lang="ts">
-	export type SettingsTab = 'account' | 'server' | 'general' | 'theme';
+	export type SettingsTab = 'account' | 'general' | 'desktop' | 'theme' | 'server';
 </script>
 
 <script lang="ts">
@@ -10,15 +10,18 @@
 	import { taskSettings } from '$lib/stores/taskSettings';
 	import { ACCENTS, ACCENT_SWATCH, accentStore, modePref, modeStore, setAccent, setModePref, type ModePref } from '$lib/stores/theme';
 	import Select from '$lib/components/Select.svelte';
+	import { quickAddKeys } from '$lib/stores/taskQuickAdd';
 	import Avatar from './Avatar.svelte';
+	import ShortcutInput from './ShortcutInput.svelte';
 	import { displayNames, photos, removePhoto, setDisplayName, setPhoto } from './profile';
 	import { SYNC_LABELS, ago, syncTrouble } from './syncText';
 	import { call, type AppStatus, type ServerInfo } from './tauriClient';
 
 	/**
-	 * Settings: Account (photo, who is signed in, sign out), Server (the host and
-	 * API path, kept apart from the account), General (how tasks are shown) and
-	 * Theme. Account and server live in the app; General and Theme in this browser.
+	 * Settings: Account (photo, who is signed in, sign out), General (how tasks and
+	 * dates are shown and read), Desktop (shortcuts and startup; not on Android),
+	 * Theme, and Server (the host and API path, kept apart from the account).
+	 * Account, Desktop and Server live in the app; General and Theme in this browser.
 	 */
 	let {
 		status,
@@ -39,12 +42,15 @@
 
 	const TABS: { key: SettingsTab; label: string; icon: string }[] = [
 		{ key: 'account', label: 'Account', icon: 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z' },
-		{ key: 'server', label: 'Server', icon: 'M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01' },
 		{ key: 'general', label: 'General', icon: 'M4 6h16M4 12h10M4 18h7' },
+		{ key: 'desktop', label: 'Desktop', icon: 'M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z' },
 		{ key: 'theme', label: 'Theme', icon: 'M12 3a9 9 0 100 18c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01a1.5 1.5 0 011.12-2.49H16a5 5 0 005-5c0-4.42-4.03-8-9-8zM6.5 12a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm3-4a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm5 0a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm3 4a1.5 1.5 0 110-3 1.5 1.5 0 010 3z' },
+		{ key: 'server', label: 'Server', icon: 'M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01' },
 	];
+	/** Desktop is only on Windows. */
+	const tabs = untrack(() => TABS.filter((t) => t.key !== 'desktop' || status.platform !== 'android'));
 
-	let current = $state<SettingsTab>(untrack(() => tab));
+	let current = $state<SettingsTab>(untrack(() => (tabs.some((t) => t.key === tab) ? tab : 'account')));
 	let now = $state(Date.now());
 	onMount(() => {
 		const clock = setInterval(() => (now = Date.now()), 30_000);
@@ -146,6 +152,44 @@
 		{ value: 'upcoming', label: 'Upcoming' },
 	] as const;
 
+	// Date & time ($lib/datePrefs)
+	const TIME_FORMATS = [
+		{ value: '24h', label: '13:00' },
+		{ value: '12h', label: '1:00 PM' },
+	];
+	const DATE_FORMATS = [
+		{ value: 'dmy', label: 'DD-MM-YYYY' },
+		{ value: 'mdy', label: 'MM-DD-YYYY' },
+	];
+	const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map((label, value) => ({ value, label }));
+	const WEEKEND_DAYS = [DAYS[6], DAYS[0]];
+
+	// ── Desktop ──────────────────────────────────────────────────────────────
+
+	type DesktopSettings = { quick_add: string | null; show_hide: string | null; launch_at_startup: boolean; start_minimized: boolean };
+	let desktop = $state<DesktopSettings | null>(null);
+	let desktopBusy = $state(false);
+
+	onMount(() => {
+		if (status.platform !== 'android') {
+			call<DesktopSettings | null>('app_desktop_get').then((d) => (desktop = d)).catch(() => {});
+		}
+	});
+
+	async function saveDesktop(patch: Partial<DesktopSettings>) {
+		if (!desktop || desktopBusy) return;
+		desktopBusy = true;
+		try {
+			desktop = await call<DesktopSettings>('app_desktop_set', { data: { ...desktop, ...patch } });
+			quickAddKeys.set(desktop.quick_add);
+		} catch (err) {
+			toast.error(errorDetail(err));
+			desktop = { ...desktop }; // a switch flipped by hand goes back
+		} finally {
+			desktopBusy = false;
+		}
+	}
+
 	// ── Reminders on this phone (Android) ────────────────────────────────────
 
 	type ReminderHealth = { notifications: boolean; exactAlarms: boolean; batteryUnrestricted: boolean };
@@ -205,7 +249,7 @@
 	<div class="set-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title" tabindex="-1" use:focusOnMount>
 		<nav class="set-nav" aria-label="Settings sections">
 			<h2 id="settings-title" class="set-nav-title">Settings</h2>
-			{#each TABS as t (t.key)}
+			{#each tabs as t (t.key)}
 				<button type="button" class="set-nav-item" aria-current={current === t.key ? 'page' : undefined} onclick={() => (current = t.key)}>
 					<svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d={t.icon} /></svg>
 					{t.label}
@@ -221,7 +265,7 @@
 				</button>
 			</header>
 
-			<div class="set-scroll">
+			<div class="set-scroll" class:set-compact={current === 'general'}>
 				{#if current === 'account'}
 					<div class="set-group">
 						<span class="set-label">Photo</span>
@@ -325,7 +369,7 @@
 					</form>
 				{:else if current === 'general'}
 					<div class="set-group">
-						<label class="set-label" for="settings-start-view">Open on</label>
+						<label class="set-label" for="settings-start-view">Home view</label>
 						<div class="set-select">
 							<Select
 								id="settings-start-view"
@@ -335,6 +379,70 @@
 							/>
 						</div>
 					</div>
+
+					<h4 class="set-section">Date &amp; time</h4>
+					<div class="set-fields" style="--cols: 2">
+						<div class="set-group">
+							<label class="set-label" for="settings-time-format">Time format</label>
+							<div class="set-select">
+								<Select id="settings-time-format" value={$taskSettings.timeFormat} options={TIME_FORMATS}
+									onchange={(v) => taskSettings.update('timeFormat', v as '12h' | '24h')} />
+							</div>
+							<span class="set-hint">How times show across the app, like 5:00 PM or 17:00.</span>
+						</div>
+						<div class="set-group">
+							<label class="set-label" for="settings-date-format">Date format</label>
+							<div class="set-select">
+								<Select id="settings-date-format" value={$taskSettings.dateFormat} options={DATE_FORMATS}
+									onchange={(v) => taskSettings.update('dateFormat', v as 'dmy' | 'mdy')} />
+							</div>
+							<span class="set-hint">How a date typed with numbers, like 12/11, is read.</span>
+						</div>
+					</div>
+					<div class="set-fields" style="--cols: 3">
+						<div class="set-group">
+							<label class="set-label" for="settings-week-start">Week start</label>
+							<div class="set-select">
+								<Select id="settings-week-start" value={$taskSettings.weekStart} options={DAYS}
+									onchange={(v) => taskSettings.update('weekStart', Number(v))} />
+							</div>
+							<span class="set-hint">Begin your week on this day in the calendar and date picker.</span>
+						</div>
+						<div class="set-group">
+							<label class="set-label" for="settings-next-week">Next week</label>
+							<div class="set-select">
+								<Select id="settings-next-week" value={$taskSettings.nextWeek} options={DAYS}
+									onchange={(v) => taskSettings.update('nextWeek', Number(v))} />
+							</div>
+							<span class="set-hint">The day "next week" means when you type it in a task.</span>
+						</div>
+						<div class="set-group">
+							<label class="set-label" for="settings-weekend">Weekend</label>
+							<div class="set-select">
+								<Select id="settings-weekend" value={$taskSettings.weekend} options={WEEKEND_DAYS}
+									onchange={(v) => taskSettings.update('weekend', Number(v))} />
+							</div>
+							<span class="set-hint">The day "weekend" means when you type it in a task.</span>
+						</div>
+					</div>
+					<div class="set-group">
+						<div class="set-toggles">
+							<label class="set-toggle">
+								<span class="set-toggle-text">
+									<span class="set-toggle-label">Smart date recognition</span>
+									<span class="set-hint">Read dates, times and repeats typed in a task's name. Off, they stay in the name.</span>
+								</span>
+								<input
+									type="checkbox"
+									role="switch"
+									class="set-switch"
+									checked={$taskSettings.smartDates}
+									onchange={(e) => taskSettings.update('smartDates', e.currentTarget.checked)}
+								/>
+							</label>
+						</div>
+					</div>
+					<hr class="set-rule" />
 					<div class="set-group">
 						<span class="set-label">Show</span>
 						<div class="set-toggles">
@@ -400,7 +508,43 @@
 							<span class="set-hint">Some phones also stop apps in the background on their own. If reminders still come late, look for the app in the phone's autostart or background app settings.</span>
 						</div>
 					{/if}
-				{:else}
+				{:else if current === 'desktop'}
+					{#if desktop}
+						<div class="set-group">
+							<label class="set-label" for="settings-quick-keys">Quick add</label>
+							<ShortcutInput id="settings-quick-keys" value={desktop.quick_add} onchange={(k) => saveDesktop({ quick_add: k })} />
+							<span class="set-hint">Add a task from anywhere on your computer without switching to Tasks.</span>
+						</div>
+						<div class="set-group">
+							<label class="set-label" for="settings-show-keys">Show / hide Tasks</label>
+							<ShortcutInput id="settings-show-keys" value={desktop.show_hide} onchange={(k) => saveDesktop({ show_hide: k })} />
+							<span class="set-hint">Bring the window to the front, or back to the tray when it's already there.</span>
+						</div>
+						<div class="set-group">
+							<span class="set-label">Startup</span>
+							<div class="set-toggles">
+								<label class="set-toggle">
+									<span class="set-toggle-text">
+										<span class="set-toggle-label">Launch at startup</span>
+										<span class="set-hint">Opens in the tray when you sign in to Windows, so reminders and sync run.</span>
+									</span>
+									<input type="checkbox" role="switch" class="set-switch" checked={desktop.launch_at_startup} disabled={desktopBusy}
+										onchange={(e) => saveDesktop({ launch_at_startup: e.currentTarget.checked })} />
+								</label>
+								<label class="set-toggle">
+									<span class="set-toggle-text">
+										<span class="set-toggle-label">Start minimized</span>
+										<span class="set-hint">Opening the app leaves it in the tray. Click the tray icon to show it.</span>
+									</span>
+									<input type="checkbox" role="switch" class="set-switch" checked={desktop.start_minimized} disabled={desktopBusy}
+										onchange={(e) => saveDesktop({ start_minimized: e.currentTarget.checked })} />
+								</label>
+							</div>
+						</div>
+					{:else}
+						<p class="set-hint">Loading…</p>
+					{/if}
+				{:else if current === 'theme'}
 					<div class="set-group">
 						<span class="set-label">Mode</span>
 						<div class="set-segment" role="radiogroup" aria-label="Mode">
@@ -430,8 +574,8 @@
 	.set-panel {
 		pointer-events: auto;
 		display: flex;
-		width: min(46rem, 100%);
-		height: min(34rem, calc(100dvh - 2rem));
+		width: min(60rem, 100%);
+		height: min(56rem, calc(100dvh - 2rem));
 		overflow: hidden;
 		border-radius: 14px;
 		background: var(--bg-card);
@@ -443,7 +587,7 @@
 		display: flex;
 		flex-direction: column;
 		gap: 2px;
-		width: 12rem;
+		width: 13.5rem;
 		flex-shrink: 0;
 		padding: 1rem 0.5rem;
 		background: var(--bg-surface);
@@ -626,6 +770,21 @@
 	.set-select {
 		max-width: 14rem;
 	}
+	/* General: a heading over a run of settings, and the line under it */
+	.set-section {
+		margin: 0.4rem 0 -0.35rem;
+		padding-top: 1.1rem;
+		border-top: 1px solid var(--clr-border);
+		font-family: var(--font-display);
+		font-size: var(--text-md);
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+	.set-rule {
+		margin: 0;
+		border: 0;
+		border-top: 1px solid var(--clr-border);
+	}
 
 	/* General: rows with a switch on the right */
 	.set-toggles {
@@ -652,6 +811,28 @@
 	}
 	.set-toggle-off .set-toggle-text {
 		opacity: 0.5;
+	}
+	/* Settings side by side in one row (--cols of them); stacked on phones. */
+	.set-fields {
+		display: grid;
+		grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr));
+		gap: 0.75rem 1.25rem;
+		align-items: start;
+	}
+	/* General has many settings: closer together than the other tabs. */
+	.set-compact {
+		gap: 0.75rem;
+	}
+	.set-compact .set-group {
+		gap: 0.25rem;
+	}
+	.set-compact .set-section {
+		margin: 0.5rem 0 -0.25rem;
+		padding-top: 0.75rem;
+	}
+	.set-compact .set-toggle {
+		min-height: 2.75rem;
+		padding-block: 0.5rem;
 	}
 	.set-toggle-text {
 		display: grid;
@@ -765,6 +946,9 @@
 	/* Phones: the sections become tabs across the top. The panel is as tall as the
 	   section in it, centred, and scrolls only when that is taller than the screen. */
 	@media (max-width: 720px) {
+		.set-fields {
+			grid-template-columns: minmax(0, 1fr);
+		}
 		.set-panel {
 			flex-direction: column;
 			height: auto;

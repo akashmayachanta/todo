@@ -29,6 +29,30 @@ fn task(conn: &Connection, ctx: &Ctx, input: serde_json::Value) -> Task {
     ops::create_task(conn, ctx, from::<TaskIn>(input)).unwrap()
 }
 
+// ── Clearing the date ────────────────────────────────────────────────────────
+
+#[test]
+fn clearing_the_date_clears_the_time_and_the_reminder() {
+    let (conn, ctx) = setup();
+    let t = task(&conn, &ctx, json!({
+        "title": "Call", "due_date": "2026-11-30", "due_time": "10:00", "remind_at": "2026-11-30T04:30:00Z"
+    }));
+    let cleared = ops::update_task(&conn, &ctx, &t.id, from(json!({ "due_date": null }))).unwrap();
+    assert_eq!((cleared.due_date, cleared.due_time, cleared.remind_at), (None, None, None));
+}
+
+#[test]
+fn clearing_the_date_keeps_a_reminder_set_in_the_same_change() {
+    let (conn, ctx) = setup();
+    let t = task(&conn, &ctx, json!({
+        "title": "Call", "due_date": "2026-11-30", "remind_at": "2026-11-30T04:30:00Z"
+    }));
+    let patch: TaskPatch = from(json!({ "due_date": null, "remind_at": "2026-12-01T05:00:00Z" }));
+    let cleared = ops::update_task(&conn, &ctx, &t.id, patch).unwrap();
+    assert_eq!(cleared.due_date, None);
+    assert_eq!(cleared.remind_at.as_deref(), Some("2026-12-01T05:00:00.000Z"));
+}
+
 // ── Moving a category ────────────────────────────────────────────────────────
 
 #[test]
@@ -335,4 +359,24 @@ fn a_sync_row_from_an_unknown_table_is_skipped() {
     let row: sync::SyncRow = from(json!({ "table": "from_the_future", "row": { "id": "x" } }));
     let applied = sync::apply(&conn, &Ctx::server(), &[row]).unwrap();
     assert_eq!((applied.accepted, applied.ignored), (0, 1));
+}
+
+#[test]
+fn reorder_categories_sets_the_order_within_a_project() {
+    let (conn, ctx) = setup();
+    let p = project(&conn, &ctx, "Learning");
+    let other = project(&conn, &ctx, "Work");
+    let a = category(&conn, &ctx, &p.id, "A");
+    category(&conn, &ctx, &p.id, "B");
+    let c = category(&conn, &ctx, &p.id, "C");
+    let elsewhere = category(&conn, &ctx, &other.id, "X");
+
+    // Listed ones first, the rest after in their old order; another project's id is ignored.
+    let out = ops::reorder_categories(&conn, &ctx, &p.id, &[c.id.clone(), elsewhere.id.clone(), a.id.clone()]).unwrap();
+    let names: Vec<_> = out.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(names, ["C", "A", "B"]);
+    assert_eq!(out.iter().map(|c| c.position).collect::<Vec<_>>(), [1, 2, 3]);
+    assert_eq!(ops::get_category(&conn, &elsewhere.id).unwrap().position, elsewhere.position);
+
+    assert!(matches!(ops::reorder_categories(&conn, &ctx, "missing", &[]), Err(Error::NotFound(_))));
 }

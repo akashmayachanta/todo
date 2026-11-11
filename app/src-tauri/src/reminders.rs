@@ -12,7 +12,8 @@
 //!   app/android/java), so they fire while the app is closed and the phone is
 //!   offline. After every sync or edit the upcoming reminders are handed over
 //!   whole; a background job syncs every 15 minutes while the app is closed, and
-//!   the alarms are set again after a reboot. Tapping one opens its task.
+//!   the alarms are set again after a reboot. Tapping one opens its task; its
+//!   Snooze and Complete buttons work without opening the app.
 
 use std::sync::Arc;
 
@@ -23,8 +24,10 @@ use crate::state::AppState;
 #[cfg(desktop)]
 const FIRED_KEY: &str = "reminders_fired";
 
+/// "1" when Settings → General shows times as 12-hour ("5:00 PM"); the toast follows it.
+pub(crate) const CLOCK_12H_KEY: &str = "clock_12h";
+
 /// How far Snooze moves a reminder.
-#[cfg(desktop)]
 const SNOOZE_MINUTES: i64 = 10;
 
 /// The link a toast's buttons open: `open/<id>`, `snooze/<id>/<remind_at>` or
@@ -174,7 +177,7 @@ fn fire_due(app: &AppHandle, st: &Arc<AppState>) {
     let now = Utc::now();
     let from = tasks_core::time::iso(now - Duration::hours(24));
     let to = tasks_core::time::iso(now + Duration::seconds(1));
-    let (due, mut fired) = {
+    let (due, mut fired, hour12) = {
         let conn = crate::state::lock(&st.db);
         let due = tasks_core::ops::reminders_between(&conn, &from, &to).unwrap_or_default();
         let fired: Vec<String> = tasks_core::db::get_state(&conn, FIRED_KEY)
@@ -182,8 +185,11 @@ fn fire_due(app: &AppHandle, st: &Arc<AppState>) {
             .flatten()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
-        (due, fired)
+        let hour12 = tasks_core::db::get_state(&conn, CLOCK_12H_KEY).ok().flatten().as_deref() == Some("1");
+        (due, fired, hour12)
     };
+    #[cfg(not(windows))]
+    let _ = hour12;
     let mut any = false;
     for task in due {
         let key = format!("{}:{}", task.id, task.remind_at.as_deref().unwrap_or_default());
@@ -191,7 +197,7 @@ fn fire_due(app: &AppHandle, st: &Arc<AppState>) {
             continue;
         }
         #[cfg(windows)]
-        let shown = show_toast(app, &task).inspect_err(|e| eprintln!("Can't show the reminder toast: {e}")).is_ok();
+        let shown = show_toast(app, &task, hour12).inspect_err(|e| eprintln!("Can't show the reminder toast: {e}")).is_ok();
         #[cfg(not(windows))]
         let shown = false;
         if !shown {
@@ -207,15 +213,15 @@ fn fire_due(app: &AppHandle, st: &Arc<AppState>) {
     }
 }
 
-/// `remind_at` in local time, for the toast: "Today 15:00".
+/// `remind_at` in local time, for the toast: "Today 15:00", or "Today 3:00 PM" with `hour12`.
 /// Only reminders under a day old show, so the day is today or yesterday.
 #[cfg(windows)]
-fn toast_time(remind_at: &str) -> Option<String> {
+fn toast_time(remind_at: &str, hour12: bool) -> Option<String> {
     use chrono::{Local, TimeZone};
 
     let at = Local.timestamp_millis_opt(tasks_core::time::instant_ms(remind_at)?).single()?;
     let day = if at.date_naive() == Local::now().date_naive() { "Today" } else { "Yesterday" };
-    Some(format!("{day} {}", at.format("%H:%M")))
+    Some(format!("{day} {}", at.format(if hour12 { "%-I:%M %p" } else { "%H:%M" })))
 }
 
 #[cfg(windows)]
@@ -225,8 +231,8 @@ fn xml_escape(text: &str) -> String {
 
 /// The toast's XML.
 #[cfg(windows)]
-fn toast_xml(id: &str, title: &str, remind_at: &str) -> Option<String> {
-    let line = toast_time(remind_at)?;
+fn toast_xml(id: &str, title: &str, remind_at: &str, hour12: bool) -> Option<String> {
+    let line = toast_time(remind_at, hour12)?;
     let title = xml_escape(title);
     let open = xml_escape(&format!("{TOAST_LINK}open/{id}"));
     let snooze = xml_escape(&format!("{TOAST_LINK}snooze/{id}/{remind_at}"));
@@ -243,13 +249,13 @@ fn toast_xml(id: &str, title: &str, remind_at: &str) -> Option<String> {
 }
 
 #[cfg(windows)]
-fn show_toast(app: &AppHandle, task: &tasks_core::Task) -> Result<(), Box<dyn std::error::Error>> {
+fn show_toast(app: &AppHandle, task: &tasks_core::Task, hour12: bool) -> Result<(), Box<dyn std::error::Error>> {
     use windows::core::HSTRING;
     use windows::Data::Xml::Dom::XmlDocument;
     use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
 
     let title = tasks_core::plain_title(&task.title);
-    let xml = toast_xml(&task.id, &title, task.remind_at.as_deref().unwrap_or_default()).ok_or("bad reminder time")?;
+    let xml = toast_xml(&task.id, &title, task.remind_at.as_deref().unwrap_or_default(), hour12).ok_or("bad reminder time")?;
     let doc = XmlDocument::new()?;
     doc.LoadXml(&HSTRING::from(xml))?;
     let toast = ToastNotification::CreateToastNotification(&doc)?;
@@ -288,9 +294,9 @@ pub fn handle_toast_action(app: &AppHandle, args: &[String]) -> bool {
 
 /// Applies Snooze or Complete. False when the toast is out of date: the task was
 /// completed, or its reminder changed, on this device or another. Ticking a
-/// repeating task again would skip a date.
-#[cfg(desktop)]
-fn run_button(st: &AppState, action: &str, id: &str, remind_at: &str) -> Result<bool, String> {
+/// repeating task again would skip a date. Android's notification buttons use it
+/// too (android.rs).
+pub(crate) fn run_button(st: &AppState, action: &str, id: &str, remind_at: &str) -> Result<bool, String> {
     crate::commands::db(st, true, |conn, ctx| {
         let task = tasks_core::ops::get_task(conn, id)?;
         if task.completed_at.is_some() || task.remind_at.as_deref() != Some(remind_at) {
@@ -302,7 +308,6 @@ fn run_button(st: &AppState, action: &str, id: &str, remind_at: &str) -> Result<
     })
 }
 
-#[cfg(desktop)]
 fn snooze_patch() -> tasks_core::TaskPatch {
     let at = chrono::Utc::now() + chrono::Duration::minutes(SNOOZE_MINUTES);
     tasks_core::TaskPatch { remind_at: Some(Some(tasks_core::time::iso(at))), ..Default::default() }
@@ -310,7 +315,6 @@ fn snooze_patch() -> tasks_core::TaskPatch {
 
 /// What the page's tick does: a repeating task moves to its next date and its
 /// reminder by as many days; any other task is done.
-#[cfg(desktop)]
 fn complete_patch(task: &tasks_core::Task) -> tasks_core::TaskPatch {
     use chrono::{Local, NaiveDate};
 
@@ -332,7 +336,6 @@ fn complete_patch(task: &tasks_core::Task) -> tasks_core::TaskPatch {
 }
 
 /// Moves an instant by whole days, keeping its local time of day across a clock change.
-#[cfg(desktop)]
 fn shift_days(at: &str, days: i64) -> Option<String> {
     use chrono::{Duration, Local, TimeZone, Utc};
 
@@ -348,7 +351,8 @@ fn shift_days(at: &str, days: i64) -> Option<String> {
 const MAX_SCHEDULED: usize = 200;
 
 /// The open tasks' upcoming reminders, soonest first, as Android's scheduler
-/// takes them (android/java/Reminders.kt): `[{id, title, at}]`, at in ms.
+/// takes them (android/java/Reminders.kt): `[{id, title, at, remindAt}]`, at in ms.
+/// `remindAt` is the stored value, which the notification's buttons hand back.
 #[cfg(mobile)]
 pub fn upcoming_json(st: &AppState) -> String {
     let upcoming = {
@@ -360,7 +364,7 @@ pub fn upcoming_json(st: &AppState) -> String {
         .into_iter()
         .filter_map(|t| {
             let at = tasks_core::time::instant_ms(t.remind_at.as_deref()?)?;
-            Some(serde_json::json!({ "id": t.id, "title": tasks_core::plain_title(&t.title), "at": at }))
+            Some(serde_json::json!({ "id": t.id, "title": tasks_core::plain_title(&t.title), "at": at, "remindAt": t.remind_at }))
         })
         .take(MAX_SCHEDULED)
         .collect();

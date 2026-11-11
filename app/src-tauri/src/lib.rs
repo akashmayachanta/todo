@@ -4,6 +4,8 @@
 #[cfg(target_os = "android")]
 mod android;
 mod commands;
+#[cfg(desktop)]
+mod desktop;
 mod reminders;
 mod state;
 mod syncer;
@@ -38,37 +40,24 @@ fn desktop_setup(app: &mut tauri::App) -> tauri::Result<()> {
     use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
     use tauri_plugin_autostart::ManagerExt;
-    use tauri_plugin_global_shortcut::{Builder as ShortcutBuilder, ShortcutState};
 
-    // Alt+N anywhere: the quick add popup, on its own.
-    let shortcuts = ShortcutBuilder::new()
-        .with_shortcuts(["alt+n"])
-        .map(|b| {
-            b.with_handler(|app, _shortcut, event| {
-                if event.state == ShortcutState::Pressed {
-                    widgets::quick_add(app);
-                }
-            })
-            .build()
-        });
-    match shortcuts {
-        Ok(plugin) => {
-            if let Err(e) = app.handle().plugin(plugin) {
-                eprintln!("Alt+N is not available: {e}");
-            }
-        }
-        Err(e) => eprintln!("Alt+N is not available: {e}"),
+    // Settings → Desktop's shortcuts (Alt+N for quick add unless changed), from anywhere.
+    match app.handle().plugin(desktop::plugin()) {
+        Ok(()) => desktop::register_saved(app.handle()),
+        Err(e) => eprintln!("Global shortcuts are not available: {e}"),
     }
 
     let autostart_on = app.autolaunch().is_enabled().unwrap_or(false);
     let open = MenuItem::with_id(app, "open", "Open Tasks", true, None::<&str>)?;
-    let add = MenuItem::with_id(app, "add", "Quick add\tAlt+N", true, None::<&str>)?;
+    let add = MenuItem::with_id(app, "add", "Quick add", true, None::<&str>)?;
     let sync = MenuItem::with_id(app, "sync", "Sync now", true, None::<&str>)?;
     let autostart = CheckMenuItem::with_id(app, "autostart", "Start at login", true, autostart_on, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let sep1 = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(app, &[&open, &add, &sync, &sep1, &autostart, &sep2, &quit])?;
+    app.manage(desktop::TrayItems { add: add.clone(), autostart: autostart.clone() });
+    desktop::refresh_tray(app.handle());
 
     let toggle = autostart.clone();
     let mut tray = TrayIconBuilder::with_id("tasks")
@@ -160,7 +149,10 @@ pub fn run() {
             let dir = app.path().app_data_dir()?;
             let st = Arc::new(AppState::open(&dir).map_err(|e| format!("Can't open the tasks DB in {}: {e}", dir.display()))?);
             let args: Vec<String> = std::env::args().collect();
-            let hidden = args.iter().any(|a| a == "--minimized") || reminders::is_background_action(&args);
+            // At login (--minimized), for a toast's button, or always with Settings → Desktop → Start minimized.
+            let hidden = args.iter().any(|a| a == "--minimized")
+                || reminders::is_background_action(&args)
+                || (cfg!(desktop) && state::lock(&st.config).desktop.start_minimized);
             st.minimized.store(hidden, Ordering::Relaxed);
             app.manage(st.clone());
 
@@ -210,6 +202,7 @@ pub fn run() {
             commands::tasks_categories_create,
             commands::tasks_categories_update,
             commands::tasks_categories_delete,
+            commands::tasks_categories_reorder,
             commands::tasks_filters_list,
             commands::tasks_filters_create,
             commands::tasks_filters_update,
@@ -238,6 +231,9 @@ pub fn run() {
             commands::app_set_taskbar_badge,
             commands::app_set_title_bar,
             commands::app_ask_notification_permission,
+            commands::app_set_clock,
+            commands::app_desktop_get,
+            commands::app_desktop_set,
             commands::app_reminder_health,
             commands::app_open_reminder_setting,
             updates::app_update_check,

@@ -1,7 +1,7 @@
 {
 	"name": "tasks-app",
 	"private": true,
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"type": "module",
 	"description": "Tasks for Windows and Android (Tauri 2): a local tasks DB that syncs with tasks-server.",
 	"scripts": {

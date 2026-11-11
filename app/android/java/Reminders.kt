@@ -7,6 +7,8 @@
 // - SyncWorker syncs every 15 minutes (Android's shortest period) through Rust
 //   (Native.backgroundSync), so reminders set on another device get scheduled here
 //   even while the app is closed.
+// - The notification's Snooze and Complete buttons go to ReminderActionReceiver,
+//   which edits the task through Rust (Native.reminderAction) without opening the app.
 package dev.tasks.app
 
 import android.app.AlarmManager
@@ -42,14 +44,24 @@ object Native {
 
   /** Syncs once; returns the reminders to schedule as JSON, or null when signed out. */
   @JvmStatic external fun backgroundSync(dataDir: String): String?
+
+  /**
+   * Snoozes or completes a task from its reminder ("snooze" or "complete"). Returns the
+   * reminders to schedule as JSON, or null when the running app schedules them itself.
+   */
+  @JvmStatic external fun reminderAction(dataDir: String, action: String, id: String, remindAt: String): String?
 }
 
-data class Reminder(val id: String, val title: String, val at: Long)
+/** `remindAt` is the task's stored reminder, which the buttons hand back to Rust. */
+data class Reminder(val id: String, val title: String, val at: Long, val remindAt: String)
 
 object Reminders {
   const val CHANNEL = "reminders"
   const val EXTRA_TASK = "dev.tasks.app.task_id"
   const val EXTRA_TITLE = "dev.tasks.app.title"
+  const val EXTRA_REMIND_AT = "dev.tasks.app.remind_at"
+  const val ACTION_SNOOZE = "dev.tasks.app.SNOOZE"
+  const val ACTION_COMPLETE = "dev.tasks.app.COMPLETE"
   private const val PREFS = "tasks-reminders"
   private const val KEY_LIST = "scheduled"
   private const val KEY_DIR = "data_dir"
@@ -71,7 +83,7 @@ object Reminders {
       val arr = JSONArray(json ?: "[]")
       for (i in 0 until arr.length()) {
         val o = arr.getJSONObject(i)
-        out.add(Reminder(o.getString("id"), o.optString("title"), o.getLong("at")))
+        out.add(Reminder(o.getString("id"), o.optString("title"), o.getLong("at"), o.optString("remindAt")))
       }
     } catch (_: Exception) {}
     return out
@@ -86,6 +98,7 @@ object Reminders {
     val intent = Intent(c, ReminderReceiver::class.java)
       .putExtra(EXTRA_TASK, r.id)
       .putExtra(EXTRA_TITLE, r.title)
+      .putExtra(EXTRA_REMIND_AT, r.remindAt)
     return PendingIntent.getBroadcast(c, code(r.id), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
   }
 
@@ -107,7 +120,9 @@ object Reminders {
       }
     }
     val keep = JSONArray()
-    for (r in upcoming) keep.put(org.json.JSONObject().put("id", r.id).put("title", r.title).put("at", r.at))
+    for (r in upcoming) {
+      keep.put(org.json.JSONObject().put("id", r.id).put("title", r.title).put("at", r.at).put("remindAt", r.remindAt))
+    }
     prefs(c).edit().putString(KEY_LIST, keep.toString()).apply()
   }
 
@@ -124,11 +139,12 @@ object Reminders {
   }
 }
 
-/** A reminder came due: shows it. Tapping it opens the task. */
+/** A reminder came due: shows it. Tapping it opens the task; it has Snooze and Complete buttons. */
 class ReminderReceiver : BroadcastReceiver() {
   override fun onReceive(c: Context, intent: Intent) {
     val id = intent.getStringExtra(Reminders.EXTRA_TASK) ?: return
     val title = intent.getStringExtra(Reminders.EXTRA_TITLE) ?: ""
+    val remindAt = intent.getStringExtra(Reminders.EXTRA_REMIND_AT) ?: ""
     Reminders.ensureChannel(c)
     val code = Reminders.code(id)
     val open = Intent(c, MainActivity::class.java)
@@ -144,12 +160,60 @@ class ReminderReceiver : BroadcastReceiver() {
       .setCategory(NotificationCompat.CATEGORY_REMINDER)
       .setAutoCancel(true)
       .setContentIntent(tap)
-      .build()
+    // A schedule saved before the buttons existed has no remindAt; those show without them.
+    if (remindAt.isNotEmpty()) {
+      notification
+        .addAction(0, "Snooze", button(c, Reminders.ACTION_SNOOZE, id, remindAt))
+        .addAction(0, "Complete", button(c, Reminders.ACTION_COMPLETE, id, remindAt))
+    }
     try {
-      NotificationManagerCompat.from(c).notify(code, notification)
+      NotificationManagerCompat.from(c).notify(code, notification.build())
     } catch (_: SecurityException) {
       // Notifications are off for the app.
     }
+  }
+
+  /** A button's intent. Its action keeps it apart from the alarm's and the other button's. */
+  private fun button(c: Context, action: String, id: String, remindAt: String): PendingIntent {
+    val intent = Intent(c, ReminderActionReceiver::class.java)
+      .setAction(action)
+      .putExtra(Reminders.EXTRA_TASK, id)
+      .putExtra(Reminders.EXTRA_REMIND_AT, remindAt)
+    return PendingIntent.getBroadcast(c, Reminders.code(id), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+  }
+}
+
+/**
+ * A reminder's Snooze or Complete button: edits the task (Rust), dismisses the
+ * notification, and when the app is closed schedules the alarms that came back
+ * and runs a sync to push the change.
+ */
+class ReminderActionReceiver : BroadcastReceiver() {
+  override fun onReceive(c: Context, intent: Intent) {
+    val id = intent.getStringExtra(Reminders.EXTRA_TASK) ?: return
+    val remindAt = intent.getStringExtra(Reminders.EXTRA_REMIND_AT) ?: return
+    val action = when (intent.action) {
+      Reminders.ACTION_SNOOZE -> "snooze"
+      Reminders.ACTION_COMPLETE -> "complete"
+      else -> return
+    }
+    NotificationManagerCompat.from(c).cancel(Reminders.code(id))
+    val dir = Reminders.dataDir(c) ?: return
+    val app = c.applicationContext
+    val pending = goAsync()
+    Thread {
+      try {
+        val json = Native.reminderAction(dir, action, id, remindAt)
+        if (json != null) {
+          Reminders.schedule(app, json)
+          SyncWorker.runOnce(app)
+        }
+      } catch (_: Throwable) {
+        // The task stays as it was; the reminder is gone, so the app shows it.
+      } finally {
+        pending.finish()
+      }
+    }.start()
   }
 }
 

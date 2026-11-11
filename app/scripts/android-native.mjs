@@ -62,6 +62,7 @@ if (!manifest.includes(`"${PERMISSION}"`)) {
 const RECEIVERS = `
         <!-- tasks-native: reminders (scripts/android-native.mjs) -->
         <receiver android:name=".ReminderReceiver" android:exported="false" />
+        <receiver android:name=".ReminderActionReceiver" android:exported="false" />
         <receiver android:name=".BootReceiver" android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
@@ -72,6 +73,12 @@ const RECEIVERS = `
 `;
 if (!manifest.includes('tasks-native: reminders')) {
 	manifest = manifest.replace(/(\s*<\/application>)/, `${RECEIVERS.trimEnd()}$1`);
+}
+// Added after the block above, so a project that already has it gets the
+// reminder buttons' receiver on its own.
+const ACTION_RECEIVER = '<receiver android:name=".ReminderActionReceiver" android:exported="false" />';
+if (!manifest.includes('.ReminderActionReceiver"')) {
+	manifest = manifest.replace(/(<receiver android:name="\.ReminderReceiver"[^>]*\/>)/, `$1\n        ${ACTION_RECEIVER}`);
 }
 // Crash reports to Download/Tasks (CrashLog.kt). A provider starts with the
 // process; the high initOrder starts it before the others (WorkManager's), so a

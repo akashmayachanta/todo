@@ -12,7 +12,8 @@
 	import { taskSettings } from '$lib/stores/taskSettings';
 	import { onTasksChanged } from '$lib/tasks/client';
 	import { plainText } from '$lib/links';
-	import { sorting, type SortApi, type SortDrop, type SortKind } from '$lib/sortable';
+	import { sortCategory, sorting, type SortApi, type SortDrop, type SortKind } from '$lib/sortable';
+	import { withFlip } from '$lib/flip';
 	import { addDays, dayLabel, daysBetween, formatDuration, fromYmd, todayHeading, ymd } from '$lib/taskParse';
 	import DropdownMenu from '$lib/components/DropdownMenu.svelte';
 	import TasksPane from '$lib/components/tasks/TasksPane.svelte';
@@ -28,6 +29,8 @@
 	import SmartTips from '$lib/components/tasks/SmartTips.svelte';
 	import GroupMenu from '$lib/components/tasks/GroupMenu.svelte';
 	import FilterDialog from '$lib/components/tasks/FilterDialog.svelte';
+	import PaneToggle from '$lib/components/tasks/PaneToggle.svelte';
+	import { paneCollapsed } from '$lib/stores/paneCollapsed';
 	import {
 		DATE_VIEW_GROUPS, FILTER_GROUPS, compileFilter, filterDefaults, groupTasks, loadGrouping, saveGrouping,
 		type AddDefaults, type Bucket, type DateViewGroup, type GroupCtx,
@@ -166,10 +169,11 @@
 	let dated = $derived(open.filter((t) => t.due_date));
 	let lastUpcoming = $derived(addDays(today, UPCOMING_DAYS));
 
+	/** The pane's counts: open tasks with their subtasks (a subtask shares its parent's project and category). */
 	let counts = $derived.by(() => {
 		const byProject: Record<string, number> = {};
 		const byCategory: Record<string, number> = {};
-		for (const t of topLevel) {
+		for (const t of open) {
 			if (t.project_id !== null) byProject[t.project_id] = (byProject[t.project_id] ?? 0) + 1;
 			if (t.category_id !== null) byCategory[t.category_id] = (byCategory[t.category_id] ?? 0) + 1;
 		}
@@ -177,13 +181,15 @@
 		for (const f of filters) byFilter[f.id] = open.filter(compileFilter(f.criteria, groupCtx)).length;
 		return {
 			filters: byFilter,
-			inbox: topLevel.filter((t) => t.project_id === null).length,
+			inbox: open.filter((t) => t.project_id === null).length,
 			today: dated.filter((t) => t.due_date! <= today).length,
 			upcoming: dated.filter((t) => t.due_date! > today && t.due_date! <= lastUpcoming).length,
 			projects: byProject,
 			categories: byCategory,
 		};
 	});
+	/** The project's open tasks with no category, subtasks included, for the board's "No category" head. */
+	let uncategorisedCount = $derived(open.filter((t) => t.project_id === projectId && t.category_id === null).length);
 	/** Minutes of open work rolled up to each project and category (subtasks included). */
 	let minutes = $derived(durationTotals(open, subtasksOf));
 
@@ -464,7 +470,7 @@
 		const task = dragging;
 		const at = cardDropAt;
 		cardDragEnd();
-		if (task) dropOnColumn(task, col, at);
+		if (task) withFlip(() => dropOnColumn(task, col, at));
 	}
 
 	/** A card held by touch and let go (sortHold): in a column, by the card it landed next to. */
@@ -569,7 +575,7 @@
 			? subtasksOf(task.parent_id!).filter((s) => !!s.completed_at === !!task.completed_at)
 			: topSiblings(task.project_id, task.category_id);
 		const other = list[list.findIndex((t) => t.id === id) + by];
-		if (other) dropTask({ id, kind, targetId: other.id, after: by === 1, into: false, zone: null, scope: null });
+		if (other) withFlip(() => dropTask({ id, kind, targetId: other.id, after: by === 1, into: false, zone: null, scope: null }));
 	}
 
 	const sortApi: SortApi = { ondrop: dropTask, onstep: stepTask };
@@ -617,6 +623,23 @@
 		}
 		if (i < 0) return { prev: null, next: null };
 		return { prev: list[i - 1] ?? null, next: list[i + 1] ?? null };
+	});
+
+	/** Over the title while the pane is hidden: where the list lives ("Projects /"). */
+	let crumb = $derived(view === 'project' ? 'Projects' : view === 'filter' ? 'Filters' : null);
+
+	// Back and forward while the pane is hidden. WebView2 and Android's WebView have the
+	// Navigation API, which knows whether there is anywhere to go; without it both stay on.
+	type Nav = { canGoBack: boolean; canGoForward: boolean };
+	const nav = (): Nav | undefined => (globalThis as unknown as { navigation?: Nav }).navigation;
+	// Read again after each move (page.url changes).
+	let canGoBack = $derived.by(() => {
+		void page.url;
+		return nav()?.canGoBack ?? true;
+	});
+	let canGoForward = $derived.by(() => {
+		void page.url;
+		return nav()?.canGoForward ?? true;
 	});
 
 	let heading = $derived(
@@ -1047,8 +1070,39 @@
 		}
 	}
 
+	/** Puts a category before or after another of the project's, and saves the order. Shown at once, put back on failure. */
+	async function dropCategory(id: string, targetId: string, after: boolean) {
+		const list = projectCategories;
+		const moving = list.find((c) => c.id === id);
+		const others = list.filter((c) => c.id !== id);
+		const at = others.findIndex((c) => c.id === targetId);
+		if (!moving || at < 0 || !projectId) return;
+		const ids = [...others.slice(0, at + (after ? 1 : 0)), moving, ...others.slice(at + (after ? 1 : 0))].map((c) => c.id);
+		if (ids.every((x, i) => x === list[i].id)) return;
+
+		const before = categories;
+		const place = new Map(ids.map((x, i) => [x, i + 1]));
+		categories = categories.map((c) => (place.has(c.id) ? { ...c, position: place.get(c.id)! } : c));
+		try {
+			const saved = new Map((await api.tasks.categories.reorder(projectId, ids)).map((c) => [c.id, c]));
+			categories = categories.map((c) => saved.get(c.id) ?? c);
+		} catch (e) {
+			categories = before;
+			toast.error(errorDetail(e));
+		}
+	}
+
+	/** The menu's Move up / Move down (left / right on the board). */
+	function stepCategory(c: TaskCategory, by: -1 | 1) {
+		const i = projectCategories.findIndex((x) => x.id === c.id);
+		const other = projectCategories[i + by];
+		if (other) withFlip(() => dropCategory(c.id, other.id, by === 1));
+	}
+
 	function onCategoryMenu(c: TaskCategory, id: string) {
-		if (id === 'rename') {
+		if (id === 'up' || id === 'down') {
+			stepCategory(c, id === 'up' ? -1 : 1);
+		} else if (id === 'rename') {
 			renamingCategory = c.id;
 			categoryName = c.name;
 		} else if (id === 'move') {
@@ -1115,7 +1169,13 @@
 			if (projectDialog || filterDialog || movingCategory || movingTask) return;
 			e.preventDefault();
 			if (taskId) closeTask();
-			pane?.focusSearch();
+			// The search box is in the pane, so a hidden pane comes back first.
+			if ($paneCollapsed) {
+				paneCollapsed.set(false);
+				tick().then(() => pane?.focusSearch());
+			} else {
+				pane?.focusSearch();
+			}
 			return;
 		}
 		if (e.key === 'Escape' && projectDialog) {
@@ -1243,7 +1303,11 @@
 {/snippet}
 
 {#snippet categoryHead(c: TaskCategory, count: number)}
-	<div class="task-group-head task-category-head">
+	{@const index = projectCategories.findIndex((x) => x.id === c.id)}
+	<div
+		class="task-group-head task-category-head"
+		use:sortCategory={renamingCategory === c.id ? null : { id: c.id, ondrop: dropCategory }}
+	>
 		{#if renamingCategory === c.id}
 			<input
 				class="input task-category-input"
@@ -1268,6 +1332,12 @@
 				ariaLabel="Category actions for {c.name}"
 				items={[
 					{ id: 'rename', label: 'Rename' },
+					...(projectCategories.length > 1
+						? [
+								{ id: 'up', label: layout === 'board' ? 'Move left' : 'Move up', disabled: index <= 0 },
+								{ id: 'down', label: layout === 'board' ? 'Move right' : 'Move down', disabled: index === projectCategories.length - 1 },
+							]
+						: []),
 					...(projects.length > 1 ? [{ id: 'move', label: 'Move to project…' }] : []),
 					...(isDesktop ? [{ id: 'pin', label: 'Pin to desktop' }] : []),
 					{ id: 'clear', label: 'Delete completed tasks', danger: true },
@@ -1307,7 +1377,7 @@
 	{/if}
 {/snippet}
 
-<div class="tasks-page" class:tasks-page-browsing={browsing}>
+<div class="tasks-page" class:tasks-page-browsing={browsing} class:tasks-page-collapsed={$paneCollapsed}>
 	<TasksPane
 		bind:this={pane}
 		query={searchQuery}
@@ -1333,6 +1403,18 @@
 	/>
 
 	<div class="tasks-main">
+		{#if $paneCollapsed}
+			<div class="tasks-topbar">
+				<PaneToggle />
+				<button type="button" class="tasks-icon-btn tasks-topbar-nav" aria-label="Back" title="Back" disabled={!canGoBack} onclick={() => history.back()}>
+					<svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M15 19l-7-7 7-7" /></svg>
+				</button>
+				<button type="button" class="tasks-icon-btn tasks-topbar-nav" aria-label="Forward" title="Forward" disabled={!canGoForward} onclick={() => history.forward()}>
+					<svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9 5l7 7-7 7" /></svg>
+				</button>
+				{#if crumb}<span class="tasks-topbar-crumb">{crumb} /</span>{/if}
+			</div>
+		{/if}
 		<div class="tasks-content" class:tasks-content-wide={layout !== 'list'} data-sort-scope={layout === 'list' ? 'list' : undefined}>
 			<header class="tasks-head">
 				<div class="min-w-0">
@@ -1432,10 +1514,12 @@
 			{:else if view === 'filter' && !filter}
 				<p class="tasks-empty">This filter doesn't exist any more.</p>
 			{:else if layout === 'board'}
-				<div class="task-board" data-sort-board>
+				<div class="task-board" data-sort-board data-cat-list>
 					{#each columns as col (col.key)}
 						<section
 							id={col.category ? `task-cat-${col.category.id}` : undefined}
+							data-cat-id={col.category?.id}
+							data-flip="col:{col.key}"
 							class="task-col"
 							class:task-col-over={dropOver === col.key}
 							aria-label={col.title}
@@ -1446,14 +1530,16 @@
 							ondrop={(e) => colDrop(e, col)}
 						>
 							{#if col.category}
-								{@render categoryHead(col.category, col.tasks.length)}
+								{@render categoryHead(col.category, counts.categories[col.category.id] ?? 0)}
 							{:else}
-								{@render bucketHead(col, col.tasks.length)}
+								{@render bucketHead(col, col.key === 'cat:none' ? uncategorisedCount : col.tasks.length)}
 							{/if}
 							<div class="task-col-body">
 								{#each col.tasks as task (task.id)}
 									<div
 										class="task-card"
+										data-flip="card:{task.id}"
+										data-sort-lift
 										class:task-card-dragging={dragging?.id === task.id}
 										class:card-drop-before={cardDropAt?.id === task.id && !cardDropAt.after}
 										class:card-drop-after={cardDropAt?.id === task.id && cardDropAt.after}
@@ -1585,16 +1671,18 @@
 					{@render adder('main', { project_id: project.id })}
 				</div>
 
-				{#each projectCategories as c (c.id)}
-					{@const list = inCategory(c.id)}
-					<section class="task-group" id="task-cat-{c.id}" data-sort-zone={c.id}>
-						{@render categoryHead(c, list.length)}
-						{#each list as task (task.id)}
-							{@render row(task, true, false, true)}
-						{/each}
-						{@render adder(`cat:${c.id}`, { project_id: project.id, category_id: c.id })}
-					</section>
-				{/each}
+				<div data-cat-list>
+					{#each projectCategories as c (c.id)}
+						{@const list = inCategory(c.id)}
+						<section class="task-group" id="task-cat-{c.id}" data-sort-zone={c.id} data-cat-id={c.id} data-flip="cat:{c.id}">
+							{@render categoryHead(c, counts.categories[c.id] ?? 0)}
+							{#each list as task (task.id)}
+								{@render row(task, true, false, true)}
+							{/each}
+							{@render adder(`cat:${c.id}`, { project_id: project.id, category_id: c.id })}
+						</section>
+					{/each}
+				</div>
 
 				{@render categoryAdder()}
 			{/if}

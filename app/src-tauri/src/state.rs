@@ -21,6 +21,27 @@ pub struct AppConfig {
     /// The lists and tasks pinned to the desktop. They stay on this device and don't sync.
     #[serde(default)]
     pub pins: Vec<Pin>,
+    /// Settings → Desktop (desktop.rs).
+    #[serde(default)]
+    pub desktop: DesktopPrefs,
+}
+
+/// Settings → Desktop, kept in config.json. Shortcuts are written like "Alt+N",
+/// "Control+Space" or "Super+Alt+S"; None turns one off. Launch at startup isn't
+/// here: the autostart plugin's registry entry is the record of it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DesktopPrefs {
+    pub quick_add: Option<String>,
+    pub show_hide: Option<String>,
+    /// Opening the app (not only at login) leaves the window in the tray.
+    pub start_minimized: bool,
+}
+
+impl Default for DesktopPrefs {
+    fn default() -> Self {
+        DesktopPrefs { quick_add: Some("Alt+N".into()), show_hide: None, start_minimized: false }
+    }
 }
 
 /// One pinned window. `kind` is inbox, today or upcoming with no id, or project,

@@ -7,6 +7,7 @@
 mod auth;
 mod config;
 mod error;
+mod events;
 mod releases;
 mod routes;
 mod store;
@@ -28,6 +29,8 @@ pub struct AppState {
     pub store: Arc<store::Store>,
     pub accounts: Arc<auth::Accounts>,
     pub releases: Arc<releases::Releases>,
+    /// Live sync notices (GET /sync/events).
+    pub hub: Arc<events::Hub>,
 }
 
 /// RUST_LOG, or the default log levels.
@@ -149,6 +152,7 @@ impl Server {
         tracing::info!("listening on http://{addr}{}", config.base_path);
         let state = Arc::new(AppState { store: Arc::new(store::Store::new(config.clone())), accounts: Arc::new(accounts),
             releases: Arc::new(releases::Releases::new()),
+            hub: Arc::new(events::Hub::default()),
             config,
         });
         Ok(Server { listener, state })
@@ -156,6 +160,12 @@ impl Server {
 
     /// Serves until `shutdown` completes.
     pub async fn run(self, shutdown: impl Future<Output = ()> + Send + 'static) -> Result<(), String> {
+        let hub = self.state.hub.clone();
+        // The event streams never end on their own; close them so the shutdown can finish.
+        let shutdown = async move {
+            shutdown.await;
+            hub.close();
+        };
         let app = routes::router(self.state);
         axum::serve(self.listener, app).with_graceful_shutdown(shutdown).await.map_err(|e| format!("Server error: {e}"))
     }

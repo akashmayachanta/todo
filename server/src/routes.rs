@@ -52,6 +52,17 @@ fn ok() -> Json<Value> {
     Json(json!({ "ok": true }))
 }
 
+/// Runs a write on the user's DB, then tells their other devices to sync.
+async fn write<T, F>(s: &AppState, u: &AuthUser, f: F) -> ApiResult<T>
+where
+    T: Send + 'static,
+    F: FnOnce(&rusqlite::Connection) -> tasks_core::Result<T> + Send + 'static,
+{
+    let out = s.store.run(u.user_id, f).await?;
+    s.hub.notify(u.user_id, &u.device_id);
+    Ok(out)
+}
+
 pub fn router(state: Arc<AppState>) -> Router {
     let base = state.config.base_path.clone();
     let p = |s: &str| format!("{base}{s}");
@@ -81,6 +92,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(&p("/auth/devices/{id}/revoke"), post(revoke_device))
         .route(&p("/sync/push"), post(push))
         .route(&p("/sync/pull"), get(pull))
+        .route(&p("/sync/events"), get(events))
         .route(&p("/app/latest"), get(latest_release))
         .route(&p("/app/download"), get(download_release))
         .route(&p("/{id}"), get(get_task).post(update_task))
@@ -100,24 +112,24 @@ async fn list_projects(State(s): St, u: AuthUser) -> ApiResult<Json<Vec<Project>
 }
 
 async fn create_project(State(s): St, u: AuthUser, Body(input): Body<ProjectIn>) -> ApiResult<(StatusCode, Json<Project>)> {
-    let item = s.store.run(u.user_id, move |c| ops::create_project(c, &Ctx::server(), input)).await?;
+    let item = write(&s, &u, move |c| ops::create_project(c, &Ctx::server(), input)).await?;
     Ok((StatusCode::CREATED, Json(item)))
 }
 
 async fn reorder_tasks(State(s): St, u: AuthUser, Body(order): Body<TaskOrder>) -> ApiResult<Json<Vec<Task>>> {
-    Ok(Json(s.store.run(u.user_id, move |c| ops::reorder_tasks(c, &Ctx::server(), &order.ids)).await?))
+    Ok(Json(write(&s, &u, move |c| ops::reorder_tasks(c, &Ctx::server(), &order.ids)).await?))
 }
 
 async fn reorder_projects(State(s): St, u: AuthUser, Body(order): Body<ProjectOrder>) -> ApiResult<Json<Vec<Project>>> {
-    Ok(Json(s.store.run(u.user_id, move |c| ops::reorder_projects(c, &Ctx::server(), &order.ids)).await?))
+    Ok(Json(write(&s, &u, move |c| ops::reorder_projects(c, &Ctx::server(), &order.ids)).await?))
 }
 
 async fn update_project(State(s): St, u: AuthUser, Path(id): Path<String>, Body(input): Body<ProjectIn>) -> ApiResult<Json<Project>> {
-    Ok(Json(s.store.run(u.user_id, move |c| ops::update_project(c, &Ctx::server(), &id, input)).await?))
+    Ok(Json(write(&s, &u, move |c| ops::update_project(c, &Ctx::server(), &id, input)).await?))
 }
 
 async fn delete_project(State(s): St, u: AuthUser, Path(id): Path<String>) -> ApiResult<Json<Value>> {
-    s.store.run(u.user_id, move |c| ops::delete_project(c, &Ctx::server(), &id)).await?;
+    write(&s, &u, move |c| ops::delete_project(c, &Ctx::server(), &id)).await?;
     Ok(ok())
 }
 
@@ -133,16 +145,16 @@ async fn list_categories(State(s): St, u: AuthUser, Q(q): Q<CategoryQuery>) -> A
 }
 
 async fn create_category(State(s): St, u: AuthUser, Body(input): Body<CategoryIn>) -> ApiResult<(StatusCode, Json<Category>)> {
-    let item = s.store.run(u.user_id, move |c| ops::create_category(c, &Ctx::server(), input)).await?;
+    let item = write(&s, &u, move |c| ops::create_category(c, &Ctx::server(), input)).await?;
     Ok((StatusCode::CREATED, Json(item)))
 }
 
 async fn update_category(State(s): St, u: AuthUser, Path(id): Path<String>, Body(input): Body<CategoryIn>) -> ApiResult<Json<Category>> {
-    Ok(Json(s.store.run(u.user_id, move |c| ops::update_category(c, &Ctx::server(), &id, input)).await?))
+    Ok(Json(write(&s, &u, move |c| ops::update_category(c, &Ctx::server(), &id, input)).await?))
 }
 
 async fn delete_category(State(s): St, u: AuthUser, Path(id): Path<String>) -> ApiResult<Json<Value>> {
-    s.store.run(u.user_id, move |c| ops::delete_category(c, &Ctx::server(), &id)).await?;
+    write(&s, &u, move |c| ops::delete_category(c, &Ctx::server(), &id)).await?;
     Ok(ok())
 }
 
@@ -153,16 +165,16 @@ async fn list_filters(State(s): St, u: AuthUser) -> ApiResult<Json<Vec<Filter>>>
 }
 
 async fn create_filter(State(s): St, u: AuthUser, Body(input): Body<FilterIn>) -> ApiResult<(StatusCode, Json<Filter>)> {
-    let item = s.store.run(u.user_id, move |c| ops::create_filter(c, &Ctx::server(), input)).await?;
+    let item = write(&s, &u, move |c| ops::create_filter(c, &Ctx::server(), input)).await?;
     Ok((StatusCode::CREATED, Json(item)))
 }
 
 async fn update_filter(State(s): St, u: AuthUser, Path(id): Path<String>, Body(input): Body<FilterIn>) -> ApiResult<Json<Filter>> {
-    Ok(Json(s.store.run(u.user_id, move |c| ops::update_filter(c, &Ctx::server(), &id, input)).await?))
+    Ok(Json(write(&s, &u, move |c| ops::update_filter(c, &Ctx::server(), &id, input)).await?))
 }
 
 async fn delete_filter(State(s): St, u: AuthUser, Path(id): Path<String>) -> ApiResult<Json<Value>> {
-    s.store.run(u.user_id, move |c| ops::delete_filter(c, &Ctx::server(), &id)).await?;
+    write(&s, &u, move |c| ops::delete_filter(c, &Ctx::server(), &id)).await?;
     Ok(ok())
 }
 
@@ -186,16 +198,16 @@ async fn get_task(State(s): St, u: AuthUser, Path(id): Path<String>) -> ApiResul
 }
 
 async fn create_task(State(s): St, u: AuthUser, Body(input): Body<TaskIn>) -> ApiResult<(StatusCode, Json<Task>)> {
-    let item = s.store.run(u.user_id, move |c| ops::create_task(c, &Ctx::server(), input)).await?;
+    let item = write(&s, &u, move |c| ops::create_task(c, &Ctx::server(), input)).await?;
     Ok((StatusCode::CREATED, Json(item)))
 }
 
 async fn update_task(State(s): St, u: AuthUser, Path(id): Path<String>, Body(patch): Body<TaskPatch>) -> ApiResult<Json<Task>> {
-    Ok(Json(s.store.run(u.user_id, move |c| ops::update_task(c, &Ctx::server(), &id, patch)).await?))
+    Ok(Json(write(&s, &u, move |c| ops::update_task(c, &Ctx::server(), &id, patch)).await?))
 }
 
 async fn delete_task(State(s): St, u: AuthUser, Path(id): Path<String>) -> ApiResult<Json<Value>> {
-    s.store.run(u.user_id, move |c| ops::delete_task(c, &Ctx::server(), &id)).await?;
+    write(&s, &u, move |c| ops::delete_task(c, &Ctx::server(), &id)).await?;
     Ok(ok())
 }
 
@@ -283,7 +295,17 @@ async fn push(State(s): St, u: AuthUser, Body(req): Body<PushRequest>) -> ApiRes
             Ok(PushResponse { accepted: applied.accepted, ignored: applied.ignored, seq: sync::current_seq(c)? })
         })
         .await?;
+    if out.accepted > 0 {
+        s.hub.notify(u.user_id, &u.device_id);
+    }
     Ok(Json(out))
+}
+
+/// The live notices (events.rs): `changed` when another device wrote something.
+async fn events(State(s): St, u: AuthUser) -> impl axum::response::IntoResponse {
+    // x-accel-buffering: nginx mustn't hold the events in its buffer.
+    // no-transform: Cloudflare mustn't compress the stream, which holds events back too.
+    ([("x-accel-buffering", "no"), ("cache-control", "no-cache, no-transform")], s.hub.stream(u.user_id, u.device_id))
 }
 
 #[derive(Deserialize)]

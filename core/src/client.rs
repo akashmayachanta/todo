@@ -129,8 +129,9 @@ async fn check(res: reqwest::Response) -> Result<reqwest::Response, ClientError>
         return Ok(res);
     }
     // ngrok answers for a tunnel whose server is gone, with its own error code;
-    // a proxy in front of a stopped server says 502, 503 or 504.
-    if res.headers().contains_key("ngrok-error-code") || matches!(status.as_u16(), 502..=504) {
+    // a proxy in front of a stopped server says 502, 503 or 504; Cloudflare says
+    // 520 to 530 (530 when its tunnel, cloudflared, isn't running).
+    if res.headers().contains_key("ngrok-error-code") || matches!(status.as_u16(), 502..=504 | 520..=530) {
         let code = res.headers().get("ngrok-error-code").and_then(|v| v.to_str().ok()).map(|c| format!(" ({c})")).unwrap_or_default();
         return Err(ClientError::ServerDown(format!("the server answered {status}{code}")));
     }
@@ -233,6 +234,83 @@ impl Client {
     }
 }
 
+impl Client {
+    /// Opens the server's live notices (GET /sync/events). An older server
+    /// without them answers 404, a [`ClientError::Server`].
+    pub async fn events(&self, token: &str) -> Result<Events, ClientError> {
+        // Its own client: the stream stays open, so no overall timeout. The server
+        // sends a keep-alive every 20 s, so silence for longer is a dead connection.
+        let http = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(10))
+            .read_timeout(EVENTS_SILENCE)
+            .user_agent(concat!("tasks-app/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .unwrap_or_default();
+        let res = http
+            .get(self.server.tasks_url("/sync/events"))
+            .header(reqwest::header::ACCEPT, "text/event-stream")
+            .bearer_auth(token)
+            .send()
+            .await?;
+        Ok(Events { res: check(res).await?, buf: Vec::new() })
+    }
+}
+
+/// Longer than this with nothing from the server, not even a keep-alive, and
+/// the event stream counts as dead.
+const EVENTS_SILENCE: Duration = Duration::from_secs(60);
+
+/// What the server's event stream says.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Notice {
+    /// The stream is open (sent once, first).
+    Ready,
+    /// Another device changed something: sync.
+    Changed,
+}
+
+/// An open event stream from [`Client::events`].
+pub struct Events {
+    res: reqwest::Response,
+    buf: Vec<u8>,
+}
+
+impl Events {
+    /// The next notice, or None when the server closed the stream. Safe to
+    /// cancel (e.g. in a `select!`): nothing read is lost.
+    pub async fn next(&mut self) -> Result<Option<Notice>, ClientError> {
+        loop {
+            while let Some(block) = take_event(&mut self.buf) {
+                if let Some(notice) = parse_event(&block) {
+                    return Ok(Some(notice));
+                }
+            }
+            match self.res.chunk().await? {
+                Some(bytes) => self.buf.extend(bytes.iter().filter(|b| **b != b'\r')),
+                None => return Ok(None),
+            }
+        }
+    }
+}
+
+/// Takes one whole event (up to its blank line) off the front of `buf`.
+fn take_event(buf: &mut Vec<u8>) -> Option<String> {
+    let end = buf.windows(2).position(|w| w == b"\n\n")?;
+    let block = String::from_utf8_lossy(&buf[..end]).into_owned();
+    buf.drain(..end + 2);
+    Some(block)
+}
+
+/// An event's notice; None for keep-alive comments and events this app doesn't know.
+fn parse_event(block: &str) -> Option<Notice> {
+    let name = block.lines().find_map(|line| line.strip_prefix("event:")).map(str::trim)?;
+    match name {
+        "ready" => Some(Notice::Ready),
+        "changed" => Some(Notice::Changed),
+        _ => None,
+    }
+}
+
 /// A build of the app on the server (GET /app/latest).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Release {
@@ -311,4 +389,25 @@ pub async fn sync_once(client: &Client, token: &str, db: &Mutex<Connection>, ctx
     // Repairs made by the merge (e.g. a task whose project was deleted elsewhere).
     report.pushed += push_all(client, token, db, ctx).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn notices(stream: &str) -> Vec<Notice> {
+        let mut buf: Vec<u8> = stream.bytes().filter(|b| *b != b'\r').collect();
+        std::iter::from_fn(|| take_event(&mut buf)).filter_map(|b| parse_event(&b)).collect()
+    }
+
+    #[test]
+    fn reads_the_servers_events() {
+        let stream = "event: ready\ndata: {}\n\n:\n\nevent: changed\ndata: {}\n\nevent: other\ndata: x\n\n";
+        assert_eq!(notices(stream), vec![Notice::Ready, Notice::Changed]);
+    }
+
+    #[test]
+    fn handles_crlf_and_an_unfinished_event() {
+        assert_eq!(notices("event:changed\r\ndata: {}\r\n\r\nevent: changed\n"), vec![Notice::Changed]);
+    }
 }

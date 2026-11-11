@@ -271,6 +271,7 @@ async fn finish_sign_in(app: &AppHandle, st: &Arc<AppState>, server: ServerInfo,
     let _ = app.emit(crate::syncer::EVENT_CHANGED, 0);
     crate::syncer::set_status(app, st, SyncStatus { state: "syncing", ..Default::default() });
     st.wake.notify_one();
+    st.live_reset.notify_one();
     Ok(status_of(st))
 }
 
@@ -305,6 +306,7 @@ pub async fn app_sign_in(
 #[tauri::command]
 pub fn app_sign_out(app: AppHandle, st: St) -> AppStatus {
     st.clear_token();
+    st.live_reset.notify_one();
     #[cfg(desktop)]
     crate::widgets::close_windows(&app);
     let pending = tasks_core::sync::pending_count(&lock(&st.db)).unwrap_or(0);
@@ -315,6 +317,16 @@ pub fn app_sign_out(app: AppHandle, st: St) -> AppStatus {
 #[tauri::command]
 pub fn app_sync_now(st: St) {
     st.wake.notify_one();
+}
+
+/// The main window was shown or hidden. Android holds the server's event
+/// stream open only while the app is on screen (syncer::listen).
+#[tauri::command]
+pub fn app_foreground(st: St, visible: bool) {
+    let was = st.foreground.swap(visible, std::sync::atomic::Ordering::Relaxed);
+    if cfg!(mobile) && was != visible {
+        st.live_reset.notify_one();
+    }
 }
 
 /// Sync right away, pull everything from the server again, and reload the page.

@@ -99,6 +99,14 @@ pub struct AppState {
     pub open_task: Mutex<Option<String>>,
     /// Started minimized (to the tray), from --minimized.
     pub minimized: AtomicBool,
+    /// The server's event stream is open, so other devices' changes arrive as
+    /// they happen and the sync loop polls rarely (syncer::listen).
+    pub live: AtomicBool,
+    /// Drops the event stream and starts it again: sign-in, sign-out, or the
+    /// app going to or from the background.
+    pub live_reset: Notify,
+    /// The app is on screen. Android drops the event stream while it isn't.
+    pub foreground: AtomicBool,
 }
 
 pub fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -126,6 +134,9 @@ impl AppState {
             sync_lock: AsyncMutex::new(()),
             open_task: Mutex::new(None),
             minimized: AtomicBool::new(false),
+            live: AtomicBool::new(false),
+            live_reset: Notify::new(),
+            foreground: AtomicBool::new(true),
         })
     }
 

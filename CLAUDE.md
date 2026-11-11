@@ -56,7 +56,9 @@ list the build commands they need to run.
 
 **Sync UI**
 - The page reloads on the `tasks://changed` event. "Synced" only means this device's
-  last round worked; another device's edits can take up to 2 minutes to arrive.
+  last round worked. Another device's edits arrive in about 2 s while the event
+  stream (`GET /sync/events`, `syncer::listen`) is open, else within 30 s. The
+  stream only says "sync now"; data always goes through push and pull.
 
 **Icons**
 - Both are green `#14532d`: Windows from `icons-src/icon.svg`, Android from `icons-src/icon-android*`.

@@ -196,6 +196,7 @@ pub fn run() {
             reminders::handle_toast_action(app.handle(), &args);
 
             tauri::async_runtime::spawn(syncer::run(app.handle().clone(), st.clone()));
+            tauri::async_runtime::spawn(syncer::listen(st.clone()));
             tauri::async_runtime::spawn(reminders::run(app.handle().clone(), st));
             Ok(())
         })
@@ -227,6 +228,7 @@ pub fn run() {
             commands::app_sign_in,
             commands::app_sign_out,
             commands::app_sync_now,
+            commands::app_foreground,
             commands::app_force_sync,
             commands::app_take_open_task,
             commands::app_show_task,

@@ -13,9 +13,11 @@ rem version in the .version file beside each; the apps ask before installing.
 rem
 rem Optional: tasks.apk is also uploaded to the phone's FTP server when it differs
 rem from the last upload (kept in target\apk\uploaded). If the phone can't be
-rem reached, you're asked for its IP (port 4165 unless you type ip:port); press
-rem Enter to skip, which doesn't count as a failure: the phone can take the update
-rem from the server instead. Delete target\apk\uploaded to force another upload.
+rem reached, the IPs that worked recently are tried, newest first (kept in
+rem target\apk\phone-history.txt). If none answers, you're asked for its IP (port
+rem 4165 unless you type ip:port); press Enter to skip, which doesn't count as a
+rem failure: the phone can take the update from the server instead. Delete
+rem target\apk\uploaded to force another upload.
 setlocal
 set "FROM=%~dp0target\release"
 set "TO=C:\Drive\Software\Apps\todo"
@@ -24,6 +26,8 @@ set "UPLOADED=%~dp0target\apk\uploaded"
 set "PHONE_PORT=4165"
 set "PHONE=ftp://192.168.1.102:%PHONE_PORT%"
 set "PHONE_DIR=/device/FTP"
+set "PHONE_HISTORY=%~dp0target\apk\phone-history.txt"
+set "PHONE_HISTORY_MAX=5"
 set "FAILED=0"
 rem Robocopy exits with 0 for nothing to do, 1 for copied and 8 or more for failed.
 rem /xx stops other things in the folder, like data\, from changing that. /r:0 fails
@@ -131,11 +135,23 @@ robocopy "%APK_DIR%" "%UPLOADED%" tasks.apk %ROBOCOPY_OPTIONS% >nul
 for %%F in ("%APK_DIR%\tasks.apk") do echo Uploaded: tasks.apk to the phone, built %%~tF
 exit /b 0
 
-rem Sets PHONE to an FTP server that answers, asking for the IP until one does.
+rem Sets PHONE to an FTP server that answers: the default, then the recent IPs
+rem from PHONE_HISTORY newest first, then asking for the IP until one does.
 rem Exits with 1 if Enter is pressed without an IP.
 :find_phone
-curl.exe -s --connect-timeout 3 --max-time 10 -l "%PHONE%/" >nul && exit /b 0
+call :phone_answers "%PHONE%" && exit /b 0
 echo The phone isn't reachable at %PHONE%.
+set "FOUND_PHONE="
+rem "if defined" is checked on each pass, so the loop stops trying after a hit.
+if exist "%PHONE_HISTORY%" for /f "usebackq delims=" %%L in ("%PHONE_HISTORY%") do (
+    if not defined FOUND_PHONE if /i not "%%L"=="%PHONE%" (
+        echo Trying recent: %%L
+        call :phone_answers "%%L" && set "FOUND_PHONE=%%L"
+    )
+)
+if not defined FOUND_PHONE goto ask_phone_ip
+set "PHONE=%FOUND_PHONE%"
+goto phone_found
 :ask_phone_ip
 set "PHONE_IP="
 set /p "PHONE_IP=Phone IP (port %PHONE_PORT% unless you type ip:port), or Enter to skip: "
@@ -147,6 +163,31 @@ if "%PHONE_IP::=%"=="%PHONE_IP%" (
 ) else (
     set "PHONE=ftp://%PHONE_IP%"
 )
-curl.exe -s --connect-timeout 3 --max-time 10 -l "%PHONE%/" >nul && exit /b 0
+call :phone_answers "%PHONE%" && goto phone_found
 echo Not reachable at %PHONE% either.
 goto ask_phone_ip
+:phone_found
+call :remember_phone
+exit /b 0
+
+rem Exits with 0 if the FTP server at %1 answers.
+:phone_answers
+curl.exe -s --connect-timeout 3 --max-time 10 -l "%~1/" >nul || exit /b 1
+exit /b 0
+
+rem Puts PHONE at the top of PHONE_HISTORY, dropping its older entry and any
+rem beyond PHONE_HISTORY_MAX.
+:remember_phone
+set "PHONE_HISTORY_KEPT=1"
+> "%PHONE_HISTORY%.new" echo %PHONE%
+if exist "%PHONE_HISTORY%" for /f "usebackq delims=" %%L in ("%PHONE_HISTORY%") do (
+    if /i not "%%L"=="%PHONE%" call :keep_phone "%%L"
+)
+move /y "%PHONE_HISTORY%.new" "%PHONE_HISTORY%" >nul
+exit /b 0
+
+:keep_phone
+if %PHONE_HISTORY_KEPT% geq %PHONE_HISTORY_MAX% exit /b 0
+>> "%PHONE_HISTORY%.new" echo %~1
+set /a PHONE_HISTORY_KEPT+=1
+exit /b 0

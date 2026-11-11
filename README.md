@@ -59,11 +59,17 @@ the server keeps them in step across devices.
   or 9.9.9.9):
   - **Offline**: this device has no internet. It retries every 30 s.
   - **Server down**: the internet works, but the server doesn't answer, or
-    ngrok or a proxy answers for it with an error (`ngrok-error-code`, 502, 503
-    or 504). It retries every minute.
+    ngrok, Cloudflare or a proxy answers for it with an error (`ngrok-error-code`,
+    502, 503, 504, or Cloudflare's 520 to 530). It retries every minute.
 - **It syncs as soon as it can.** That's when the network comes back, when the
   app returns to the front (Android resumes it), and about 2 s after an edit.
-  Otherwise it syncs every 2 minutes. The chip in the app bar shows synced,
+- **Other devices' edits arrive live.** The app holds `GET /sync/events` open,
+  and the server sends `changed` there whenever another of the account's devices
+  (or the REST API) writes, so the edit shows up in about 2 s. The stream only
+  says "sync now"; the data still comes through push and pull, so a dropped or
+  missed notice costs nothing. While it's open the app also syncs every 5
+  minutes; without it (an older server, or the stream is down) every 30 s.
+  Android holds it only while the app is on screen. The chip in the app bar shows synced,
   syncing, offline, server down, error or signed out, plus how many changes are
   waiting. Click it to sync now. The icon beside it forces a sync: it starts at
   once, pulls every row from the server again, and reloads the tasks.
@@ -96,6 +102,10 @@ Every row has these columns:
   device moved to a different project follows its category.
 - **Push.** `POST /sync/push {device_id, rows}` returns `{accepted, ignored, seq}`.
 - **Pull.** `GET /sync/pull?since=<seq>&limit=` returns `{rows, next, more, epoch, seq}`.
+- **Events.** `GET /sync/events` is a server-sent event stream: `ready` once,
+  then `changed` after a write from another device, and a keep-alive comment
+  every 20 s. A reverse proxy in front of the server must not buffer it (the
+  server sends `X-Accel-Buffering: no` for nginx).
 - **A replaced or restored server DB.** `epoch` names the server DB, and `seq`
   is the server's counter. If a device sees a new epoch, or a counter below its
   own last seq (the DB was copied back from an older backup), it pulls from 0
@@ -182,7 +192,7 @@ Every route is under `TASKS_API_BASE_PATH`. Errors come back as
 - `/projects`, `/projects/reorder`, `/projects/{id}`, `/projects/{id}/delete`
 - `/categories`, `/filters`, with the same `{id}` and `{id}/delete` forms
 - `GET /completions?since=`
-- `/sync/push`, `/sync/pull`, `/health`
+- `/sync/push`, `/sync/pull`, `/sync/events`, `/health`
 
 ```bash
 B=http://localhost:8050/tasks-api
@@ -272,8 +282,9 @@ AlarmManager.
   settings.
 - A reminder added on the laptop reaches the phone only after the phone next
   syncs. That happens when the app is opened or resumed, after an edit, when
-  the network comes back, or every 2 minutes while it is open. An FCM "sync now" nudge from the server
-  would fix this. It is left out until it's needed.
+  the network comes back, or at once while it is on screen (the live event
+  stream). In the background it waits for the background sync job. An FCM
+  "sync now" nudge from the server would fix this. It is left out until it's needed.
 
 ### Signing a release APK
 

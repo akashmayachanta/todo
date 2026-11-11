@@ -106,7 +106,10 @@
 		// (Android resumes it), instead of waiting for the next retry. The page loads
 		// its tasks again too: a sleeping page can miss the event for a sync's changes.
 		function onVisible() {
-			if (document.visibilityState !== 'visible') return;
+			const visible = document.visibilityState === 'visible';
+			// Android keeps the live sync connection open only while the app is on screen.
+			if (!widget) call('app_foreground', { visible }).catch(() => {});
+			if (!visible) return;
 			syncNow();
 			tasksChanged();
 			if (!widget && ready) checkForUpdate();

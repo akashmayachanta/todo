@@ -2,7 +2,7 @@ import { derived, get, writable } from 'svelte/store';
 import { browser } from '$app/environment';
 
 export type Mode = 'dark' | 'light';
-export type Accent = 'mono' | 'magenta' | 'green';
+export type Accent = 'mono' | 'magenta' | 'green' | 'blue';
 /** Light, dark, or following the system (no saved mode, as app.html reads it). */
 export type ModePref = Mode | 'system';
 
@@ -15,12 +15,13 @@ export const ACCENTS: { value: Accent; label: string }[] = [
 	{ value: 'mono', label: 'Ink' },
 	{ value: 'magenta', label: 'Magenta' },
 	{ value: 'green', label: 'Sea green' },
+	{ value: 'blue', label: 'Blue' },
 ];
 
 /** Preview swatch color per accent, tuned per mode (light on dark, deep on light) — mirrors --color-brand in layout.css */
 export const ACCENT_SWATCH: Record<Mode, Record<Accent, string>> = {
-	dark: { mono: 'oklch(92% 0.008 245)', magenta: 'oklch(72% 0.150 350)', green: 'oklch(76% 0.110 170)' },
-	light: { mono: 'oklch(22% 0.020 245)', magenta: 'oklch(45% 0.180 350)', green: 'oklch(46% 0.100 170)' },
+	dark: { mono: 'oklch(92% 0.008 245)', magenta: 'oklch(72% 0.150 350)', green: 'oklch(76% 0.110 170)', blue: 'oklch(74% 0.130 250)' },
+	light: { mono: 'oklch(22% 0.020 245)', magenta: 'oklch(45% 0.180 350)', green: 'oklch(46% 0.100 170)', blue: 'oklch(50% 0.170 255)' },
 };
 
 function read(key: string): string | null {
@@ -76,6 +77,26 @@ export function setAccent(accent: Accent) {
 	write('theme-accent', accent);
 	accentStore.set(accent);
 	applyTheme();
+}
+
+/** The UI face: the system's (Segoe UI on Windows) or the bundled Classic set. See tokens.css. */
+export type Font = 'system' | 'classic';
+
+export const FONTS: { value: Font; label: string; sample: string }[] = [
+	{ value: 'system', label: 'Segoe UI', sample: '"Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif' },
+	{ value: 'classic', label: 'Classic', sample: '"Figtree Variable", ui-sans-serif, sans-serif' },
+];
+
+export const fontStore = writable<Font>(read('theme-font') === 'classic' ? 'classic' : 'system');
+
+export function applyFont() {
+	if (browser) document.documentElement.dataset.font = get(fontStore);
+}
+
+export function setFont(font: Font) {
+	write('theme-font', font === 'system' ? null : font);
+	fontStore.set(font);
+	applyFont();
 }
 
 /** Follows the system's light / dark switch while the pick is 'system'; returns the function that stops. */

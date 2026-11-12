@@ -27,6 +27,16 @@
   --tracking-display: -0.02em; --display-weight: 600;
 
   /* The two papers as fixed swatches, for the mode picker's preview */
-  --preview-paper-light: oklch(98.8% 0.003 245);
+  --preview-paper-light: #ffffff;
   --preview-paper-dark: oklch(18% 0.018 245);
+}
+
+/* Font pick (Settings → Theme, `data-font` on <html>, set in app.html and
+   stores/theme.ts). The default is the system face: Segoe UI on Windows, Roboto
+   on Android. data-font="classic" keeps the bundled faces declared above. */
+:root:not([data-font="classic"]) {
+  --font-display: "Segoe UI Variable Display", "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, system-ui, sans-serif;
+  --font-body: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, system-ui, sans-serif;
+  --font-prose: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, system-ui, sans-serif;
+  --tracking-display: -0.01em; --display-weight: 700;
 }

@@ -8,7 +8,7 @@
 	import { toast } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import { taskSettings } from '$lib/stores/taskSettings';
-	import { ACCENTS, ACCENT_SWATCH, accentStore, modePref, modeStore, setAccent, setModePref, type ModePref } from '$lib/stores/theme';
+	import { ACCENTS, ACCENT_SWATCH, FONTS, accentStore, fontStore, modePref, modeStore, setAccent, setFont, setModePref, type ModePref } from '$lib/stores/theme';
 	import Select from '$lib/components/Select.svelte';
 	import { quickAddKeys } from '$lib/stores/taskQuickAdd';
 	import Avatar from './Avatar.svelte';
@@ -561,6 +561,14 @@
 									<span class="set-accent-dot" style="background-color: {ACCENT_SWATCH[$modeStore][a.value]}"></span>
 									{a.label}
 								</button>
+							{/each}
+						</div>
+					</div>
+					<div class="set-group">
+						<span class="set-label">Font</span>
+						<div class="set-segment" role="radiogroup" aria-label="Font">
+							{#each FONTS as f (f.value)}
+								<button type="button" role="radio" aria-checked={$fontStore === f.value} style="font-family: {f.sample}" onclick={() => setFont(f.value)}>{f.label}</button>
 							{/each}
 						</div>
 					</div>

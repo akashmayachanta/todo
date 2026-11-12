@@ -117,6 +117,22 @@
   color: var(--color-danger);
 }
 
+/* ── Action item icons ──────────────────────────────────────────────────── */
+.dd-icon {
+  @apply w-4 h-4 shrink-0;
+  color: var(--text-muted);
+}
+
+.dd-item:hover .dd-icon,
+.dd-item:focus-visible .dd-icon {
+  color: var(--text-primary);
+}
+
+.dd-item-danger .dd-icon,
+.dd-item-danger:hover .dd-icon {
+  color: var(--color-danger);
+}
+
 .dd-item:disabled {
   @apply opacity-50 cursor-not-allowed;
 }

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PlaceMark from '$lib/components/tasks/PlaceMark.svelte';
 	import type {
 		Task, TaskCategory, TaskDueWindow, TaskFilter, TaskFilterIn, TaskGroupBy, TaskPriority, TaskProject, TaskRowField,
 	} from '$lib/api';
@@ -146,7 +147,7 @@
 						{@const cats = catsOf(p.id)}
 						<label class="tasks-setting">
 							<input type="checkbox" checked={picked.includes(p.id)} onchange={() => toggleProject(p.id)} />
-							<span class="tasks-dot" style="background-color: {projectColor(p.color)}"></span>
+							<PlaceMark color={projectColor(p.color)} />
 							<span>{p.name}</span>
 						</label>
 						{#if picked.includes(p.id) && cats.length}

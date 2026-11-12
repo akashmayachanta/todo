@@ -36,12 +36,12 @@ pub struct Table {
 pub const TABLES: &[Table] = &[
     Table {
         name: "task_projects",
-        columns: &["id", "name", "color", "position", "created_at"],
+        columns: &["id", "name", "color", "position", "created_at", "favorite", "description"],
         required: &["name", "created_at"],
     },
     Table {
         name: "task_categories",
-        columns: &["id", "project_id", "name", "position", "created_at"],
+        columns: &["id", "project_id", "name", "position", "created_at", "description"],
         required: &["project_id", "name", "created_at"],
     },
     Table {

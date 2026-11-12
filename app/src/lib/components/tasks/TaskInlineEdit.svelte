@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PlaceMark from '$lib/components/tasks/PlaceMark.svelte';
 	import { formatInstant } from '$lib/datePrefs.svelte';
 	import { onMount, untrack } from 'svelte';
 	import type { Task, TaskCategory, TaskPatch, TaskProject } from '$lib/api';
@@ -141,7 +142,7 @@
 		{/if}
 		{#if !task.parent_id}
 			<span class="task-chip" data-kind="project">
-				{#if project}<span class="tasks-dot" style="background-color: {projectColor(project.color)}"></span>{:else}#{/if}
+				{#if project}<PlaceMark color={projectColor(project.color)} />{:else}#{/if}
 				{placeName(next, projects, categories)}
 			</span>
 		{/if}

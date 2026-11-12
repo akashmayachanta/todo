@@ -15,6 +15,7 @@ use crate::Result;
 const MIGRATIONS: &[(&str, &str)] = &[
     ("0001_initial", include_str!("../migrations/0001_initial.sql")),
     ("0002_profile", include_str!("../migrations/0002_profile.sql")),
+    ("0003_project_details", include_str!("../migrations/0003_project_details.sql")),
 ];
 
 /// Opens (creating if needed) a tasks DB and migrates it to the newest schema.

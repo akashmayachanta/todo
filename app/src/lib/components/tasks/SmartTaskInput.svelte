@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PlaceMark from '$lib/components/tasks/PlaceMark.svelte';
 	import type { TaskCategory, TaskProject } from '$lib/api';
 	import type { ParsedToken, TokenKind } from '$lib/taskParse';
 	import { projectColor } from './shared';
@@ -43,7 +44,8 @@
 	} = $props();
 
 	let caret = $state(0);
-	let input = $state<HTMLInputElement | null>(null);
+	/** A one-row textarea that grows, so a long title wraps instead of scrolling sideways. */
+	let input = $state<HTMLTextAreaElement | null>(null);
 	let mirror = $state<HTMLDivElement | null>(null);
 	let active = $state(0);
 	let dismissedAt = $state<string | null>(null);
@@ -80,7 +82,7 @@
 			const items = [
 				...projects
 					.filter((p) => p.name.toLowerCase().includes(query))
-					.map((p) => ({ id: p.id, label: p.name, insert: `#${p.name}`, color: projectColor(p.color) })),
+					.map((p) => ({ id: p.id, label: p.name, insert: `#${p.name}`, color: projectColor(p.color), kind: 'project' as const })),
 				...hashCategories(query, start),
 			];
 			return items.length ? { start, trigger: '#', items: items.slice(0, 8) } : null;
@@ -89,7 +91,7 @@
 			.filter((c) => (scopeProjectId === null || c.project_id === scopeProjectId) && c.name.toLowerCase().includes(query))
 			.map((c) => {
 				const p = projects.find((x) => x.id === c.project_id);
-				return { id: c.id, label: scopeProjectId === null && p ? `${p.name} / ${c.name}` : c.name, insert: `/${c.name}`, color: projectColor(p?.color) };
+				return { id: c.id, label: scopeProjectId === null && p ? `${p.name} / ${c.name}` : c.name, insert: `/${c.name}`, color: projectColor(p?.color), kind: 'category' as const };
 			});
 		return items.length ? { start, trigger: '/', items: items.slice(0, 8) } : null;
 	});
@@ -111,6 +113,7 @@
 					label: p ? `${p.name} / ${c.name}` : c.name,
 					insert: named ? `/${c.name}` : p ? `#${p.name} / ${c.name}` : `#${c.name}`,
 					color: projectColor(p?.color),
+					kind: 'category' as const,
 				};
 			});
 	}
@@ -128,8 +131,27 @@
 	function syncCaret() {
 		if (!input) return;
 		caret = input.selectionStart ?? value.length;
-		if (mirror) mirror.scrollLeft = input.scrollLeft;
+		if (mirror) mirror.scrollTop = input.scrollTop;
 	}
+
+	/** Fits the textarea to its text (where `field-sizing: content` isn't supported). */
+	function fit() {
+		if (!input) return;
+		input.style.height = 'auto';
+		input.style.height = `${input.scrollHeight}px`;
+	}
+
+	function onInput() {
+		// A title is one line: a pasted line break becomes a space.
+		if (value.includes('\n')) value = value.replace(/\r?\n/g, ' ');
+		syncCaret();
+	}
+
+	// Refit whenever the text changes, from typing or from outside (cleared after an add).
+	$effect(() => {
+		void value;
+		fit();
+	});
 
 	function pickSuggestion(i: number) {
 		if (!suggest || !input) return;
@@ -159,23 +181,23 @@
 
 <div class="quick-add-field {className}">
 	<div class="quick-add-mirror" bind:this={mirror} aria-hidden="true">{#each segments as seg}{#if seg.kind}<mark class="quick-add-token" data-kind={seg.kind} class:quick-add-token-unknown={seg.unknown}>{seg.text}</mark>{:else}{seg.text}{/if}{/each}</div>
-	<input
+	<textarea
 		bind:this={input}
 		bind:value
 		class="quick-add-input {inputClass}"
-		type="text"
+		rows="1"
 		{placeholder}
 		aria-label={ariaLabel}
 		autocomplete="off"
 		spellcheck="false"
-		oninput={syncCaret}
+		oninput={onInput}
 		onkeyup={syncCaret}
 		onclick={syncCaret}
 		onscroll={syncCaret}
 		onkeydown={onKeydown}
 		{onblur}
 		{onpaste}
-	/>
+	></textarea>
 
 	{#if suggest}
 		<div class="quick-add-suggest" role="listbox" aria-label={suggest.trigger === '#' ? 'Projects and categories' : 'Categories'}>
@@ -190,7 +212,7 @@
 					onpointerdown={(e) => { e.preventDefault(); pickSuggestion(i); }}
 					onpointermove={() => (active = i)}
 				>
-					<span class="tasks-dot" style="background-color: {item.color}"></span>
+					<PlaceMark kind={item.kind} color={item.color} />
 					{item.label}
 				</div>
 			{/each}

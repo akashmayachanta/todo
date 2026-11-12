@@ -1,4 +1,7 @@
 <script lang="ts">
+	import PlaceMark from '$lib/components/tasks/PlaceMark.svelte';
+	import DescriptionEdit from '$lib/components/tasks/DescriptionEdit.svelte';
+	import LinkedText from '$lib/components/tasks/LinkedText.svelte';
 	import { onMount, tick } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
@@ -96,8 +99,12 @@
 	let filterDialog = $state<TaskFilter | 'new' | null>(null);
 	let addingCategory = $state(false);
 	let newCategory = $state('');
+	/** The category open in its edit form (name and description). */
 	let renamingCategory = $state<string | null>(null);
 	let categoryName = $state('');
+	let categoryDesc = $state('');
+	/** Which box of the edit form takes the focus when it opens. */
+	let categoryFocus = $state<'name' | 'desc'>('name');
 	/** The category being moved to another project. */
 	let movingCategory = $state<TaskCategory | null>(null);
 	/** The task being moved to another project or category (its "⋯" menu). */
@@ -260,6 +267,9 @@
 		const l = layouts[layoutKey];
 		return l && layoutOptions.includes(l) ? l : 'list';
 	});
+
+	/** Board: some category here has a description, so every column leaves a line for one. */
+	let boardDescribed = $derived(layout === 'board' && view === 'project' && projectCategories.some((c) => c.description));
 
 	function setLayout(l: TaskLayout) {
 		layouts = { ...layouts, [layoutKey]: l };
@@ -1002,6 +1012,15 @@
 		}
 	}
 
+	async function toggleFavorite(p: TaskProject) {
+		try {
+			const updated = await api.tasks.projects.update(p.id, { name: p.name, favorite: !p.favorite });
+			projects = projects.map((x) => (x.id === updated.id ? updated : x));
+		} catch (e) {
+			toast.error(errorDetail(e));
+		}
+	}
+
 	async function deleteProject(p: TaskProject) {
 		const n = counts.projects[p.id] ?? 0;
 		if (!(await confirmDialog(`Delete project "${p.name}"${n ? ` and its ${n} open task${n > 1 ? 's' : ''}` : ''}? Its done tasks go too.`))) return;
@@ -1043,13 +1062,49 @@
 		}
 	}
 
-	async function renameCategory(c: TaskCategory) {
+	/** Opens a category's edit form: its name and description in one box, as in Todoist. */
+	function editCategory(c: TaskCategory, focus: 'name' | 'desc' = 'name') {
+		renamingCategory = c.id;
+		categoryName = c.name;
+		categoryDesc = c.description ?? '';
+		categoryFocus = focus;
+	}
+
+	async function saveCategory(c: TaskCategory) {
 		const name = categoryName.trim();
+		if (!name) return;
+		const description = categoryDesc.trim() || null;
 		renamingCategory = null;
-		if (!name || name === c.name) return;
+		if (name === c.name && description === (c.description ?? null)) return;
 		try {
-			const updated = await api.tasks.categories.update(c.id, { project_id: c.project_id, name });
+			const updated = await api.tasks.categories.update(c.id, { project_id: c.project_id, name, description });
 			categories = categories.map((x) => (x.id === updated.id ? updated : x));
+		} catch (e) {
+			toast.error(errorDetail(e));
+		}
+	}
+
+	/** In the description box: Enter saves; Shift+Enter or Alt+Enter starts a new line. */
+	function categoryDescKey(e: KeyboardEvent, c: TaskCategory) {
+		if (e.key !== 'Enter') return;
+		e.preventDefault();
+		if (e.shiftKey || e.altKey) {
+			const box = e.currentTarget as HTMLTextAreaElement;
+			box.setRangeText('\n', box.selectionStart, box.selectionEnd, 'end');
+			categoryDesc = box.value;
+		} else {
+			saveCategory(c);
+		}
+	}
+
+	function focusWhen(node: HTMLElement, on: boolean) {
+		if (on) node.focus();
+	}
+
+	async function describeProject(p: TaskProject, description: string | null) {
+		try {
+			const updated = await api.tasks.projects.update(p.id, { name: p.name, description });
+			projects = projects.map((x) => (x.id === updated.id ? updated : x));
 		} catch (e) {
 			toast.error(errorDetail(e));
 		}
@@ -1112,8 +1167,9 @@
 		if (id === 'up' || id === 'down') {
 			stepCategory(c, id === 'up' ? -1 : 1);
 		} else if (id === 'rename') {
-			renamingCategory = c.id;
-			categoryName = c.name;
+			editCategory(c, 'name');
+		} else if (id === 'describe') {
+			editCategory(c, 'desc');
 		} else if (id === 'move') {
 			movingCategory = c;
 		} else if (id === 'pin') {
@@ -1307,9 +1363,10 @@
 	</section>
 {/snippet}
 
-{#snippet bucketHead(b: { title: string; sub?: string; color?: string | null; overdue?: boolean }, count: number)}
+{#snippet bucketHead(b: { key?: string; title: string; sub?: string; color?: string | null; overdue?: boolean }, count: number)}
 	<h2 class="task-group-head" class:task-group-head-overdue={b.overdue}>
-		{#if b.color}<span class="tasks-dot task-group-dot" style="background-color: {b.color}"></span>{/if}
+		{#if b.color && (b.key?.startsWith('proj:') || b.key?.startsWith('cat:'))}<PlaceMark kind={b.key.startsWith('cat:') && !b.key.endsWith(':none') ? 'category' : 'project'} color={b.color} />
+		{:else if b.color}<span class="tasks-dot task-group-dot" style="background-color: {b.color}"></span>{/if}
 		{b.title}
 		{#if b.sub}<span class="task-group-sub">{b.sub}</span>{/if}
 		<span class="task-group-count">{count}</span>
@@ -1318,23 +1375,45 @@
 
 {#snippet categoryHead(c: TaskCategory, count: number)}
 	{@const index = projectCategories.findIndex((x) => x.id === c.id)}
-	<div
-		class="task-group-head task-category-head"
-		use:sortCategory={renamingCategory === c.id ? null : { id: c.id, ondrop: dropCategory }}
-	>
-		{#if renamingCategory === c.id}
+	{#if renamingCategory === c.id}
+		<!-- The edit form: name and description, then Save and Cancel. Escape in either box cancels. -->
+		<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+		<form
+			class="task-category-edit"
+			onsubmit={(e) => { e.preventDefault(); saveCategory(c); }}
+			onkeydown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); renamingCategory = null; } }}
+		>
 			<input
-				class="input task-category-input"
+				class="task-category-edit-name"
 				bind:value={categoryName}
 				aria-label="Category name"
-				use:focusOnMount
-				onblur={() => renameCategory(c)}
-				onkeydown={(e) => {
-					if (e.key === 'Enter') { e.preventDefault(); renameCategory(c); }
-					if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); renamingCategory = null; }
-				}}
+				placeholder="Category name"
+				use:focusWhen={categoryFocus === 'name'}
 			/>
-		{:else}
+			<textarea
+				class="task-category-edit-desc"
+				bind:value={categoryDesc}
+				aria-label="Description of {c.name}"
+				placeholder="Description"
+				rows="2"
+				use:focusWhen={categoryFocus === 'desc'}
+				onkeydown={(e) => categoryDescKey(e, c)}
+			></textarea>
+			<div class="task-category-edit-actions">
+				<button type="submit" class="btn btn-primary" disabled={!categoryName.trim()}>Save</button>
+				<button type="button" class="btn btn-ghost" onclick={() => (renamingCategory = null)}>Cancel</button>
+			</div>
+		</form>
+	{:else}
+	<!-- Alt+click on the heading opens the edit form (the menu's Rename does the same from the keyboard). -->
+	<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+	<div
+		class="task-group-head task-category-head"
+		use:sortCategory={{ id: c.id, ondrop: dropCategory }}
+		onclick={(e) => {
+			if (e.altKey && !(e.target as Element).closest('button, a')) { e.preventDefault(); editCategory(c); }
+		}}
+	>
 			<h2 class="task-category-name">{c.name}</h2>
 			<span class="task-group-count">{count}</span>
 			{#if minutes.categories[c.id]}
@@ -1346,10 +1425,11 @@
 				ariaLabel="Category actions for {c.name}"
 				items={[
 					{ id: 'rename', label: 'Rename' },
+					{ id: 'describe', label: c.description ? 'Edit description' : 'Add description' },
 					...(projectCategories.length > 1
 						? [
-								{ id: 'up', label: layout === 'board' ? 'Move left' : 'Move up', disabled: index <= 0 },
-								{ id: 'down', label: layout === 'board' ? 'Move right' : 'Move down', disabled: index === projectCategories.length - 1 },
+								{ id: 'up', label: layout === 'board' ? 'Move left' : 'Move up', icon: layout === 'board' ? 'left' : 'up', disabled: index <= 0 },
+								{ id: 'down', label: layout === 'board' ? 'Move right' : 'Move down', icon: layout === 'board' ? 'right' : 'down', disabled: index === projectCategories.length - 1 },
 							]
 						: []),
 					...(projects.length > 1 ? [{ id: 'move', label: 'Move to project…' }] : []),
@@ -1363,8 +1443,19 @@
 					<svg aria-hidden="true" class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path d="M6 10a2 2 0 11-4 0 2 2 0 014 0zm6 0a2 2 0 11-4 0 2 2 0 014 0zm6 0a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
 				{/snippet}
 			</DropdownMenu>
-		{/if}
 	</div>
+	{#if c.description}
+		<!-- One line, its line breaks as spaces; a click away from a link opens the edit form. -->
+		<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+		<div
+			class="task-category-desc"
+			title={plainText(c.description)}
+			onclick={(e) => { if (!(e.target as Element).closest('a')) editCategory(c, 'desc'); }}
+		>
+			<LinkedText text={c.description.replace(/\s*\n\s*/g, ' ')} />
+		</div>
+	{/if}
+	{/if}
 {/snippet}
 
 {#snippet categoryAdder()}
@@ -1411,12 +1502,13 @@
 		oneditproject={editProject}
 		ondeleteproject={deleteProject}
 		onreorderprojects={reorderProjects}
+		onfavoriteproject={toggleFavorite}
 		onaddfilter={() => (filterDialog = 'new')}
 		oneditfilter={(f) => (filterDialog = f)}
 		ondeletefilter={deleteFilter}
 	/>
 
-	<div class="tasks-main">
+	<div class="tasks-main" class:tasks-main-board={isDesktop && layout === 'board'}>
 		{#if $paneCollapsed}
 			<div class="tasks-topbar">
 				<PaneToggle />
@@ -1433,14 +1525,18 @@
 			<header class="tasks-head">
 				<div class="min-w-0">
 					<h1 class="page-title tasks-title">
-						{#if project}<span class="tasks-dot tasks-dot-lg" style="background-color: {projectColor(project.color)}"></span>{/if}
+						{#if project}<PlaceMark large color={projectColor(project.color)} />{/if}
 						{#if filter}<span class="tasks-dot tasks-dot-lg" style="background-color: {projectColor(filter.color)}"></span>{/if}
 						{heading}
 						{#if project && minutes.projects[project.id]}
 							<span class="tasks-title-time" title="Open work in {project.name}">{formatDuration(minutes.projects[project.id])}</span>
 						{/if}
 					</h1>
-					{#if view === 'today'}
+					{#if project}
+						<div class="tasks-project-desc">
+							<DescriptionEdit value={project.description} label={project.name} onsave={(text) => describeProject(project, text)} />
+						</div>
+					{:else if view === 'today'}
 						<p class="page-subtitle">{fromYmd(today).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</p>
 					{:else if view === 'karma'}
 						<p class="page-subtitle">Your progress: tasks completed against your daily and weekly goals</p>
@@ -1478,7 +1574,7 @@
 							triggerClass="tasks-icon-btn"
 							ariaLabel="Project actions"
 							items={[
-								{ id: 'edit', label: 'Rename or recolour' },
+								{ id: 'edit', label: 'Edit' },
 								{ id: 'clear', label: 'Delete completed tasks', danger: true },
 								{ id: 'delete', label: 'Delete project', danger: true },
 							]}
@@ -1547,6 +1643,10 @@
 								{@render categoryHead(col.category, counts.categories[col.category.id] ?? 0)}
 							{:else}
 								{@render bucketHead(col, col.key === 'cat:none' ? uncategorisedCount : col.tasks.length)}
+							{/if}
+							<!-- Once any column has a description, the others keep its line free, so every column's tasks start level. -->
+							{#if boardDescribed && !col.category?.description && !(col.category && renamingCategory === col.category.id)}
+								<div class="task-category-desc task-category-desc-blank" aria-hidden="true"></div>
 							{/if}
 							<div class="task-col-body">
 								{#each col.tasks as task (task.id)}
@@ -1785,7 +1885,7 @@
 					{#each projects.filter((p) => p.id !== moving.project_id) as p (p.id)}
 						<li>
 							<button type="button" class="category-move-option" onclick={() => moveCategory(moving, p)}>
-								<span class="tasks-dot" style="background-color: {projectColor(p.color)}"></span>
+								<PlaceMark color={projectColor(p.color)} />
 								<span class="truncate">{p.name}</span>
 							</button>
 						</li>
@@ -1812,20 +1912,21 @@
 				<ul class="category-move-list" use:focusFirstButton>
 					<li>
 						<button type="button" class="category-move-option" aria-current={here(null, null) || undefined} onclick={() => moveTask(moving, null, null)}>
-							<span class="tasks-dot" style="background-color: var(--text-muted)"></span>
+							<PlaceMark color={null} />
 							<span class="truncate">Inbox</span>
 						</button>
 					</li>
 					{#each projects as p (p.id)}
 						<li>
 							<button type="button" class="category-move-option" aria-current={here(p.id, null) || undefined} onclick={() => moveTask(moving, p.id, null)}>
-								<span class="tasks-dot" style="background-color: {projectColor(p.color)}"></span>
+								<PlaceMark color={projectColor(p.color)} />
 								<span class="truncate">{p.name}</span>
 							</button>
 						</li>
 						{#each categories.filter((c) => c.project_id === p.id).sort((a, b) => a.position - b.position) as c (c.id)}
 							<li>
 								<button type="button" class="category-move-option category-move-sub" aria-current={here(p.id, c.id) || undefined} onclick={() => moveTask(moving, p.id, c.id)}>
+									<PlaceMark kind="category" color={projectColor(p.color)} />
 									<span class="truncate">{c.name}</span>
 								</button>
 							</li>

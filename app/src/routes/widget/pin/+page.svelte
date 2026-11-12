@@ -3,6 +3,7 @@
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import { api, errorDetail } from '$lib/api';
 	import type { Task, TaskCategory, TaskFilter, TaskIn, TaskProject } from '$lib/api';
+	import PlaceMark from '$lib/components/tasks/PlaceMark.svelte';
 	import QuickAdd from '$lib/components/tasks/QuickAdd.svelte';
 	import TaskRow from '$lib/components/tasks/TaskRow.svelte';
 	import { pinFromLabel, pinNewTask, pinView, type PinView } from '$lib/components/tasks/pins';
@@ -113,7 +114,8 @@
 <div class="widget-pin">
 	<!-- The bar moves the window. -->
 	<div class="widget-pin-bar" data-tauri-drag-region>
-		{#if view?.color}<span class="tasks-dot" style="background-color: {view.color}"></span>{/if}
+		{#if view?.color && view.mark}<PlaceMark kind={view.mark} color={view.color} />
+		{:else if view?.color}<span class="tasks-dot" style="background-color: {view.color}"></span>{/if}
 		<span class="widget-pin-title" title={view?.title}>{view?.title ?? 'Tasks'}</span>
 		{#if openCount}<span class="widget-pin-count">{openCount}</span>{/if}
 		<button type="button" class="tasks-icon-btn" onclick={closePin} title="Close and unpin" aria-label="Close and unpin">

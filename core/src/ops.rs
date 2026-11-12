@@ -28,8 +28,8 @@ use crate::{new_id, Ctx, Error, Result};
 
 // ── Reading rows ─────────────────────────────────────────────────────────────
 
-const PROJECT_COLS: &str = "id, name, color, position, created_at, updated_at";
-const CATEGORY_COLS: &str = "id, project_id, name, position, created_at, updated_at";
+const PROJECT_COLS: &str = "id, name, color, position, created_at, updated_at, favorite, description";
+const CATEGORY_COLS: &str = "id, project_id, name, position, created_at, updated_at, description";
 const FILTER_COLS: &str = "id, name, color, criteria, fields, group_by, position, created_at, updated_at";
 const TASK_COLS: &str = "t.id, t.project_id, t.category_id, t.parent_id, t.title, t.description, t.priority, \
     t.due_date, t.due_time, t.duration_minutes, t.location, t.remind_at, t.recurrence, t.position, \
@@ -43,6 +43,8 @@ fn project_row(r: &Row) -> rusqlite::Result<Project> {
         position: r.get(3)?,
         created_at: r.get(4)?,
         updated_at: ms_to_iso(r.get(5)?),
+        favorite: r.get::<_, Option<i64>>(6)?.unwrap_or(0) != 0,
+        description: r.get(7)?,
     })
 }
 
@@ -52,9 +54,15 @@ fn category_row(r: &Row) -> rusqlite::Result<Category> {
         project_id: r.get(1)?,
         name: r.get(2)?,
         position: r.get(3)?,
+        description: r.get(6)?,
         created_at: r.get(4)?,
         updated_at: ms_to_iso(r.get(5)?),
     })
+}
+
+/// A description as stored: trimmed, and NULL when blank.
+fn description(value: Option<String>) -> Option<String> {
+    value.map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
 }
 
 fn json_col(text: String, fallback: Value) -> Value {
@@ -172,8 +180,16 @@ pub fn create_project(conn: &Connection, ctx: &Ctx, input: ProjectIn) -> Result<
     };
     let id = new_id();
     conn.execute(
-        "INSERT INTO task_projects (id, name, color, position, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![id, input.name, input.color.flatten(), position, now_iso()],
+        "INSERT INTO task_projects (id, name, color, position, created_at, favorite, description) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            id,
+            input.name,
+            input.color.flatten(),
+            position,
+            now_iso(),
+            input.favorite.unwrap_or(false) as i64,
+            description(input.description.flatten())
+        ],
     )?;
     touch(conn, ctx, "task_projects", &id)?;
     get_project(conn, &id)
@@ -188,6 +204,12 @@ pub fn update_project(conn: &Connection, ctx: &Ctx, id: &str, input: ProjectIn) 
     }
     if let Some(Some(position)) = input.position {
         changes.push(("position", SqlValue::Integer(position)));
+    }
+    if let Some(favorite) = input.favorite {
+        changes.push(("favorite", SqlValue::Integer(favorite as i64)));
+    }
+    if let Some(desc) = input.description {
+        changes.push(("description", text(description(desc))));
     }
     set_columns(conn, ctx, "task_projects", id, changes)?;
     get_project(conn, id)
@@ -269,8 +291,8 @@ pub fn create_category(conn: &Connection, ctx: &Ctx, input: CategoryIn) -> Resul
     };
     let id = new_id();
     conn.execute(
-        "INSERT INTO task_categories (id, project_id, name, position, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![id, input.project_id, input.name, position, now_iso()],
+        "INSERT INTO task_categories (id, project_id, name, position, created_at, description) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![id, input.project_id, input.name, position, now_iso(), description(input.description.flatten())],
     )?;
     touch(conn, ctx, "task_categories", &id)?;
     get_category(conn, &id)
@@ -294,6 +316,9 @@ pub fn update_category(conn: &Connection, ctx: &Ctx, id: &str, input: CategoryIn
     let mut changes = vec![("project_id", SqlValue::Text(input.project_id)), ("name", SqlValue::Text(input.name))];
     if let Some(position) = position {
         changes.push(("position", SqlValue::Integer(position)));
+    }
+    if let Some(desc) = input.description {
+        changes.push(("description", text(description(desc))));
     }
     set_columns(conn, ctx, "task_categories", id, changes)?;
     get_category(conn, id)

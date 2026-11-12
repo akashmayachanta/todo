@@ -15,6 +15,10 @@ pub struct Project {
     pub name: String,
     pub color: Option<String>,
     pub position: i64,
+    /// Listed under Favorites in the sidebar.
+    pub favorite: bool,
+    /// Shown under the title, as typed (links included).
+    pub description: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -26,6 +30,8 @@ pub struct Category {
     pub project_id: String,
     pub name: String,
     pub position: i64,
+    /// Shown under the heading, as typed (links included).
+    pub description: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -99,6 +105,12 @@ pub struct ProjectIn {
     pub color: Option<Option<String>>,
     #[serde(default, deserialize_with = "double")]
     pub position: Option<Option<i64>>,
+    /// Left out: unchanged (false on create).
+    #[serde(default)]
+    pub favorite: Option<bool>,
+    /// Left out: unchanged; null or blank clears it.
+    #[serde(default, deserialize_with = "double")]
+    pub description: Option<Option<String>>,
 }
 
 /// Every project id, in the order the pane shows them.
@@ -113,6 +125,9 @@ pub struct CategoryIn {
     pub name: String,
     #[serde(default, deserialize_with = "double")]
     pub position: Option<Option<i64>>,
+    /// Left out: unchanged; null or blank clears it.
+    #[serde(default, deserialize_with = "double")]
+    pub description: Option<Option<String>>,
 }
 
 /// A new task. No project_id puts it in the Inbox; a parent_id makes it a

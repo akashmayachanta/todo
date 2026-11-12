@@ -18,7 +18,7 @@ export interface TasksClient {
 	projects: {
 		list(): Promise<TaskProject[]>;
 		create(data: { name: string; color?: string | null }): Promise<TaskProject>;
-		update(id: string, data: { name: string; color?: string | null }): Promise<TaskProject>;
+		update(id: string, data: { name: string; color?: string | null; favorite?: boolean; description?: string | null }): Promise<TaskProject>;
 		/** Its categories and tasks go with it. */
 		delete(id: string): Promise<void>;
 		/** Every project id in the new order; returns the projects in that order. */
@@ -27,7 +27,7 @@ export interface TasksClient {
 	categories: {
 		list(projectId?: string): Promise<TaskCategory[]>;
 		create(data: { project_id: string; name: string }): Promise<TaskCategory>;
-		update(id: string, data: { project_id: string; name: string }): Promise<TaskCategory>;
+		update(id: string, data: { project_id: string; name: string; description?: string | null }): Promise<TaskCategory>;
 		/** Its tasks stay in the project, without a category. */
 		delete(id: string): Promise<void>;
 		/** A project's category ids in the new order; returns its categories in that order. */

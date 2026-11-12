@@ -111,7 +111,7 @@
 .tasks-pane {
   display: flex;
   flex-direction: column;
-  width: 16rem;
+  width: 300px; /* Todoist's sidebar width */
   flex-shrink: 0;
   min-height: 0;
   padding: var(--space-sm) var(--space-xs) var(--space-xs);
@@ -164,7 +164,7 @@
 }
 
 .tasks-page-collapsed .tasks-pane {
-  margin-left: -16rem;
+  margin-left: -300px;
   opacity: 0;
   visibility: hidden;
   transition: margin-left var(--dur-short) var(--ease-out), opacity var(--dur-short) var(--ease-out), visibility 0s var(--dur-short);
@@ -294,7 +294,9 @@
   min-width: 0;
   align-items: center;
   gap: var(--space-xs);
-  padding: 0.375rem var(--space-xs);
+  /* Roomy rows (about 36px), as in Todoist's sidebar */
+  padding: 0.5rem var(--space-xs);
+  margin-block: 1px;
   border-radius: var(--radius-control);
   font-size: var(--text-sm);
   color: var(--text-secondary);
@@ -434,14 +436,6 @@
   font-size: 0.8125rem;
 }
 
-.tasks-pane-cat-mark {
-  flex-shrink: 0;
-  width: 0.4375rem;
-  height: 0.4375rem;
-  border: 1.5px solid;
-  border-radius: 9999px;
-  corner-shape: round;
-}
 
 /* A category section opened from the pane stops clear of the top edge. */
 .task-group[id^="task-cat-"],
@@ -512,6 +506,91 @@
 
 .task-category-head {
   align-items: center;
+}
+
+/* Descriptions (DescriptionEdit.svelte): under the project's title, and under a category's heading. */
+.tasks-project-desc {
+  margin-top: var(--space-2xs);
+  max-width: 48rem;
+}
+
+/* Even spacing: the same gap from the heading to the description as from the
+   description to the first task. List: a row has 0.625rem above its text, so the
+   description sits 0.625rem under the heading's rule. */
+.task-category-desc {
+  overflow: hidden;
+  padding-top: 0.625rem;
+  font-family: var(--font-prose);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: text;
+}
+
+/* A category's edit form: the name, the description, then Save and Cancel. */
+.task-category-edit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding-top: var(--space-2xs);
+}
+
+.task-category-edit-name,
+.task-category-edit-desc {
+  display: block;
+  width: 100%;
+  padding: 0.375rem 0.625rem;
+  border: var(--rule-hair) solid var(--clr-border-light);
+  border-radius: var(--radius-control);
+  background-color: var(--bg-input);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  outline: none;
+  box-shadow: none;
+}
+
+.task-category-edit-name {
+  font-family: var(--font-display);
+  font-weight: 600;
+}
+
+.task-category-edit-desc {
+  min-height: 3.5rem;
+  resize: none;
+  field-sizing: content;
+  font-family: var(--font-prose);
+}
+
+.task-category-edit-name:focus,
+.task-category-edit-desc:focus {
+  border-color: var(--text-muted);
+  outline: none;
+  box-shadow: none;
+}
+
+.task-category-edit-desc::placeholder,
+.task-category-edit-name::placeholder {
+  color: var(--text-faint);
+  font-weight: 400;
+}
+
+.task-category-edit-actions {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+/* Board: the 2rem heading already leaves about the column body's gap under its
+   text, and the description lines up with the heading's own inset. */
+.task-col > .task-category-desc {
+  padding: 0 0.125rem 0 0.25rem;
+}
+
+/* The one-line description's height (0.75rem × 1.5), kept free in a column without one. */
+.task-col > .task-category-desc-blank {
+  height: 1.125rem;
 }
 
 .task-category-name {
@@ -887,7 +966,13 @@ html.sort-active * {
   overflow-wrap: anywhere;
 }
 
+/* A long title stops at three lines with "…"; editing it or opening the task shows it all. */
 .task-title {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
   font-size: var(--text-sm);
   color: var(--text-primary);
   overflow-wrap: anywhere;
@@ -895,6 +980,7 @@ html.sort-active * {
 
 /* A subtask's title stays on one line. */
 .task-title-one {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -996,6 +1082,42 @@ html.sort-active * {
   align-items: center;
   gap: 0.25rem;
   font-family: var(--font-outlier);
+}
+
+/* The subtask count as a toggle: shows or hides the subtasks under the task. */
+.task-subtoggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin: -0.125rem 0;
+  padding: 0.125rem 0.375rem;
+  border-radius: var(--radius-control);
+  font-family: var(--font-outlier);
+  font-size: inherit;
+  color: inherit;
+  background-color: var(--bg-raised);
+  transition: color var(--dur-micro) var(--ease-out), background-color var(--dur-micro) var(--ease-out);
+}
+
+.task-subtoggle:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-hover);
+}
+
+.task-subtoggle:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
+}
+
+.task-subtoggle-chev {
+  width: 0.625rem;
+  height: 0.625rem;
+  transition: rotate var(--dur-short) var(--ease-out);
+}
+
+.task-subtoggle[aria-expanded="false"] .task-subtoggle-chev {
+  rotate: -90deg;
 }
 
 .task-place {
@@ -1174,8 +1296,9 @@ html.sort-active * {
 .task-modal {
   display: flex;
   flex-direction: column;
+  /* Todoist's size: about 54rem wide and nearly the window's height */
   width: min(54rem, 100%);
-  min-height: min(38rem, 88vh);
+  min-height: min(62rem, 92vh);
   border: var(--rule-hair) solid var(--clr-border-light);
   border-radius: 12px;
   background-color: var(--bg-card);
@@ -1470,7 +1593,7 @@ button.task-modal-crumb:hover {
   padding: var(--space-xs) var(--space-md) var(--space-md);
   border-left: var(--rule-hair) solid var(--clr-border);
   border-bottom-right-radius: 12px;
-  background-color: var(--bg-raised);
+  background-color: var(--bg-surface);
 }
 
 .task-side-item {
@@ -1719,6 +1842,34 @@ button.task-modal-crumb:hover {
   padding-bottom: var(--space-sm);
 }
 
+/* Desktop: the board fills the pane and scrolls both ways itself, so its
+   horizontal scrollbar sits at the bottom of the window rather than under the
+   longest column. The content box still scrolls if something else (search
+   results, an empty state) takes the board's place. */
+.tasks-main-board {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.tasks-main-board > .tasks-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  margin: 0;
+  padding-bottom: 0;
+  overflow-y: auto;
+}
+
+.tasks-main-board .task-board {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: var(--space-lg);
+}
+
 .task-col {
   flex: 0 0 17.5rem;
   min-width: 0;
@@ -1810,13 +1961,27 @@ button.task-modal-crumb:hover {
 }
 
 /* Subtasks inside a card sit on a hairline, not a box of their own. */
+/* Subtasks in a card, as in Todoist: lined up with their task on the left, a
+   full-width rule under the task, then rules that start at the text, which is
+   what marks them as subtasks. */
 .task-card .task-subtasks {
-  padding-left: 1.75rem;
+  margin: 0 calc(-1 * var(--space-sm));
+  padding: 0 var(--space-sm);
+  border-top: var(--rule-hair) solid var(--clr-border);
 }
 
 .task-card .task-subtasks .task-row {
-  padding: 0.375rem 0;
+  padding: 0.5rem 0;
+}
+
+.task-card .task-subtasks .task-item + .task-item > .task-row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: calc(1.125rem + var(--space-sm));
+  right: calc(-1 * var(--space-sm));
   border-top: var(--rule-hair) solid var(--clr-border);
+  pointer-events: none;
 }
 
 .task-card .task-row {

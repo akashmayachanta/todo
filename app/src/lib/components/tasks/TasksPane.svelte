@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PlaceMark from '$lib/components/tasks/PlaceMark.svelte';
 	import { onMount } from 'svelte';
 	import { slide } from 'svelte/transition';
 	import { page } from '$app/state';
@@ -22,7 +23,7 @@
 	 */
 	let {
 		projects, categories, filters, counts, minutes, view, projectId, filterId, settings, today, query = '', browsing = false,
-		onsearch, onaddproject, oneditproject, ondeleteproject, onreorderprojects, onaddfilter, oneditfilter, ondeletefilter,
+		onsearch, onaddproject, oneditproject, ondeleteproject, onreorderprojects, onfavoriteproject, onaddfilter, oneditfilter, ondeletefilter,
 	}: {
 		projects: TaskProject[];
 		categories: TaskCategory[];
@@ -48,6 +49,8 @@
 		oneditproject: (project: TaskProject) => void;
 		ondeleteproject: (project: TaskProject) => void;
 		onreorderprojects: (ids: string[]) => void;
+		/** Adds the project to Favorites, or takes it off. */
+		onfavoriteproject: (project: TaskProject) => void;
 		onaddfilter: () => void;
 		oneditfilter: (filter: TaskFilter) => void;
 		ondeletefilter: (filter: TaskFilter) => void;
@@ -100,6 +103,8 @@
 	});
 
 	let hash = $derived(page.url.hash);
+	/** Favorite projects, in the projects' order, listed above Filters. */
+	let favorites = $derived(projects.filter((p) => p.favorite));
 
 	// ── Reordering projects ──────────────────────────────────────────────────
 
@@ -182,6 +187,34 @@
 			{/each}
 		</div>
 
+		{#if favorites.length}
+			<div class="tasks-pane-head">
+				<span>Favorites</span>
+			</div>
+
+			{#each favorites as p (p.id)}
+				{@const here = view === 'project' && projectId === p.id}
+				<div class="tasks-pane-project" class:tasks-pane-project-active={here}>
+					<a href="?project={p.id}" class="tasks-pane-link" aria-current={here && !hash.startsWith('#task-cat-') ? 'page' : undefined}>
+						<PlaceMark color={projectColor(p.color)} />
+						<span class="tasks-pane-label">{p.name}</span>
+						{#if count(counts.projects[p.id])}<span class="tasks-pane-count">{count(counts.projects[p.id])}</span>{/if}
+					</a>
+					<DropdownMenu
+						class="tasks-pane-menu"
+						triggerClass="tasks-icon-btn"
+						ariaLabel="Favorite actions for {p.name}"
+						items={[{ id: 'unfavorite', label: 'Remove from favorites' }]}
+						onselect={() => onfavoriteproject(p)}
+					>
+						{#snippet icon()}
+							<svg aria-hidden="true" class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path d="M6 10a2 2 0 11-4 0 2 2 0 014 0zm6 0a2 2 0 11-4 0 2 2 0 014 0zm6 0a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+						{/snippet}
+					</DropdownMenu>
+				</div>
+			{/each}
+		{/if}
+
 		<div class="tasks-pane-head">
 			<span>Filters</span>
 			<button type="button" class="tasks-icon-btn" onclick={onaddfilter} title="Add filter" aria-label="Add filter">
@@ -240,7 +273,7 @@
 				ondrop={projectDrop}
 			>
 				<a href="?project={p.id}" class="tasks-pane-link" aria-current={here && !hash.startsWith('#task-cat-') ? 'page' : undefined}>
-					<span class="tasks-dot" style="background-color: {projectColor(p.color)}"></span>
+					<PlaceMark color={projectColor(p.color)} />
 					<span class="tasks-pane-label">{p.name}</span>
 					{#if count(minutes.projects[p.id])}<span class="tasks-pane-count tasks-pane-time">{formatDuration(minutes.projects[p.id])}</span>{/if}
 					{#if count(counts.projects[p.id])}<span class="tasks-pane-count">{count(counts.projects[p.id])}</span>{/if}
@@ -262,13 +295,15 @@
 					triggerClass="tasks-icon-btn"
 					ariaLabel="Project actions for {p.name}"
 					items={[
-						{ id: 'edit', label: 'Rename or recolour' },
+						{ id: 'edit', label: 'Edit' },
+						{ id: 'favorite', label: p.favorite ? 'Remove from favorites' : 'Add to favorites', icon: p.favorite ? 'unfavorite' : 'favorite' },
 						{ id: 'up', label: 'Move up', disabled: i === 0 },
 						{ id: 'down', label: 'Move down', disabled: i === projects.length - 1 },
 						{ id: 'delete', label: 'Delete project', danger: true },
 					]}
 					onselect={(id) =>
 						id === 'edit' ? oneditproject(p)
+						: id === 'favorite' ? onfavoriteproject(p)
 						: id === 'up' ? step(p, -1)
 						: id === 'down' ? step(p, 1)
 						: ondeleteproject(p)}
@@ -293,7 +328,7 @@
 								class="tasks-pane-link tasks-pane-cat"
 								aria-current={here && hash === `#task-cat-${c.id}` ? 'page' : undefined}
 							>
-								<span class="tasks-pane-cat-mark" style="border-color: {projectColor(p.color)}"></span>
+								<PlaceMark kind="category" color={projectColor(p.color)} />
 								<span class="tasks-pane-label">{c.name}</span>
 								{#if count(minutes.categories[c.id])}<span class="tasks-pane-count tasks-pane-time">{formatDuration(minutes.categories[c.id])}</span>{/if}
 								{#if count(counts.categories[c.id])}<span class="tasks-pane-count">{count(counts.categories[c.id])}</span>{/if}

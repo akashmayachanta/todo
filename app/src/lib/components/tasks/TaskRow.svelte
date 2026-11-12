@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PlaceMark from '$lib/components/tasks/PlaceMark.svelte';
 	import { formatInstantLong } from '$lib/datePrefs.svelte';
 	import type { Snippet } from 'svelte';
 	import type { Task, TaskRowField } from '$lib/api';
@@ -10,6 +11,7 @@
 	import TaskGrip from './TaskGrip.svelte';
 	import TaskRow from './TaskRow.svelte';
 	import { subtaskMinutes } from './shared';
+	import { collapsedSubtasks, toggleSubtasks } from './collapsed';
 
 	/**
 	 * One task: a round check ringed in its priority colour, the title, and a line of what
@@ -76,6 +78,10 @@
 		(showDoneSubtasks ? subtasks : openSubtasks).filter((s) => !subtaskFilter || subtaskFilter(task, s)),
 	);
 	let editing = $derived(!!editor && editingId === task.id);
+	/** The subtask count shows or hides the subtasks listed under it. */
+	let canCollapse = $derived(nested && subtaskCount && shownSubtasks.length > 0);
+	let collapsed = $derived(canCollapse && $collapsedSubtasks.includes(task.id));
+	let doneCount = $derived(subtasks.length - openSubtasks.length);
 
 	/** The "⋯" menu, which holds what the row used to show as icons. */
 	let menuItems = $derived<MenuItem[]>([
@@ -154,10 +160,23 @@
 								<svg aria-label="Has a reminder" class="task-meta-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l2.5 2.5M5 3L2 6m20 0l-3-3M12 21a8 8 0 100-16 8 8 0 000 16z" /></svg>
 							</span>
 						{/if}
-						{#if subtaskCount}
+						{#if subtaskCount && canCollapse}
+							<button
+								type="button"
+								class="task-subtoggle"
+								aria-expanded={!collapsed}
+								title="{collapsed ? 'Show' : 'Hide'} sub-tasks, {doneCount} of {subtasks.length} completed"
+								aria-label="{collapsed ? 'Show' : 'Hide'} sub-tasks of {name}, {doneCount} of {subtasks.length} completed"
+								onclick={(e) => { e.stopPropagation(); toggleSubtasks(task.id); }}
+							>
+								<svg aria-hidden="true" class="task-meta-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 3v12a3 3 0 003 3h9m0 0l-3-3m3 3l-3 3" /></svg>
+								{doneCount}/{subtasks.length}
+								<svg aria-hidden="true" class="task-subtoggle-chev" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 9l6 6 6-6" /></svg>
+							</button>
+						{:else if subtaskCount}
 							<span class="task-meta-icon" title="Subtasks done">
 								<svg aria-hidden="true" class="task-meta-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01" /></svg>
-								{subtasks.length - openSubtasks.length}/{subtasks.length}
+								{doneCount}/{subtasks.length}
 							</span>
 						{/if}
 						{#if task.location}
@@ -168,7 +187,7 @@
 						{/if}
 						{#if place}
 							<span class="task-place">
-								{#if place.color}<span class="tasks-dot" style="background-color: {place.color}"></span>{/if}
+								{#if place.color}<PlaceMark color={place.color} />{/if}
 								{place.name}
 							</span>
 						{/if}
@@ -192,7 +211,7 @@
 		</div>
 	{/if}
 
-	{#if nested && shownSubtasks.length}
+	{#if nested && shownSubtasks.length && !collapsed}
 		<div class="task-subtasks">
 			{#each shownSubtasks as sub (sub.id)}
 				<TaskRow task={sub} {subtasksOf} {showNote} {fields} {now} {editingId} {editor} {sort} {compact} {ontoggle} {onopen} {onedit} {onmove} {onduplicate} {onpin} {ondelete} />

@@ -69,8 +69,8 @@
 [data-theme^="light-"] {
   color-scheme: light;
 
-  --bg-base: oklch(98.8% 0.003 245);    /* the page under the content: near white */
-  --bg-surface: oklch(96.3% 0.006 245); /* sidebar, panels, and the window's title bar (app/titlebar.ts) */
+  --bg-base: #ffffff;                   /* the page under the content: white, as in Todoist */
+  --bg-surface: #fcfaf8;                /* sidebar, panels, and the window's title bar (app/titlebar.ts): Todoist's warm off-white */
   --bg-card: oklch(100% 0 0);           /* the sheet: tables, cards, dialogs */
   --bg-raised: oklch(94.5% 0.008 245);  /* a paper step: hover rows, wells */
   --bg-input: oklch(100% 0 0);
@@ -168,6 +168,21 @@
   --color-brand-dim: oklch(69% 0.100 170);
   --color-brand-text: oklch(16% 0.020 245);
   --color-accent-2: oklch(72% 0.150 350);
+}
+
+/* Blue: a clear sky blue, sea green as its second hue */
+[data-theme="light-blue"] {
+  --color-brand: oklch(50% 0.170 255);
+  --color-brand-dim: oklch(43% 0.150 255);
+  --color-brand-text: oklch(97% 0.006 245);
+  --color-accent-2: oklch(46% 0.100 170);
+}
+
+[data-theme="dark-blue"] {
+  --color-brand: oklch(74% 0.130 250);
+  --color-brand-dim: oklch(67% 0.130 250);
+  --color-brand-text: oklch(16% 0.020 245);
+  --color-accent-2: oklch(76% 0.100 170);
 }
 
 /* Derived in every theme */

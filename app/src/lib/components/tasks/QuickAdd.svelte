@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PlaceMark from '$lib/components/tasks/PlaceMark.svelte';
 	import { formatInstant } from '$lib/datePrefs.svelte';
 	import { onMount } from 'svelte';
 	import type { Task, TaskCategory, TaskIn, TaskPriority, TaskProject } from '$lib/api';
@@ -130,7 +131,7 @@
 		{projects}
 		{categories}
 		{scopeProjectId}
-		placeholder="Task name, e.g. Call bank tomorrow 5pm p1 #Project or #Category !30m"
+		placeholder="Task name"
 		ariaLabel="New task"
 		onenter={submit}
 		onescape={oncancel}
@@ -166,13 +167,13 @@
 					onclick={() => { if (auto) declined = placeKey(auto); field?.focus(); }}
 				>
 					<svg aria-hidden="true" class="task-chip-spark" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.2 6.6L21 11l-6.8 2.4L12 20l-2.2-6.6L3 11l6.8-2.4z" /></svg>
-					{#if project}<span class="tasks-dot" style="background-color: {projectColor(project.color)}"></span>{/if}
+					{#if project}<PlaceMark color={projectColor(project.color)} />{/if}
 					{project ? project.name : 'Inbox'}{category ? ` / ${category.name}` : ''}
 					<svg aria-hidden="true" class="task-chip-x" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-width="2.5" d="M6 6l12 12M18 6L6 18" /></svg>
 				</button>
 			{:else}
 				<span class="task-chip" data-kind="project">
-					{#if project}<span class="tasks-dot" style="background-color: {projectColor(project.color)}"></span>{/if}
+					{#if project}<PlaceMark color={projectColor(project.color)} />{/if}
 					{project ? project.name : 'Inbox'}{category ? ` / ${category.name}` : ''}
 				</span>
 				{#if guess && declinedName}
@@ -190,8 +191,12 @@
 			{/if}
 		</div>
 		<div class="quick-add-actions">
-			<button type="button" class="btn btn-ghost" onclick={oncancel}>Cancel</button>
-			<button type="button" class="btn btn-primary" onclick={submit} disabled={busy || !result.title}>Add task</button>
+			<button type="button" class="quick-add-icon" onclick={oncancel} title="Cancel" aria-label="Cancel">
+				<svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-width="2" d="M6 6l12 12M18 6L6 18" /></svg>
+			</button>
+			<button type="button" class="quick-add-send" onclick={submit} disabled={busy || !result.title} title="Add task" aria-label="Add task">
+				<svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.25" d="M12 19V5m-6 6l6-6 6 6" /></svg>
+			</button>
 		</div>
 	</div>
 </div>

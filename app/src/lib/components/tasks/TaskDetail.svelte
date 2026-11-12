@@ -1,8 +1,9 @@
 <script lang="ts">
+	import PlaceMark from '$lib/components/tasks/PlaceMark.svelte';
 	import { formatInstant } from '$lib/datePrefs.svelte';
 	import { onMount, tick } from 'svelte';
 	import type { Task, TaskCategory, TaskIn, TaskPatch, TaskPriority, TaskProject } from '$lib/api';
-	import DatePicker from '$lib/components/DatePicker.svelte';
+	import DueDatePicker from './DueDatePicker.svelte';
 	import DropdownMenu from '$lib/components/DropdownMenu.svelte';
 	import Select from '$lib/components/Select.svelte';
 	import { askReminderPermission } from '$lib/stores/taskReminders';
@@ -420,7 +421,7 @@
 							<div class="task-modal-smart" aria-live="polite">
 								{#each titleChips as chip}
 									<span class="task-chip" data-kind={chip.kind} data-priority={chip.priority}>
-										{#if chip.color}<span class="tasks-dot" style="background-color: {chip.color}"></span>{/if}
+										{#if chip.color && chip.kind === 'project'}<PlaceMark color={chip.color} />{:else if chip.color}<span class="tasks-dot" style="background-color: {chip.color}"></span>{/if}
 										{chip.label}
 									</span>
 								{/each}
@@ -482,7 +483,7 @@
 									tokens={subParsed.tokens}
 									projects={[]}
 									categories={[]}
-									placeholder="Sub-task name, e.g. Book tickets fri 6pm p2"
+									placeholder="Sub-task name"
 									ariaLabel="New sub-task"
 									class="task-modal-sub-add"
 									onenter={addSubtask}
@@ -523,18 +524,16 @@
 				</div>
 
 				<div class="task-side-item">
-					<label class="task-side-label" for="task-date">Date</label>
-					<div class="task-side-pair">
-						<DatePicker id="task-date" value={task.due_date ?? ''} placeholder="No date" onchange={saveDate} />
-						<input
-							type="time"
-							class="input task-side-time"
-							aria-label="Time"
-							value={task.due_time ?? ''}
-							title={task.due_date ? undefined : 'A time with no date sets the date to today'}
-							onchange={(e) => saveTime(e.currentTarget.value)}
-						/>
-					</div>
+					<DueDatePicker
+						date={task.due_date}
+						time={task.due_time}
+						recurrence={task.recurrence}
+						bind:recurrenceText
+						{recurrenceError}
+						ondate={saveDate}
+						ontime={saveTime}
+						onrecurrence={saveRecurrence}
+					/>
 				</div>
 
 				<div class="task-side-item">
@@ -565,19 +564,6 @@
 					{:else if !task.due_time}
 						<p class="task-side-hint">No time set, so it counts from 9:00 am.</p>
 					{/if}
-				</div>
-
-				<div class="task-side-item">
-					<label class="task-side-label" for="task-repeat">Repeat</label>
-					<input
-						id="task-repeat"
-						class="input task-side-input"
-						bind:value={recurrenceText}
-						placeholder="e.g. every monday"
-						onblur={saveRecurrence}
-						onkeydown={blurOnEnter}
-					/>
-					{#if recurrenceError}<p class="task-side-error">{recurrenceError}</p>{/if}
 				</div>
 
 				<div class="task-side-item">

@@ -26,11 +26,17 @@ export function errorDetail(e: unknown): string {
 export type TaskPriority = 1 | 2 | 3 | 4;
 export interface TaskProject {
 	id: string; name: string; color: string | null; position: number;
+	/** Listed under Favorites in the sidebar. */
+	favorite: boolean;
+	/** Shown under the title, as typed (links included). */
+	description: string | null;
 	created_at: string; updated_at: string;
 }
 /** A section of a project. */
 export interface TaskCategory {
 	id: string; project_id: string; name: string; position: number;
+	/** Shown under the heading, as typed (links included). */
+	description: string | null;
 	created_at: string; updated_at: string;
 }
 /** No project_id means the Inbox. A subtask (parent_id) shares its parent's project and category. */

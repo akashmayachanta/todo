@@ -35,8 +35,10 @@ export interface PinView {
 	/** Its project, category or task was deleted. */
 	missing: boolean;
 	title: string;
-	/** A CSS colour for the dot before the title. */
+	/** A CSS colour for the mark before the title. */
 	color: string | null;
+	/** That mark: `#` for a project (or a task in one), `/` for a category, a dot for a filter. */
+	mark?: 'project' | 'category';
 	tasks: Task[];
 	/** Their subtasks are listed under them. */
 	nested: boolean;
@@ -85,6 +87,7 @@ export function pinView(target: PinTarget, data: PinData): PinView {
 				...base,
 				title: project.name,
 				color: projectColor(project.color),
+				mark: 'project',
 				tasks: top.filter((t) => t.project_id === project.id).sort((a, b) => rank(a) - rank(b) || byPosition(a, b)),
 				nested: true,
 				defaults: { project_id: project.id },
@@ -98,6 +101,7 @@ export function pinView(target: PinTarget, data: PinData): PinView {
 				...base,
 				title: `${project.name} / ${category.name}`,
 				color: projectColor(project.color),
+				mark: 'category',
 				tasks: top.filter((t) => t.category_id === category.id).sort(byPosition),
 				nested: true,
 				defaults: { project_id: project.id, category_id: category.id },
@@ -123,6 +127,7 @@ export function pinView(target: PinTarget, data: PinData): PinView {
 				...base,
 				title: plainText(task.title),
 				color: project ? projectColor(project.color) : null,
+				mark: 'project',
 				tasks: [task],
 				nested: true,
 				parentId: task.parent_id ?? task.id,

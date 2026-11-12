@@ -402,6 +402,41 @@
 		];
 	});
 
+	/* Phones: the board shows one column a page, swiped sideways, with a dot for each page. */
+	let boardEl = $state<HTMLElement | null>(null);
+	let boardPage = $state(0);
+	/** Every column the board draws, in order: the dots' labels. */
+	let boardPages = $derived([
+		...columns.map((c) => c.title),
+		...(buckets && !columns.some((c) => c.add) ? ['New task'] : []),
+		...(view === 'project' ? ['Add category'] : []),
+	]);
+
+	function boardScrolled() {
+		if (!boardEl || !boardEl.clientWidth) return;
+		const left = boardEl.getBoundingClientRect().left;
+		const away = [...boardEl.children].map((c) => Math.abs(c.getBoundingClientRect().left - left));
+		boardPage = away.indexOf(Math.min(...away));
+	}
+
+	function showBoardPage(i: number) {
+		const col = boardEl?.children[i];
+		if (!boardEl || !col) return;
+		const left = boardEl.scrollLeft + col.getBoundingClientRect().left - boardEl.getBoundingClientRect().left;
+		boardEl.scrollTo({ left, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+	}
+
+	// A new view starts on its first page; a page that went away moves to the last one.
+	$effect(() => {
+		void view;
+		void projectId;
+		boardPage = 0;
+		boardEl?.scrollTo({ left: 0 });
+	});
+	$effect(() => {
+		if (boardPage >= boardPages.length) boardPage = Math.max(0, boardPages.length - 1);
+	});
+
 	/** What the calendar shows: every dated task in Upcoming, the view's own tasks elsewhere. */
 	let calendarTasks = $derived(
 		view === 'upcoming' ? dated
@@ -1508,7 +1543,7 @@
 		ondeletefilter={deleteFilter}
 	/>
 
-	<div class="tasks-main" class:tasks-main-board={isDesktop && layout === 'board'}>
+	<div class="tasks-main" class:tasks-main-board={layout === 'board'}>
 		{#if $paneCollapsed}
 			<div class="tasks-topbar">
 				<PaneToggle />
@@ -1624,7 +1659,7 @@
 			{:else if view === 'filter' && !filter}
 				<p class="tasks-empty">This filter doesn't exist any more.</p>
 			{:else if layout === 'board'}
-				<div class="task-board" data-sort-board data-cat-list>
+				<div class="task-board" data-sort-board data-cat-list bind:this={boardEl} onscroll={boardScrolled}>
 					{#each columns as col (col.key)}
 						<section
 							id={col.category ? `task-cat-${col.category.id}` : undefined}
@@ -1681,6 +1716,20 @@
 						<div class="task-col task-col-new">{@render categoryAdder()}</div>
 					{/if}
 				</div>
+				{#if boardPages.length > 1}
+					<!-- Phones only (tasks.css): one dot a column, the current one wide. -->
+					<nav class="task-board-dots" aria-label="Columns">
+						{#each boardPages as title, i (i)}
+							<button
+								type="button"
+								class="task-board-dot"
+								aria-label={title}
+								aria-current={boardPage === i ? 'true' : undefined}
+								onclick={() => showBoardPage(i)}
+							></button>
+						{/each}
+					</nav>
+				{/if}
 			{:else if layout === 'calendar'}
 				{#if addingAt === 'main' || addingAt?.startsWith('date:')}
 					{@const date = addingAt.startsWith('date:') ? addingAt.slice(5) : null}

@@ -2,7 +2,8 @@
 # Builds the signed release APK inside WSL2 Ubuntu.
 # Run from Ubuntu:  bash /mnt/c/Drive/Vault/todo/build-android.sh
 # One-time setup (SDK, NDK, JDK, keystore, android:init): see BUILD.md, section 3.
-# Each build raises the version (app/scripts/bump-version.mjs) and writes it to
+# app/scripts/bump-version.mjs picks the version: the Windows build's when it is
+# newer than the last APK's, else one higher. It is written to
 # target/apk/tasks.apk.version, which copy-release.bat puts next to the server
 # for app updates.
 set -euo pipefail
@@ -27,7 +28,7 @@ export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-17-openjdk-amd64}"
 export PATH="$ANDROID_HOME/platform-tools:$PATH"
 
 # In the Windows repo, so the new version is synced below and stays there.
-VERSION="$(node "$SRC/app/scripts/bump-version.mjs")"
+VERSION="$(node "$SRC/app/scripts/bump-version.mjs" "$SRC/target/apk/tasks.apk.version")"
 
 # Copy only code into Linux. Excluded paths are never copied or deleted, and
 # there is no --delete, so the Linux node_modules, build output and Android

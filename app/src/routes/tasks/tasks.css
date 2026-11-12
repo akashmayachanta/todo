@@ -2368,7 +2368,8 @@ button.tcal-day:hover {
 }
 
 /* ── Phones: views in a tab bar along the bottom; Browse is the pane ───── */
-.tasks-tabbar {
+.tasks-tabbar,
+.task-board-dots {
   display: none;
 }
 
@@ -2482,8 +2483,123 @@ button.tcal-day:hover {
     display: none;
   }
 
+  /* The board: one column a page, swiped sideways, snapping to each. */
+  .task-board {
+    gap: var(--space-md);
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+  }
+
+  .task-board::-webkit-scrollbar {
+    display: none;
+  }
+
   .task-col {
-    flex-basis: 15rem;
+    flex-basis: 100%;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+  }
+
+  /* The board fills the screen down to the tab bar, so a swipe anywhere below a
+     short column still turns the page. The board only scrolls sideways; each
+     column scrolls up and down on its own, clear of the dots and the tab bar. */
+  .tasks-main-board {
+    padding-bottom: 0;
+  }
+
+  .tasks-main-board > .tasks-content {
+    padding-bottom: 0;
+  }
+
+  .tasks-main-board .task-board {
+    align-items: stretch;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 0;
+  }
+
+  .tasks-main-board .task-col {
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    padding-bottom: calc(8.5rem + env(safe-area-inset-bottom));
+    scrollbar-width: none;
+  }
+
+  .tasks-main-board .task-col::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Its dots float level with the add button, centred, clear of it. */
+  .task-board-dots {
+    position: fixed;
+    left: 50%;
+    bottom: calc(5.4375rem + env(safe-area-inset-bottom));
+    z-index: 15;
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    max-width: calc(100vw - 9rem);
+    padding: 0.4375rem 0.625rem;
+    overflow: hidden;
+    transform: translateX(-50%);
+    border: var(--rule-hair) solid var(--clr-border);
+    border-radius: 999px;
+    background-color: color-mix(in oklch, var(--bg-surface) 88%, transparent);
+    backdrop-filter: blur(12px);
+    box-shadow: 0 4px 12px -6px rgb(0 0 0 / 0.35);
+  }
+
+  .task-board-dot {
+    flex-shrink: 0;
+    width: 0.4375rem;
+    height: 0.4375rem;
+    padding: 0;
+    border-radius: 999px;
+    background-color: var(--text-faint);
+    opacity: 0.6;
+    transition: width var(--dur-short) var(--ease-out), background-color var(--dur-short) var(--ease-out), opacity var(--dur-short) var(--ease-out);
+  }
+
+  /* A bigger target than the dot itself. */
+  .task-board-dot {
+    position: relative;
+  }
+
+  .task-board-dot::after {
+    content: "";
+    position: absolute;
+    inset: -0.5rem -0.1875rem;
+  }
+
+  .task-board-dot[aria-current="true"] {
+    width: 1.25rem;
+    background-color: var(--color-brand);
+    opacity: 1;
+  }
+
+  /* Sync status floats at the bottom left, level with the add button,
+     rather than sitting as a row above it. */
+  .tasks-pane-foot {
+    position: fixed;
+    left: calc(1rem + env(safe-area-inset-left));
+    right: calc(1rem + 2.875rem + 0.75rem + env(safe-area-inset-right));
+    bottom: calc(4.75rem + env(safe-area-inset-bottom));
+    z-index: 15;
+    display: flex;
+    align-items: center;
+    min-height: 2.875rem;
+    margin: 0;
+    padding: 0.125rem 0.25rem;
+    border: var(--rule-hair) solid var(--clr-border);
+    border-radius: 11px;
+    background-color: color-mix(in oklch, var(--bg-surface) 88%, transparent);
+    backdrop-filter: blur(12px);
+    box-shadow: 0 4px 12px -6px rgb(0 0 0 / 0.35);
+  }
+
+  .tasks-pane-foot > * {
+    flex: 1;
   }
 
   .tcal-cell {

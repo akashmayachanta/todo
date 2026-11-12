@@ -51,6 +51,14 @@
 	const tabs = untrack(() => TABS.filter((t) => t.key !== 'desktop' || status.platform !== 'android'));
 
 	let current = $state<SettingsTab>(untrack(() => (tabs.some((t) => t.key === tab) ? tab : 'account')));
+	/** Phones show the list of sections first and one section at a time; a section
+	 *  asked for by name (not the default) opens straight away. Desktop ignores it. */
+	let opened = $state(untrack(() => tab !== 'account'));
+
+	function openSection(key: SettingsTab) {
+		current = key;
+		opened = true;
+	}
 	let now = $state(Date.now());
 	onMount(() => {
 		const clock = setInterval(() => (now = Date.now()), 30_000);
@@ -112,6 +120,33 @@
 	const norm = (s: string) => s.trim().replace(/\/+$/, '');
 	let serverChanged = $derived(norm(host) !== norm(status.server?.url ?? '') || path.trim() !== (status.server?.tasks_base ?? '').trim());
 
+	// The server this device synced with before the last switch, kept in this
+	// browser only, so switching back is a tap (plus the password) away.
+	const PREV_KEY = 'tasks.previousServer';
+	function readPrevious(): ServerInfo | null {
+		try {
+			const s = JSON.parse(localStorage.getItem(PREV_KEY) ?? 'null');
+			return s && typeof s.url === 'string' && typeof s.tasks_base === 'string' ? s : null;
+		} catch {
+			return null;
+		}
+	}
+	let previous = $state<ServerInfo | null>(readPrevious());
+	const sameServer = (a: ServerInfo | null | undefined, b: ServerInfo | null | undefined) =>
+		!!a && !!b && norm(a.url) === norm(b.url) && a.tasks_base.trim() === b.tasks_base.trim();
+	/** Offered unless it is the server now in use or already typed in. */
+	let showPrevious = $derived(
+		!!previous && !sameServer(previous, status.server) && !sameServer(previous, { url: host, tasks_base: path }),
+	);
+
+	function usePrevious() {
+		if (!previous) return;
+		host = previous.url;
+		path = previous.tasks_base;
+		password = '';
+		serverError = '';
+	}
+
 	function resetServer() {
 		host = status.server?.url ?? '';
 		path = status.server?.tasks_base ?? '/tasks-api';
@@ -125,8 +160,18 @@
 		connecting = true;
 		try {
 			const server: ServerInfo = { url: host.trim(), tasks_base: path.trim() };
+			const before = status.server;
 			const next = await call<AppStatus>('app_sign_in', { server, username: status.username ?? '', password, register: false });
 			password = '';
+			// The one just left worked, so it becomes the one to offer next time.
+			if (before && !sameServer(before, server)) {
+				previous = { url: before.url, tasks_base: before.tasks_base };
+				try {
+					localStorage.setItem(PREV_KEY, JSON.stringify(previous));
+				} catch {
+					// Storage blocked: offered for this session only.
+				}
+			}
 			onstatus(next);
 			toast.success(`Connected to ${server.url}`);
 		} catch (err) {
@@ -230,10 +275,14 @@
 		{ value: 'dark', label: 'Dark' },
 	];
 
+	const phone = () => window.matchMedia('(max-width: 720px)').matches;
+
 	function onKey(e: KeyboardEvent) {
 		if (e.key === 'Escape' && !e.defaultPrevented) {
 			e.preventDefault();
-			onclose();
+			// On a phone, Escape (Android's back) leaves the section for the list first.
+			if (opened && phone()) opened = false;
+			else onclose();
 		}
 	}
 
@@ -246,19 +295,28 @@
 
 <div class="modal-backdrop" onclick={onclose} aria-hidden="true"></div>
 <div class="modal-overlay">
-	<div class="set-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title" tabindex="-1" use:focusOnMount>
+	<div class="set-panel" class:set-open={opened} role="dialog" aria-modal="true" aria-labelledby="settings-title" tabindex="-1" use:focusOnMount>
 		<nav class="set-nav" aria-label="Settings sections">
-			<h2 id="settings-title" class="set-nav-title">Settings</h2>
+			<div class="set-nav-head">
+				<h2 id="settings-title" class="set-nav-title">Settings</h2>
+				<button type="button" class="modal-close set-phone-only" onclick={onclose} aria-label="Close settings">
+					<svg aria-hidden="true" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+				</button>
+			</div>
 			{#each tabs as t (t.key)}
-				<button type="button" class="set-nav-item" aria-current={current === t.key ? 'page' : undefined} onclick={() => (current = t.key)}>
+				<button type="button" class="set-nav-item" aria-current={current === t.key ? 'page' : undefined} onclick={() => openSection(t.key)}>
 					<svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d={t.icon} /></svg>
-					{t.label}
+					<span class="set-nav-label">{t.label}</span>
+					<svg aria-hidden="true" class="set-nav-chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
 				</button>
 			{/each}
 		</nav>
 
 		<section class="set-body">
 			<header class="set-head">
+				<button type="button" class="set-back set-phone-only" onclick={() => (opened = false)} aria-label="Back to settings">
+					<svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" /></svg>
+				</button>
 				<h3 class="set-title">{TABS.find((t) => t.key === current)?.label}</h3>
 				<button type="button" class="modal-close" onclick={onclose} aria-label="Close settings">
 					<svg aria-hidden="true" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
@@ -333,6 +391,19 @@
 							<input class="input set-mono" bind:value={path} placeholder="/tasks-api" spellcheck="false" />
 							<span class="set-hint">The server's TASKS_API_BASE_PATH. Leave it empty if the API is at the root.</span>
 						</label>
+						{#if showPrevious && previous}
+							<div class="set-group">
+								<span class="set-label">Previous server</span>
+								<button type="button" class="set-previous" onclick={usePrevious}>
+									<svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" /></svg>
+									<span class="set-previous-text">
+										<span class="set-previous-url">{previous.url}</span>
+										<span class="set-hint set-mono">{previous.tasks_base || '/'}</span>
+									</span>
+								</button>
+								<span class="set-hint">The last one this device synced with. Pick it to fill in the fields; you'll still need your password.</span>
+							</div>
+						{/if}
 
 						{#if serverChanged}
 							<div class="set-callout">
@@ -368,65 +439,76 @@
 						{/if}
 					</form>
 				{:else if current === 'general'}
-					<div class="set-group">
-						<label class="set-label" for="settings-start-view">Home view</label>
-						<div class="set-select">
-							<Select
-								id="settings-start-view"
-								value={$taskSettings.startView}
-								options={[...START_VIEWS]}
-								onchange={(v) => taskSettings.update('startView', v as 'today' | 'inbox' | 'upcoming')}
-							/>
+					<div class="set-toggles">
+						<div class="set-toggle set-choice">
+							<span class="set-toggle-text">
+								<label class="set-toggle-label" for="settings-start-view">Home view</label>
+								<span class="set-hint">The list Tasks opens on.</span>
+							</span>
+							<div class="set-choice-select">
+								<Select
+									id="settings-start-view"
+									value={$taskSettings.startView}
+									options={[...START_VIEWS]}
+									onchange={(v) => taskSettings.update('startView', v as 'today' | 'inbox' | 'upcoming')}
+								/>
+							</div>
 						</div>
 					</div>
 
-					<h4 class="set-section">Date &amp; time</h4>
-					<div class="set-fields" style="--cols: 2">
-						<div class="set-group">
-							<label class="set-label" for="settings-time-format">Time format</label>
-							<div class="set-select">
-								<Select id="settings-time-format" value={$taskSettings.timeFormat} options={TIME_FORMATS}
-									onchange={(v) => taskSettings.update('timeFormat', v as '12h' | '24h')} />
-							</div>
-							<span class="set-hint">How times show across the app, like 5:00 PM or 17:00.</span>
-						</div>
-						<div class="set-group">
-							<label class="set-label" for="settings-date-format">Date format</label>
-							<div class="set-select">
-								<Select id="settings-date-format" value={$taskSettings.dateFormat} options={DATE_FORMATS}
-									onchange={(v) => taskSettings.update('dateFormat', v as 'dmy' | 'mdy')} />
-							</div>
-							<span class="set-hint">How a date typed with numbers, like 12/11, is read.</span>
-						</div>
-					</div>
-					<div class="set-fields" style="--cols: 3">
-						<div class="set-group">
-							<label class="set-label" for="settings-week-start">Week start</label>
-							<div class="set-select">
-								<Select id="settings-week-start" value={$taskSettings.weekStart} options={DAYS}
-									onchange={(v) => taskSettings.update('weekStart', Number(v))} />
-							</div>
-							<span class="set-hint">Begin your week on this day in the calendar and date picker.</span>
-						</div>
-						<div class="set-group">
-							<label class="set-label" for="settings-next-week">Next week</label>
-							<div class="set-select">
-								<Select id="settings-next-week" value={$taskSettings.nextWeek} options={DAYS}
-									onchange={(v) => taskSettings.update('nextWeek', Number(v))} />
-							</div>
-							<span class="set-hint">The day "next week" means when you type it in a task.</span>
-						</div>
-						<div class="set-group">
-							<label class="set-label" for="settings-weekend">Weekend</label>
-							<div class="set-select">
-								<Select id="settings-weekend" value={$taskSettings.weekend} options={WEEKEND_DAYS}
-									onchange={(v) => taskSettings.update('weekend', Number(v))} />
-							</div>
-							<span class="set-hint">The day "weekend" means when you type it in a task.</span>
-						</div>
-					</div>
 					<div class="set-group">
+						<span class="set-label">Date &amp; time</span>
 						<div class="set-toggles">
+							<div class="set-toggle set-choice">
+								<span class="set-toggle-text">
+									<label class="set-toggle-label" for="settings-time-format">Time format</label>
+									<span class="set-hint">How times show across the app.</span>
+								</span>
+								<div class="set-choice-select">
+									<Select id="settings-time-format" value={$taskSettings.timeFormat} options={TIME_FORMATS}
+										onchange={(v) => taskSettings.update('timeFormat', v as '12h' | '24h')} />
+								</div>
+							</div>
+							<div class="set-toggle set-choice">
+								<span class="set-toggle-text">
+									<label class="set-toggle-label" for="settings-date-format">Date format</label>
+									<span class="set-hint">How a date typed with numbers, like 12/11, is read.</span>
+								</span>
+								<div class="set-choice-select">
+									<Select id="settings-date-format" value={$taskSettings.dateFormat} options={DATE_FORMATS}
+										onchange={(v) => taskSettings.update('dateFormat', v as 'dmy' | 'mdy')} />
+								</div>
+							</div>
+							<div class="set-toggle set-choice">
+								<span class="set-toggle-text">
+									<label class="set-toggle-label" for="settings-week-start">Week start</label>
+									<span class="set-hint">The first day in the calendar and date picker.</span>
+								</span>
+								<div class="set-choice-select">
+									<Select id="settings-week-start" value={$taskSettings.weekStart} options={DAYS}
+										onchange={(v) => taskSettings.update('weekStart', Number(v))} />
+								</div>
+							</div>
+							<div class="set-toggle set-choice">
+								<span class="set-toggle-text">
+									<label class="set-toggle-label" for="settings-next-week">Next week</label>
+									<span class="set-hint">The day "next week" means in a task.</span>
+								</span>
+								<div class="set-choice-select">
+									<Select id="settings-next-week" value={$taskSettings.nextWeek} options={DAYS}
+										onchange={(v) => taskSettings.update('nextWeek', Number(v))} />
+								</div>
+							</div>
+							<div class="set-toggle set-choice">
+								<span class="set-toggle-text">
+									<label class="set-toggle-label" for="settings-weekend">Weekend</label>
+									<span class="set-hint">The day "weekend" means in a task.</span>
+								</span>
+								<div class="set-choice-select">
+									<Select id="settings-weekend" value={$taskSettings.weekend} options={WEEKEND_DAYS}
+										onchange={(v) => taskSettings.update('weekend', Number(v))} />
+								</div>
+							</div>
 							<label class="set-toggle">
 								<span class="set-toggle-text">
 									<span class="set-toggle-label">Smart date recognition</span>
@@ -442,7 +524,6 @@
 							</label>
 						</div>
 					</div>
-					<hr class="set-rule" />
 					<div class="set-group">
 						<span class="set-label">Show</span>
 						<div class="set-toggles">
@@ -601,6 +682,18 @@
 		background: var(--bg-surface);
 		border-right: 1px solid var(--clr-border);
 	}
+	.set-nav-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+	.set-phone-only,
+	.set-nav-chevron {
+		display: none;
+	}
+	.set-nav-label {
+		flex: 1;
+	}
 	.set-nav-title {
 		margin: 0 0 0.6rem;
 		padding: 0 0.6rem;
@@ -639,6 +732,9 @@
 		flex-direction: column;
 		flex: 1;
 		min-width: 0;
+		/* In the phone's column layout a flex child won't shrink below its content
+		   without this, so the page grew past the panel and its scroll never started. */
+		min-height: 0;
 	}
 	.set-head {
 		display: flex;
@@ -647,7 +743,25 @@
 		padding: 1rem 1.5rem 0.75rem;
 		border-bottom: 1px solid var(--clr-border);
 	}
+	.set-back {
+		align-items: center;
+		justify-content: center;
+		width: 2rem;
+		height: 2rem;
+		margin-left: -0.4rem;
+		border-radius: 8px;
+		color: var(--text-secondary);
+	}
+	.set-back:hover {
+		background: var(--bg-hover);
+		color: var(--text-primary);
+	}
+	.set-back svg {
+		width: 1.25rem;
+		height: 1.25rem;
+	}
 	.set-title {
+		flex: 1;
 		margin: 0;
 		font-family: var(--font-display);
 		font-size: var(--text-md);
@@ -775,26 +889,42 @@
 		background: var(--bg-surface);
 		border: 1px solid var(--clr-border);
 	}
-	.set-select {
-		max-width: 14rem;
+	/* Server: the previous server, one tap to fill the fields */
+	.set-previous {
+		display: flex;
+		align-items: center;
+		gap: 0.65rem;
+		justify-self: start;
+		max-width: 100%;
+		padding: 0.55rem 0.85rem 0.55rem 0.7rem;
+		border-radius: 10px;
+		border: 1px solid var(--clr-border);
+		text-align: left;
+		color: var(--text-secondary);
+		transition: background-color var(--dur-micro) var(--ease-out), border-color var(--dur-micro) var(--ease-out);
 	}
-	/* General: a heading over a run of settings, and the line under it */
-	.set-section {
-		margin: 0.4rem 0 -0.35rem;
-		padding-top: 1.1rem;
-		border-top: 1px solid var(--clr-border);
-		font-family: var(--font-display);
-		font-size: var(--text-md);
-		font-weight: 600;
+	.set-previous:hover {
+		background: var(--bg-hover);
+		border-color: var(--clr-border-light);
+	}
+	.set-previous svg {
+		width: 1rem;
+		height: 1rem;
+		flex-shrink: 0;
+	}
+	.set-previous-text {
+		display: grid;
+		min-width: 0;
+	}
+	.set-previous-url {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: var(--text-sm);
 		color: var(--text-primary);
 	}
-	.set-rule {
-		margin: 0;
-		border: 0;
-		border-top: 1px solid var(--clr-border);
-	}
 
-	/* General: rows with a switch on the right */
+	/* General: rows with a switch, or a dropdown (.set-choice), on the right */
 	.set-toggles {
 		display: grid;
 		border: 1px solid var(--clr-border);
@@ -820,23 +950,22 @@
 	.set-toggle-off .set-toggle-text {
 		opacity: 0.5;
 	}
-	/* Settings side by side in one row (--cols of them); stacked on phones. */
-	.set-fields {
-		display: grid;
-		grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr));
-		gap: 0.75rem 1.25rem;
-		align-items: start;
+	.set-choice {
+		cursor: default;
+	}
+	.set-choice .set-toggle-label {
+		cursor: default;
+	}
+	.set-choice-select {
+		width: 11rem;
+		flex-shrink: 0;
 	}
 	/* General has many settings: closer together than the other tabs. */
 	.set-compact {
-		gap: 0.75rem;
+		gap: 1rem;
 	}
 	.set-compact .set-group {
-		gap: 0.25rem;
-	}
-	.set-compact .set-section {
-		margin: 0.5rem 0 -0.25rem;
-		padding-top: 0.75rem;
+		gap: 0.35rem;
 	}
 	.set-compact .set-toggle {
 		min-height: 2.75rem;
@@ -951,43 +1080,75 @@
 		corner-shape: round;
 	}
 
-	/* Phones: the sections become tabs across the top. The panel is as tall as the
-	   section in it, centred, and scrolls only when that is taller than the screen. */
+	/* Phones: one fixed-height panel. It first lists the sections; tapping one opens
+	   it as its own page with a back arrow, and only that page scrolls. */
 	@media (max-width: 720px) {
-		.set-fields {
-			grid-template-columns: minmax(0, 1fr);
-		}
 		.set-panel {
 			flex-direction: column;
-			height: auto;
-			max-height: calc(100dvh - 2rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+			height: calc(100dvh - 2rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
 		}
-		.set-scroll {
-			flex: 0 1 auto;
-			min-height: 0;
+		.set-panel:not(.set-open) .set-body,
+		.set-panel.set-open .set-nav {
+			display: none;
+		}
+		.set-phone-only {
+			display: inline-flex;
 		}
 		.set-nav {
-			flex-direction: row;
+			flex: 1;
 			width: auto;
-			overflow-x: auto;
-			padding: 0.5rem;
+			overflow-y: auto;
+			padding: 0.75rem 0.5rem;
 			border-right: 0;
-			border-bottom: 1px solid var(--clr-border);
+			background: var(--bg-card);
+		}
+		.set-nav-head {
+			padding: 0 0.25rem 0.5rem 0.4rem;
 		}
 		.set-nav-title {
-			display: none;
+			margin: 0;
+		}
+		.set-nav-item {
+			gap: 0.85rem;
+			padding: 0.85rem 0.75rem;
+			font-size: var(--text-md);
+			color: var(--text-primary);
+		}
+		.set-nav-item + .set-nav-item {
+			border-top: 1px solid var(--clr-border);
+			border-radius: 0;
+		}
+		/* A list here, not a selection: no highlight on the last section opened. */
+		.set-nav-item[aria-current='page'] {
+			background: none;
+			color: var(--text-primary);
+			font-weight: 400;
+		}
+		.set-nav-item svg {
+			width: 1.25rem;
+			height: 1.25rem;
+			color: var(--text-secondary);
+		}
+		.set-nav-chevron {
+			display: block;
+		}
+		.set-nav-item .set-nav-chevron {
+			width: 1rem;
+			height: 1rem;
+			color: var(--text-faint);
 		}
 		.set-pair {
 			grid-template-columns: 1fr;
 		}
-		.set-nav-item {
-			white-space: nowrap;
-		}
 		.set-head {
+			gap: 0.25rem;
 			padding-inline: 1rem;
 		}
 		.set-scroll {
 			padding-inline: 1rem;
+		}
+		.set-choice-select {
+			width: 9.5rem;
 		}
 	}
 </style>

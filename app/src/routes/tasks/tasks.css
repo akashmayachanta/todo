@@ -477,6 +477,11 @@
   color: var(--color-danger);
 }
 
+/* Pushed to the right end of a group heading (the Overdue group's Reschedule). */
+.task-group-action {
+  margin-left: auto;
+}
+
 .task-group-sub {
   font-family: var(--font-prose);
   font-weight: 400;

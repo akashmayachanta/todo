@@ -23,6 +23,23 @@
   border: 1px solid var(--clr-border);
 }
 
+.date-picker-pop-right {
+  @apply left-auto right-0;
+}
+
+/* A text trigger, e.g. the Overdue group's "Reschedule". */
+.date-picker-action {
+  font-family: var(--font-prose);
+  font-size: var(--text-sm);
+  font-weight: 400;
+  color: var(--color-danger);
+  cursor: pointer;
+}
+
+.date-picker-action:hover {
+  text-decoration: underline;
+}
+
 .date-picker-footer {
   @apply flex items-center justify-between px-3 py-2;
   border-top: 1px solid var(--clr-border);

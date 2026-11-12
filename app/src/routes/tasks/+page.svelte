@@ -16,6 +16,7 @@
 	import { withFlip } from '$lib/flip';
 	import { addDays, dayLabel, daysBetween, formatDuration, fromYmd, todayHeading, ymd } from '$lib/taskParse';
 	import DropdownMenu from '$lib/components/DropdownMenu.svelte';
+	import DatePicker from '$lib/components/DatePicker.svelte';
 	import TasksPane from '$lib/components/tasks/TasksPane.svelte';
 	import QuickAdd from '$lib/components/tasks/QuickAdd.svelte';
 	import TaskRow from '$lib/components/tasks/TaskRow.svelte';
@@ -407,6 +408,14 @@
 
 	function moveToDate(task: Task, date: string | null) {
 		patchTask(task, date ? { due_date: date } : { due_date: null, due_time: null });
+	}
+
+	/** Moves every overdue task (subtasks included) to `date`, keeping their times; reminders move with them. */
+	async function rescheduleOverdue(date: string) {
+		if (!date) return;
+		const list = [...overdue];
+		for (const t of list) await patchTask(t, { due_date: date });
+		if (list.length) toast.success(`Rescheduled ${list.length} ${list.length === 1 ? 'task' : 'tasks'} to ${dayLabel(date, now)}`);
 	}
 
 	// ── Board drag and drop ────────────────────────────────────────────────────
@@ -1286,6 +1295,11 @@
 			{title}
 			{#if opts.sub}<span class="task-group-sub">{opts.sub}</span>{/if}
 			<span class="task-group-count">{list.length}</span>
+			{#if opts.overdue}
+				<span class="task-group-action">
+					<DatePicker action="Reschedule" align="right" value={today} onchange={rescheduleOverdue} />
+				</span>
+			{/if}
 		</h2>
 		{#each list as task (task.id)}
 			{@render row(task, false, true)}

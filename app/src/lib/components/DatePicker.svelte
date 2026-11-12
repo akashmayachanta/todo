@@ -8,12 +8,19 @@
 	import './DatePicker.css';
 
 	/** `value` is a `YYYY-MM-DD` string, or '' when no date is chosen. */
-	let { value = $bindable(''), id, placeholder = 'Select date', onchange }: {
+	let { value = $bindable(''), id, placeholder = 'Select date', onchange, action, align = 'left' }: {
 		value?: string;
 		id?: string;
 		placeholder?: string;
 		/** Called when a date is picked or cleared. */
 		onchange?: (value: string) => void;
+		/**
+		 * Shows the trigger as a text button with this label, and runs `onchange` on
+		 * every pick, even of the date already selected. There's no Clear.
+		 */
+		action?: string;
+		/** Which edge of the trigger the calendar lines up with. */
+		align?: 'left' | 'right';
 	} = $props();
 
 	let open = $state(false);
@@ -33,7 +40,7 @@
 	function close() { open = false; }
 
 	function pick(v: string) {
-		const changed = v !== value;
+		const changed = action !== undefined || v !== value;
 		value = v;
 		close();
 		if (changed) onchange?.(v);
@@ -81,18 +88,25 @@
 <svelte:window onpointerdown={onPointerDown} />
 
 <div class="date-picker" bind:this={root} onkeydown={onKeydown} role="presentation">
-	<button {id} type="button" class="input date-picker-trigger" aria-haspopup="dialog" aria-expanded={open}
-		onclick={() => (open = !open)}>
-		<svg aria-hidden="true" class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-		<span class:date-picker-placeholder={!label}>{label || placeholder}</span>
-	</button>
+	{#if action !== undefined}
+		<button {id} type="button" class="date-picker-action" aria-haspopup="dialog" aria-expanded={open}
+			onclick={() => (open = !open)}>{action}</button>
+	{:else}
+		<button {id} type="button" class="input date-picker-trigger" aria-haspopup="dialog" aria-expanded={open}
+			onclick={() => (open = !open)}>
+			<svg aria-hidden="true" class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+			<span class:date-picker-placeholder={!label}>{label || placeholder}</span>
+		</button>
+	{/if}
 
 	{#if open}
-		<div class="date-picker-pop">
+		<div class="date-picker-pop" class:date-picker-pop-right={align === 'right'}>
 			<div bind:this={host}></div>
 			<div class="date-picker-footer">
 				<button type="button" class="date-picker-link" onclick={today}>Today</button>
-				<button type="button" class="date-picker-link" onclick={() => pick('')} disabled={!value}>Clear</button>
+				{#if action === undefined}
+					<button type="button" class="date-picker-link" onclick={() => pick('')} disabled={!value}>Clear</button>
+				{/if}
 			</div>
 		</div>
 	{/if}

@@ -8,6 +8,7 @@
 	import { toast } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import { taskSettings } from '$lib/stores/taskSettings';
+	import type { UpcomingDays } from '$lib/components/tasks/shared';
 	import { ACCENTS, ACCENT_SWATCH, FONTS, accentStore, fontStore, modePref, modeStore, setAccent, setFont, setModePref, type ModePref } from '$lib/stores/theme';
 	import Select from '$lib/components/Select.svelte';
 	import { quickAddKeys } from '$lib/stores/taskQuickAdd';
@@ -196,6 +197,11 @@
 		{ value: 'inbox', label: 'Inbox' },
 		{ value: 'upcoming', label: 'Upcoming' },
 	] as const;
+	const UPCOMING_RANGES = [
+		{ value: '1', label: '1 day' },
+		{ value: '7', label: '7 days' },
+		{ value: '14', label: '14 days' },
+	];
 
 	// Date & time ($lib/datePrefs)
 	const TIME_FORMATS = [
@@ -451,6 +457,20 @@
 									value={$taskSettings.startView}
 									options={[...START_VIEWS]}
 									onchange={(v) => taskSettings.update('startView', v as 'today' | 'inbox' | 'upcoming')}
+								/>
+							</div>
+						</div>
+						<div class="set-toggle set-choice">
+							<span class="set-toggle-text">
+								<label class="set-toggle-label" for="settings-upcoming-days">Upcoming</label>
+								<span class="set-hint">The days after today that Upcoming lists and counts.</span>
+							</span>
+							<div class="set-choice-select">
+								<Select
+									id="settings-upcoming-days"
+									value={String($taskSettings.upcomingDays)}
+									options={UPCOMING_RANGES}
+									onchange={(v) => taskSettings.update('upcomingDays', Number(v) as UpcomingDays)}
 								/>
 							</div>
 						</div>

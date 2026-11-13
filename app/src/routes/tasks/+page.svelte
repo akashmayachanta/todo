@@ -48,7 +48,8 @@
 	import { isDesktop, pinToDesktop } from '$shell/widgets';
 	import './tasks.css';
 
-	const UPCOMING_DAYS = 14;
+	/** Days after today that Upcoming lists by day and counts (Settings). */
+	let UPCOMING_DAYS = $derived($taskSettings.upcomingDays);
 
 	/** The phone tab bar. */
 	const TABS = [
@@ -1888,6 +1889,7 @@
 	<TaskDetail
 		task={drawerTask}
 		parent={drawerParent}
+		siblings={drawerParent ? subtasksOf(drawerParent.id) : []}
 		subtasks={subtasksOf(drawerTask.id)}
 		showDoneSubtasks={settings.showCompleted}
 		{projects}

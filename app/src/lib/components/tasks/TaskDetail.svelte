@@ -25,10 +25,12 @@
 	 * "/Category", "every monday", "!30m" typed into them set those fields. The arrows in
 	 * the head (or k / j) step to the previous and next task of the view.
 	 */
-	let { task, parent = null, subtasks, showDoneSubtasks = true, projects, categories, onprev = null, onnext = null, sort = null, onpin = null, onduplicate = null, onpatch, ontoggle, onaddsubtask, onopen, ondelete, onclose }: {
+	let { task, parent = null, siblings = [], subtasks, showDoneSubtasks = true, projects, categories, onprev = null, onnext = null, sort = null, onpin = null, onduplicate = null, onpatch, ontoggle, onaddsubtask, onopen, ondelete, onclose }: {
 		task: Task;
 		/** The task this is a subtask of. */
 		parent?: Task | null;
+		/** The parent's subtasks, this one among them; listed from the count in the head. */
+		siblings?: Task[];
 		subtasks: Task[];
 		/** Lists the completed subtasks too (the "Show completed tasks" setting), as the lists do. */
 		showDoneSubtasks?: boolean;
@@ -59,6 +61,12 @@
 	let addingSubtask = $state(false);
 	let panel = $state<HTMLDivElement | null>(null);
 	let subField = $state<SmartTaskInput | null>(null);
+	/** The list of the parent's subtasks, opened from the count in a subtask's head. */
+	let familyOpen = $state(false);
+	/** A subtask's title is being edited (otherwise it shows two lines, then "…"). */
+	let titleEditing = $state(false);
+	let titleField = $state<SmartTaskInput | null>(null);
+	// Declared above the effects below, which run during setup and write to them.
 
 	// Each saved version of the task resets the fields to it.
 	$effect.pre(() => {
@@ -69,12 +77,27 @@
 		locationText = task.location ?? '';
 	});
 
-	// Stepping to another task closes its subtask line.
+	// Stepping to another task closes its subtask line and the parent's list.
 	$effect.pre(() => {
 		void task.id;
 		addingSubtask = false;
 		newSubtask = '';
+		familyOpen = false;
+		titleEditing = false;
 	});
+
+	// ── Parent bar (a subtask's head) ────────────────────────────────────────
+	let familyBox = $state<HTMLDivElement | null>(null);
+	let listedSiblings = $derived(showDoneSubtasks ? siblings : siblings.filter((s) => !s.completed_at || s.id === task.id));
+
+	function closeFamilyOutside(e: PointerEvent) {
+		if (familyOpen && familyBox && !familyBox.contains(e.target as Node)) familyOpen = false;
+	}
+
+	function openFromFamily(t: Task) {
+		familyOpen = false;
+		onopen(t);
+	}
 
 	let project = $derived(projects.find((p) => p.id === task.project_id) ?? null);
 	let category = $derived(categories.find((c) => c.id === task.category_id) ?? null);
@@ -148,8 +171,23 @@
 	let st = $derived(smartTitle(title, task, projects, categories));
 	let titleChips = $derived(patchChips(smartPatch(st.smart, task), projects, categories));
 	let titleLimit = $derived(task.parent_id ? subtaskLimit(st.smart.title, task.title) : null);
-	/** The title box scrolls sideways, so a long subtask's title is also shown in full under it. */
-	let fullTitleShown = $derived(!!task.parent_id && plainText(task.title).length > 50);
+	/**
+	 * A subtask's title shows at most two lines, ending in "…", until it is clicked;
+	 * then the smart line takes its place and wraps to show it all while typing.
+	 */
+	let titleClamped = $derived(!!task.parent_id && !titleEditing);
+
+	async function editTitle() {
+		titleEditing = true;
+		await tick();
+		titleField?.focus();
+	}
+
+	function finishTitle() {
+		saveTitle();
+		// An over-long title stays open, with its counter, to be shortened.
+		if (!titleLimit?.over) titleEditing = false;
+	}
 
 	function saveTitle() {
 		// Too long for a subtask: it stays in the box, with the counter, to be shortened.
@@ -288,6 +326,10 @@
 	function onKeydown(e: KeyboardEvent) {
 		if (e.defaultPrevented) return;
 		if (e.key === 'Escape') {
+			if (familyOpen) {
+				familyOpen = false;
+				return;
+			}
 			onclose();
 			return;
 		}
@@ -324,19 +366,13 @@
 	let hasLinks = $derived(linkParts(linkText).some((p) => p.url));
 </script>
 
-<svelte:window onkeydown={onKeydown} />
+<svelte:window onkeydown={onKeydown} onpointerdown={closeFamilyOutside} />
 
 <div class="task-modal-scrim" onclick={onclose} aria-hidden="true"></div>
 <div class="task-modal-overlay">
 	<div bind:this={panel} class="task-modal" role="dialog" aria-modal="true" aria-label="Task: {plainText(task.title)}" tabindex="-1">
 		<header class="task-modal-head">
 			<nav class="task-modal-crumbs" aria-label="Where this task is">
-				{#if parent}
-					<button type="button" class="task-modal-crumb" onclick={() => onopen(parent)}>
-						<svg aria-hidden="true" class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" /></svg>
-						<span class="truncate">{plainText(parent.title)}</span>
-					</button>
-				{:else}
 					<span class="task-modal-crumb">
 						{#if project}
 							<span class="task-modal-hash" style="color: {projectColor(project.color)}">#</span>
@@ -353,7 +389,6 @@
 							<span class="truncate">{category.name}</span>
 						</span>
 					{/if}
-				{/if}
 			</nav>
 			<div class="task-modal-head-actions">
 				<button type="button" class="tasks-icon-btn" onclick={() => onprev?.()} disabled={!onprev} aria-label="Previous task" title="Previous task (k)">
@@ -386,6 +421,51 @@
 
 		<div class="task-modal-body">
 			<section class="task-modal-main" aria-label="Task">
+				{#if parent}
+					{@const parentName = plainText(parent.title)}
+					{@const siblingsDone = siblings.filter((s) => s.completed_at).length}
+					<div class="task-modal-parent" bind:this={familyBox}>
+						<div class="task-modal-parent-bar">
+							<button type="button" class="task-modal-parent-open" onclick={() => onopen(parent)} title="Open {parentName}">
+								<span class="task-modal-parent-ring" class:task-modal-parent-ring-done={!!parent.completed_at} aria-hidden="true"></span>
+								<span class="task-modal-parent-name">{parentName}</span>
+							</button>
+							<button
+								type="button"
+								class="task-modal-parent-count"
+								aria-expanded={familyOpen}
+								aria-label="Sub-tasks of {parentName}, {siblingsDone} of {siblings.length} completed"
+								onclick={() => (familyOpen = !familyOpen)}
+							>
+								<svg aria-hidden="true" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 3v12a3 3 0 003 3h9m0 0l-3-3m3 3l-3 3" /></svg>
+								{siblings.length}
+								<svg aria-hidden="true" class="task-modal-parent-chev" class:task-modal-parent-chev-open={familyOpen} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7" /></svg>
+							</button>
+						</div>
+						{#if familyOpen}
+							<div class="task-modal-family" role="group" aria-label="Sub-tasks of {parentName}">
+								<button type="button" class="task-modal-family-item task-modal-family-head" onclick={() => openFromFamily(parent)}>
+									<span class="task-modal-parent-ring" class:task-modal-parent-ring-done={!!parent.completed_at} aria-hidden="true"></span>
+									<span class="task-modal-family-name">{parentName}</span>
+									<span class="task-modal-family-count">{siblingsDone}/{siblings.length}</span>
+								</button>
+								{#each listedSiblings as sib (sib.id)}
+									<button
+										type="button"
+										class="task-modal-family-item"
+										class:task-modal-family-current={sib.id === task.id}
+										class:task-row-done={!!sib.completed_at}
+										aria-current={sib.id === task.id ? 'true' : undefined}
+										onclick={() => openFromFamily(sib)}
+									>
+										<span class="task-modal-parent-ring" class:task-modal-parent-ring-done={!!sib.completed_at} aria-hidden="true"></span>
+										<span class="task-modal-family-name">{plainText(sib.title)}</span>
+									</button>
+								{/each}
+							</div>
+						{/if}
+					</div>
+				{/if}
 				<div class="task-modal-title-row">
 					<button
 						type="button"
@@ -398,24 +478,32 @@
 						<svg aria-hidden="true" class="task-check-tick" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" /></svg>
 					</button>
 					<div class="task-modal-title-col">
-						<SmartTaskInput
-							bind:value={title}
-							tokens={st.smart.tokens}
-							projects={st.projects}
-							categories={st.categories}
-							scopeProjectId={st.scope}
-							ariaLabel="Title"
-							class="task-modal-title {task.completed_at ? 'task-modal-title-done' : ''}"
-							onenter={blurActive}
-							onblur={saveTitle}
-						/>
+						{#if titleClamped}
+							<button
+								type="button"
+								class="quick-add-field task-modal-title task-modal-title-clamp"
+								class:task-modal-title-done={!!task.completed_at}
+								aria-label="Edit title: {plainText(title)}"
+								onclick={editTitle}
+							><span class="task-modal-title-text">{plainText(title)}</span></button>
+						{:else}
+							<SmartTaskInput
+								bind:this={titleField}
+								bind:value={title}
+								tokens={st.smart.tokens}
+								projects={st.projects}
+								categories={st.categories}
+								scopeProjectId={st.scope}
+								ariaLabel="Title"
+								class="task-modal-title {task.completed_at ? 'task-modal-title-done' : ''}"
+								onenter={blurActive}
+								onblur={task.parent_id ? finishTitle : saveTitle}
+							/>
+						{/if}
 						{#if titleLimit?.shown}
 							<p class="task-char-count task-modal-char-count" class:task-char-count-over={titleLimit.over}>
 								{titleLimit.count}/{SUBTASK_MAX}{#if titleLimit.over} · Too long to save{/if}
 							</p>
-						{/if}
-						{#if fullTitleShown}
-							<p class="task-modal-full-title"><LinkedText text={task.title} /></p>
 						{/if}
 						{#if titleChips.length}
 							<div class="task-modal-smart" aria-live="polite">

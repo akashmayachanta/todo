@@ -41,12 +41,17 @@ export type TaskSettings = DatePrefs & {
 	showCompleted: boolean;
 	/** The view `/tasks` opens on. */
 	startView: 'today' | 'inbox' | 'upcoming';
+	/** The days after today that Upcoming lists by day and counts in the pane. */
+	upcomingDays: UpcomingDays;
 	/** Quick add files a task in the project and category its words point to ($lib/suggestPlace). */
 	autoPlace: boolean;
 	/** Karma: tasks to complete a day, and a week. */
 	dailyGoal: number;
 	weeklyGoal: number;
 };
+
+export const UPCOMING_DAY_CHOICES = [1, 7, 14] as const;
+export type UpcomingDays = (typeof UPCOMING_DAY_CHOICES)[number];
 
 /** A goal is a whole number of tasks, 1 to 999. */
 export const clampGoal = (n: number, fallback: number) =>
@@ -59,6 +64,7 @@ export const DEFAULT_TASK_SETTINGS: TaskSettings = {
 	showCounts: true,
 	showCompleted: false,
 	startView: 'today',
+	upcomingDays: 14,
 	autoPlace: true,
 	dailyGoal: 5,
 	weeklyGoal: 25,
@@ -82,6 +88,7 @@ export function loadTaskSettings(): TaskSettings {
 			if (typeof raw[k] === 'boolean') out[k] = raw[k];
 		}
 		if (['today', 'inbox', 'upcoming'].includes(raw.startView)) out.startView = raw.startView;
+		if (UPCOMING_DAY_CHOICES.includes(raw.upcomingDays)) out.upcomingDays = raw.upcomingDays;
 		for (const k of ['dailyGoal', 'weeklyGoal'] as const) {
 			if (typeof raw[k] === 'number') out[k] = clampGoal(raw[k], out[k]);
 		}

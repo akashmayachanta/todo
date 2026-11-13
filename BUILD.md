@@ -12,7 +12,7 @@ The README explains how the app works. This file is just the steps.
 
 | Build | Run | Output |
 |---|---|---|
-| Try the app (dev mode) | `run-app.bat`, or `run-app.bat --server` to start the server too | Opens the app with live UI reload; nothing to install |
+| Try the app (dev mode) | `run-app.bat`, or `run-app.bat --server` to start the server too | Opens the app with live UI reload; nothing to install. Rust changes need a restart (`--watch` rebuilds on save, but can run a half-written migration) |
 | Server | `build-server.bat` | `target\release\tasks-server.exe` |
 | Windows exe | `build-windows.bat` (double-click, or run it from PowerShell) | `target\release\tasks-app.exe`, `target\release\bundle\nsis\*-setup.exe` |
 | Android APK | In Ubuntu: `bash /mnt/c/Drive/Vault/todo/build-android.sh` | `target\apk\tasks.apk` |

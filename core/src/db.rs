@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior};
 
 use crate::Result;
 
@@ -45,15 +45,22 @@ pub fn migrate(conn: &Connection) -> Result<()> {
 /// Brings any SQLite DB up to date with a list of `(name, sql)` migrations,
 /// oldest first: runs the ones past its `user_version`, each in a transaction.
 /// The server uses it for its accounts DB too.
+///
+/// Each step takes the write lock first (BEGIN IMMEDIATE) and reads the version
+/// under it, so two processes opening the same DB at once (a dev build next to
+/// the installed app, say) can't both run the same migration: the second waits
+/// out the first (the busy timeout) and then sees it done.
 pub fn run_migrations(conn: &Connection, migrations: &[(&str, &str)]) -> Result<()> {
-    let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
-    for (i, (_name, sql)) in migrations.iter().enumerate().skip(version.max(0) as usize) {
-        let tx = conn.unchecked_transaction()?;
+    loop {
+        let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+        let version: i64 = tx.pragma_query_value(None, "user_version", |r| r.get(0))?;
+        let Some((_name, sql)) = migrations.get(version.max(0) as usize) else {
+            return Ok(()); // up to date; dropping `tx` ends it
+        };
         tx.execute_batch(sql)?;
-        tx.pragma_update(None, "user_version", (i + 1) as i64)?;
+        tx.pragma_update(None, "user_version", version.max(0) + 1)?;
         tx.commit()?;
     }
-    Ok(())
 }
 
 pub fn get_state(conn: &Connection, key: &str) -> Result<Option<String>> {
@@ -92,5 +99,25 @@ mod tests {
         assert_eq!(version, MIGRATIONS.len() as i64);
         // Running again on an up-to-date DB is a no-op.
         migrate(&conn).unwrap();
+    }
+
+    #[test]
+    fn two_processes_opening_a_new_db_at_once_both_succeed() {
+        let dir = std::env::temp_dir().join(format!("tasks-migrate-{}", uuid::Uuid::new_v4()));
+        let path = dir.join("tasks.db");
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                let path = path.clone();
+                std::thread::spawn(move || open(&path).map(|_| ()))
+            })
+            .collect();
+        for h in handles {
+            h.join().unwrap().unwrap();
+        }
+        let conn = open(&path).unwrap();
+        let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
+        assert_eq!(version, MIGRATIONS.len() as i64);
+        drop(conn);
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

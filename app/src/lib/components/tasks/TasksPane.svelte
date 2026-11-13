@@ -24,6 +24,7 @@
 	let {
 		projects, categories, filters, counts, minutes, view, projectId, filterId, settings, today, query = '', browsing = false,
 		onsearch, onaddproject, oneditproject, ondeleteproject, onreorderprojects, onfavoriteproject, onaddfilter, oneditfilter, ondeletefilter,
+		taskDrag = false, ondroptasks = null,
 	}: {
 		projects: TaskProject[];
 		categories: TaskCategory[];
@@ -54,6 +55,10 @@
 		onaddfilter: () => void;
 		oneditfilter: (filter: TaskFilter) => void;
 		ondeletefilter: (filter: TaskFilter) => void;
+		/** Tasks are being dragged on the page: the Inbox, Today, projects and categories take them. */
+		taskDrag?: boolean;
+		/** Tasks dropped on a project, category or the Inbox (a move), or on Today (a date). */
+		ondroptasks?: ((to: { project_id: string | null; category_id: string | null } | { due_date: string }) => void) | null;
 	} = $props();
 
 	let search = $state<TaskSearchBox | null>(null);
@@ -141,8 +146,36 @@
 		dropAt = null;
 	}
 
+	// ── Dropping tasks on a list ───────────────────────────────────────────────
+
+	/** The list tasks being dragged would land in. */
+	let taskDropOn = $state<string | null>(null);
+	$effect(() => {
+		if (!taskDrag) taskDropOn = null;
+	});
+
+	function taskOver(e: DragEvent, key: string) {
+		if (!taskDrag || !ondroptasks) return;
+		e.preventDefault();
+		e.stopPropagation();
+		if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+		taskDropOn = key;
+	}
+
+	function taskLeave(e: DragEvent, key: string) {
+		if (taskDropOn === key && !(e.currentTarget as Node).contains(e.relatedTarget as Node | null)) taskDropOn = null;
+	}
+
+	function taskDrop(e: DragEvent, to: Parameters<NonNullable<typeof ondroptasks>>[0]) {
+		if (!taskDrag || !ondroptasks) return;
+		e.preventDefault();
+		e.stopPropagation();
+		taskDropOn = null;
+		ondroptasks(to);
+	}
+
 	function projectDragOver(e: DragEvent, p: TaskProject) {
-		if (dragId === null) return; // a task card, or something from outside
+		if (dragId === null) return taskOver(e, `p:${p.id}`); // tasks, or something from outside
 		e.preventDefault();
 		if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
 		const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -150,8 +183,8 @@
 		dropAt = dragId === p.id ? null : { id: p.id, after };
 	}
 
-	function projectDrop(e: DragEvent) {
-		if (dragId === null) return;
+	function projectDrop(e: DragEvent, p: TaskProject) {
+		if (dragId === null) return taskDrop(e, { project_id: p.id, category_id: null });
 		e.preventDefault();
 		const at = dropAt;
 		const id = dragId;
@@ -175,7 +208,16 @@
 	<div class="tasks-pane-lists">
 		<div class="tasks-pane-views">
 			{#each VIEWS as v}
-				<a href="?view={v.key}" class="tasks-pane-link" aria-current={view === v.key ? 'page' : undefined}>
+				{@const takes = v.key === 'inbox' || v.key === 'today'}
+				<a
+					href="?view={v.key}"
+					class="tasks-pane-link"
+					class:tasks-pane-task-over={taskDropOn === v.key}
+					aria-current={view === v.key ? 'page' : undefined}
+					ondragover={takes ? (e) => taskOver(e, v.key) : undefined}
+					ondragleave={takes ? (e) => taskLeave(e, v.key) : undefined}
+					ondrop={takes ? (e) => taskDrop(e, v.key === 'today' ? { due_date: today } : { project_id: null, category_id: null }) : undefined}
+				>
 					{#if v.key === 'today'}
 						<TodayIcon date={today} class="w-4 h-4 shrink-0" />
 					{:else}
@@ -194,7 +236,15 @@
 
 			{#each favorites as p (p.id)}
 				{@const here = view === 'project' && projectId === p.id}
-				<div class="tasks-pane-project" class:tasks-pane-project-active={here}>
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div
+					class="tasks-pane-project"
+					class:tasks-pane-project-active={here}
+					class:tasks-pane-task-over={taskDropOn === `f:${p.id}`}
+					ondragover={(e) => taskOver(e, `f:${p.id}`)}
+					ondragleave={(e) => taskLeave(e, `f:${p.id}`)}
+					ondrop={(e) => taskDrop(e, { project_id: p.id, category_id: null })}
+				>
 					<a href="?project={p.id}" class="tasks-pane-link" aria-current={here && !hash.startsWith('#task-cat-') ? 'page' : undefined}>
 						<PlaceMark color={projectColor(p.color)} />
 						<span class="tasks-pane-label">{p.name}</span>
@@ -269,8 +319,10 @@
 				draggable="true"
 				ondragstart={(e) => projectDragStart(e, p)}
 				ondragend={projectDragEnd}
+				class:tasks-pane-task-over={taskDropOn === `p:${p.id}`}
 				ondragover={(e) => projectDragOver(e, p)}
-				ondrop={projectDrop}
+				ondragleave={(e) => taskLeave(e, `p:${p.id}`)}
+				ondrop={(e) => projectDrop(e, p)}
 			>
 				<a href="?project={p.id}" class="tasks-pane-link" aria-current={here && !hash.startsWith('#task-cat-') ? 'page' : undefined}>
 					<PlaceMark color={projectColor(p.color)} />
@@ -326,7 +378,11 @@
 							<a
 								href="?project={p.id}#task-cat-{c.id}"
 								class="tasks-pane-link tasks-pane-cat"
+								class:tasks-pane-task-over={taskDropOn === `c:${c.id}`}
 								aria-current={here && hash === `#task-cat-${c.id}` ? 'page' : undefined}
+								ondragover={(e) => taskOver(e, `c:${c.id}`)}
+								ondragleave={(e) => taskLeave(e, `c:${c.id}`)}
+								ondrop={(e) => taskDrop(e, { project_id: p.id, category_id: c.id })}
 							>
 								<PlaceMark kind="category" color={projectColor(p.color)} />
 								<span class="tasks-pane-label">{c.name}</span>

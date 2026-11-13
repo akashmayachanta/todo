@@ -108,8 +108,17 @@
 	let categoryFocus = $state<'name' | 'desc'>('name');
 	/** The category being moved to another project. */
 	let movingCategory = $state<TaskCategory | null>(null);
-	/** The task being moved to another project or category (its "⋯" menu). */
-	let movingTask = $state<Task | null>(null);
+	/** The tasks being moved to another project or category (a task's "⋯" menu, or the selection's Move to…). */
+	let movingTasks = $state<Task[] | null>(null);
+	/** What "Move to…" is narrowed to. */
+	let moveQuery = $state('');
+	/** The tasks picked with Ctrl/Shift+click, in the order picked, and the last one clicked (Shift+click runs from it). */
+	let selectedIds = $state<string[]>([]);
+	let selectAnchor: string | null = null;
+	/** The tasks a drag carries: the picked ones when it started on one of them, else the dragged one. */
+	let dragSet = $state<Task[]>([]);
+	/** The hidden date box behind the selection's "Pick a date…". */
+	let bulkDateInput = $state<HTMLInputElement | null>(null);
 	let pane = $state<TasksPane | null>(null);
 
 	// ── Where we are (kept in the URL) ─────────────────────────────────────────
@@ -473,19 +482,33 @@
 			return;
 		}
 		dragging = task;
-		e.dataTransfer?.setData('text/plain', String(task.id));
-		if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+		const list = selection.has(task.id) && selectedTasks.length > 1 ? selectedTasks : [task];
+		dragSet = list;
+		e.dataTransfer?.setData('text/plain', list.map((t) => plainText(t.title)).join('\n'));
+		if (e.dataTransfer) {
+			e.dataTransfer.effectAllowed = 'move';
+			if (list.length > 1) {
+				// One badge for the lot, in place of a picture of the one card.
+				const badge = document.createElement('div');
+				badge.className = 'task-drag-badge';
+				badge.textContent = `${list.length} tasks`;
+				document.body.append(badge);
+				e.dataTransfer.setDragImage(badge, 16, 16);
+				setTimeout(() => badge.remove());
+			}
+		}
 	}
 
 	function cardDragEnd() {
 		dragging = null;
+		dragSet = [];
 		dropOver = null;
 		cardDropAt = null;
 	}
 
 	/** The card a drop lands by: before the first one whose middle is below the pointer, else after the last. */
-	function cardSpot(colEl: HTMLElement, y: number, id: string): { id: string; after: boolean } | null {
-		const cards = [...colEl.querySelectorAll<HTMLElement>('[data-card-id]')].filter((c) => c.dataset.cardId !== id);
+	function cardSpot(colEl: HTMLElement, y: number, ids: ReadonlySet<string>): { id: string; after: boolean } | null {
+		const cards = [...colEl.querySelectorAll<HTMLElement>('[data-card-id]')].filter((c) => !ids.has(c.dataset.cardId!));
 		for (const c of cards) {
 			const r = c.getBoundingClientRect();
 			if (y < r.top + r.height / 2) return { id: c.dataset.cardId!, after: false };
@@ -507,7 +530,7 @@
 		dropOver = col.key;
 		// Where the lists keep an order, the card goes where it's dropped, not just in the column.
 		if (sortable && dragging.parent_id === null) {
-			const next = cardSpot(e.currentTarget as HTMLElement, e.clientY, dragging.id);
+			const next = cardSpot(e.currentTarget as HTMLElement, e.clientY, new Set(dragSet.map((t) => t.id)));
 			if (next?.id !== cardDropAt?.id || next?.after !== cardDropAt?.after) cardDropAt = next;
 		}
 	}
@@ -523,9 +546,27 @@
 	function colDrop(e: DragEvent, col: Column) {
 		e.preventDefault();
 		const task = dragging;
+		const list = dragSet;
 		const at = cardDropAt;
 		cardDragEnd();
-		if (task) withFlip(() => dropOnColumn(task, col, at));
+		if (!task) return;
+		if (list.length <= 1) {
+			withFlip(() => dropOnColumn(task, col, at));
+			return;
+		}
+		// The picked tasks land together, in the order they're shown, each after the one before.
+		withFlip(async () => {
+			let by = at;
+			let moved = 0;
+			for (const t of list) {
+				const fresh = findTask(t.id);
+				if (!fresh || !canDrop(fresh, col)) continue;
+				await dropOnColumn(fresh, col, by);
+				moved++;
+				if (sortable && fresh.parent_id === null) by = { id: fresh.id, after: true };
+			}
+			if (moved) toast.success(`Moved ${countOf(moved)} to ${col.title}`);
+		});
 	}
 
 	/** A card held by touch and let go (sortHold): in a column, by the card it landed next to. */
@@ -954,13 +995,181 @@
 		}
 	}
 
-	/** Its subtasks go with it (patchTask reloads them). */
-	async function moveTask(task: Task, projectId: string | null, categoryId: string | null) {
-		movingTask = null;
-		if (task.project_id === projectId && task.category_id === categoryId) return;
-		await patchTask(task, { project_id: projectId, category_id: categoryId });
+	function openMove(list: Task[]) {
+		moveQuery = '';
+		movingTasks = list;
+	}
+
+	/**
+	 * Moves tasks to a project or category; their subtasks go with them. A subtask follows
+	 * its task, so a picked subtask stays where it is.
+	 */
+	async function moveTasks(list: Task[], projectId: string | null, categoryId: string | null) {
+		movingTasks = null;
+		const top = list.filter((t) => t.parent_id === null);
+		const skipped = list.length - top.length;
+		const changing = top.filter((t) => t.project_id !== projectId || t.category_id !== categoryId);
 		const to = placeName({ project_id: projectId, category_id: categoryId }, projects, categories);
-		toast.success(`Moved to ${to}`);
+		if (list.length === 1) {
+			if (!changing.length) return;
+			await patchTask(changing[0], { project_id: projectId, category_id: categoryId });
+			toast.success(`Moved to ${to}`);
+			return;
+		}
+		let moved = 0;
+		try {
+			for (const t of changing) {
+				replace(await api.tasks.update(t.id, { project_id: projectId, category_id: categoryId }));
+				moved++;
+			}
+		} catch (e) {
+			toast.error(errorDetail(e));
+		}
+		if (moved) await reloadTasks();
+		clearSelection();
+		const note = skipped ? ` (${skipped} subtask${skipped > 1 ? 's stay' : ' stays'} with ${skipped > 1 ? 'their tasks' : 'its task'})` : '';
+		if (moved) toast.success(`Moved ${countOf(moved)} to ${to}${note}`);
+		else if (skipped && !top.length) toast.error('Subtasks move with their task');
+	}
+
+	// ── Picking several tasks (Ctrl/Shift+click) ───────────────────────────────
+
+	/** A task on screen, wherever it's listed. */
+	function findTask(id: string): Task | null {
+		return tasks.find((t) => t.id === id) ?? completed.find((t) => t.id === id)
+			?? searchOpen.find((t) => t.id === id) ?? searchDone.find((t) => t.id === id) ?? null;
+	}
+
+	/** The task rows on screen, top to bottom (a board, column by column). */
+	function shownIds(): string[] {
+		if (typeof document === 'undefined') return [];
+		const rows = document.querySelectorAll<HTMLElement>('.tasks-main [data-select-id]');
+		return [...new Set([...rows].map((el) => el.dataset.selectId!))];
+	}
+
+	let selection = $derived(new Set(selectedIds));
+	/** The picked tasks still there, in the order they're shown. */
+	let selectedTasks = $derived.by(() => {
+		const list = selectedIds.map(findTask).filter((t): t is Task => !!t);
+		const order = new Map(shownIds().map((id, i) => [id, i]));
+		return list.sort((a, b) => (order.get(a.id) ?? Infinity) - (order.get(b.id) ?? Infinity));
+	});
+
+	function selectTask(task: Task, how: 'toggle' | 'range') {
+		if (how === 'range' && selectAnchor) {
+			const ids = shownIds();
+			const a = ids.indexOf(selectAnchor);
+			const b = ids.indexOf(task.id);
+			if (a >= 0 && b >= 0) {
+				selectedIds = [...new Set([...selectedIds, ...ids.slice(Math.min(a, b), Math.max(a, b) + 1)])];
+				return;
+			}
+		}
+		selectedIds = selection.has(task.id) ? selectedIds.filter((id) => id !== task.id) : [...selectedIds, task.id];
+		selectAnchor = task.id;
+	}
+
+	function clearSelection() {
+		selectedIds = [];
+		selectAnchor = null;
+	}
+
+	// Another view starts with nothing picked.
+	$effect(() => {
+		void view;
+		void projectId;
+		void filterId;
+		void searchQuery;
+		clearSelection();
+	});
+
+	const countOf = (n: number) => `${n} ${n === 1 ? 'task' : 'tasks'}`;
+
+	async function bulkDate(date: string | null) {
+		const list = [...selectedTasks];
+		for (const t of list) {
+			if (t.due_date === date) continue;
+			await patchTask(t, date ? { due_date: date } : { due_date: null, due_time: null });
+		}
+		toast.success(date ? `${countOf(list.length)} due ${dayLabel(date, now)}` : `Took the date off ${countOf(list.length)}`);
+	}
+
+	/** Monday of next week. */
+	function nextMonday(): string {
+		const dow = fromYmd(today).getDay();
+		return addDays(today, (8 - dow) % 7 || 7);
+	}
+
+	function onBulkDate(id: string) {
+		if (id === 'today') bulkDate(today);
+		else if (id === 'tomorrow') bulkDate(tomorrow);
+		else if (id === 'nextweek') bulkDate(nextMonday());
+		else if (id === 'none') bulkDate(null);
+		else if (id === 'pick' && bulkDateInput) {
+			bulkDateInput.value = today;
+			try {
+				bulkDateInput.showPicker();
+			} catch {
+				bulkDateInput.focus();
+			}
+		}
+	}
+
+	async function bulkPriority(id: string) {
+		const priority = Number(id.slice(1)) as Task['priority'];
+		const list = [...selectedTasks];
+		for (const t of list) if (t.priority !== priority) await patchTask(t, { priority });
+		toast.success(`${countOf(list.length)} set to priority ${priority}`);
+	}
+
+	async function bulkComplete() {
+		const list = selectedTasks.filter((t) => !t.completed_at);
+		clearSelection();
+		for (const t of list) await toggleTask(t);
+	}
+
+	async function bulkDelete() {
+		const list = [...selectedTasks];
+		// A picked subtask of a picked task goes with it.
+		const ids = new Set(list.map((t) => t.id));
+		const roots = list.filter((t) => !t.parent_id || !ids.has(t.parent_id));
+		if (!roots.length) return;
+		if (!(await confirmDialog(`Delete ${countOf(roots.length)}? Their subtasks go too.`))) return;
+		let gone = 0;
+		try {
+			for (const t of roots) {
+				await api.tasks.delete(t.id);
+				gone++;
+			}
+		} catch (e) {
+			toast.error(errorDetail(e));
+		}
+		const dead = (t: Task) => ids.has(t.id) || (t.parent_id !== null && ids.has(t.parent_id));
+		completed = completed.filter((t) => !dead(t));
+		searchOpen = searchOpen.filter((t) => !dead(t));
+		searchDone = searchDone.filter((t) => !dead(t));
+		if (taskId && ids.has(taskId)) closeTask();
+		clearSelection();
+		await reloadTasks();
+		if (gone) toast.success(`Deleted ${countOf(gone)}`);
+		const parents = new Set(roots.filter((t) => t.parent_id !== null && t.duration_minutes).map((t) => t.parent_id));
+		for (const parent of parents) await syncParentMinutes(parent, true);
+	}
+
+	/** Tasks dropped on the side pane: on a project, a category or the Inbox moves them; on Today dates them. */
+	function dropOnPane(to: { project_id: string | null; category_id: string | null } | { due_date: string }) {
+		const list = dragSet.length ? dragSet : dragging ? [dragging] : [];
+		cardDragEnd();
+		if (!list.length) return;
+		if ('due_date' in to) {
+			const date = to.due_date;
+			(async () => {
+				for (const t of list) if (t.due_date !== date) await patchTask(t, { due_date: date });
+				toast.success(`${countOf(list.length)} due ${dayLabel(date, now)}`);
+			})();
+		} else {
+			moveTasks(list, to.project_id, to.category_id);
+		}
 	}
 
 	/** An open copy just under it, with copies of its subtasks. */
@@ -1258,6 +1467,57 @@
 		node.querySelector('button')?.focus();
 	}
 
+	interface MoveOption {
+		key: string;
+		kind: 'inbox' | 'project' | 'category';
+		name: string;
+		/** A category's project, shown beside it while searching. */
+		parent?: string;
+		color: string | null;
+		projectId: string | null;
+		categoryId: string | null;
+	}
+
+	/**
+	 * Where "Move to…" can send tasks, narrowed by `query`: a project that matches keeps
+	 * all its categories; a category that matches brings its project along.
+	 */
+	function moveOptions(query: string): MoveOption[] {
+		const q = query.trim().toLowerCase();
+		const hit = (name: string) => !q || name.toLowerCase().includes(q);
+		const out: MoveOption[] = [];
+		if (hit('Inbox')) out.push({ key: 'inbox', kind: 'inbox', name: 'Inbox', color: null, projectId: null, categoryId: null });
+		for (const p of projects) {
+			const color = projectColor(p.color);
+			const cats = categories.filter((c) => c.project_id === p.id).sort((a, b) => a.position - b.position);
+			const shown = hit(p.name) ? cats : cats.filter((c) => hit(c.name));
+			if (!hit(p.name) && !shown.length) continue;
+			out.push({ key: `p:${p.id}`, kind: 'project', name: p.name, color, projectId: p.id, categoryId: null });
+			for (const c of shown) {
+				out.push({ key: `c:${c.id}`, kind: 'category', name: c.name, parent: p.name, color, projectId: p.id, categoryId: c.id });
+			}
+		}
+		// While searching, the best match leads: one whose name starts with what's typed.
+		if (q) {
+			const starts = out.findIndex((o) => o.name.toLowerCase().startsWith(q));
+			if (starts > 0) out.unshift(...out.splice(starts, 1));
+		}
+		return out;
+	}
+
+	/** Up and down arrows step through "Move to…"; up from the first goes back to the search box. */
+	function moveListKeys(e: KeyboardEvent) {
+		if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+		const panel = (e.currentTarget as HTMLElement).closest('.modal-panel');
+		const buttons = [...(panel?.querySelectorAll<HTMLElement>('.category-move-option') ?? [])];
+		const i = buttons.indexOf(document.activeElement as HTMLElement);
+		if (i < 0) return;
+		e.preventDefault();
+		const next = buttons[i + (e.key === 'ArrowDown' ? 1 : -1)];
+		if (next) next.focus();
+		else if (e.key === 'ArrowUp') panel?.querySelector<HTMLElement>('.move-search-input')?.focus();
+	}
+
 	// ── Keys ───────────────────────────────────────────────────────────────────
 
 	function mainAddKey() {
@@ -1267,7 +1527,7 @@
 
 	function onKeydown(e: KeyboardEvent) {
 		if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') {
-			if (projectDialog || filterDialog || movingCategory || movingTask) return;
+			if (projectDialog || filterDialog || movingCategory || movingTasks) return;
 			e.preventDefault();
 			if (taskId) closeTask();
 			// The search box is in the pane, so a hidden pane comes back first.
@@ -1287,14 +1547,18 @@
 			movingCategory = null;
 			return;
 		}
-		if (e.key === 'Escape' && movingTask) {
-			movingTask = null;
+		if (e.key === 'Escape' && movingTasks) {
+			movingTasks = null;
+			return;
+		}
+		if (e.key === 'Escape' && selectedIds.length && !taskId && !filterDialog && !e.defaultPrevented) {
+			clearSelection();
 			return;
 		}
 		if (e.key !== 'q' || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
 		const el = e.target as HTMLElement | null;
 		if (el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName))) return;
-		if (projectDialog || filterDialog || movingCategory || movingTask || taskId || view === 'karma' || view === 'search') return;
+		if (projectDialog || filterDialog || movingCategory || movingTasks || taskId || view === 'karma' || view === 'search') return;
 		e.preventDefault();
 		addingAt = mainAddKey();
 	}
@@ -1359,10 +1623,14 @@
 		ontoggle={toggleTask}
 		onopen={openTask}
 		onedit={(t) => { addingAt = null; inlineEditId = t.id; }}
-		onmove={(t) => (movingTask = t)}
+		onmove={(t) => openMove([t])}
 		onduplicate={duplicateTask}
 		onpin={isDesktop ? (t) => pin({ kind: 'task', id: t.id }) : null}
 		ondelete={deleteTask}
+		selectedIds={selection}
+		onselect={selectTask}
+		ondragstart={canHover && layout !== 'board' ? cardDragStart : null}
+		ondragend={cardDragEnd}
 	/>
 {/snippet}
 
@@ -1542,6 +1810,8 @@
 		onaddfilter={() => (filterDialog = 'new')}
 		oneditfilter={(f) => (filterDialog = f)}
 		ondeletefilter={deleteFilter}
+		taskDrag={dragging !== null}
+		ondroptasks={dropOnPane}
 	/>
 
 	<div class="tasks-main" class:tasks-main-board={layout === 'board'}>
@@ -1690,7 +1960,8 @@
 										class="task-card"
 										data-flip="card:{task.id}"
 										data-sort-lift
-										class:task-card-dragging={dragging?.id === task.id}
+										class:task-card-dragging={dragging?.id === task.id || dragSet.some((t) => t.id === task.id)}
+										class:task-card-selected={selection.has(task.id)}
 										class:card-drop-before={cardDropAt?.id === task.id && !cardDropAt.after}
 										class:card-drop-after={cardDropAt?.id === task.id && cardDropAt.after}
 										data-card-id={task.id}
@@ -1947,45 +2218,133 @@
 	</div>
 {/if}
 
-{#if movingTask}
-	{@const moving = movingTask}
-	{@const here = (projectId: string | null, categoryId: string | null) => moving.project_id === projectId && moving.category_id === categoryId}
-	<div class="modal-backdrop" onclick={() => (movingTask = null)} aria-hidden="true"></div>
+{#if movingTasks}
+	{@const moving = movingTasks}
+	{@const one = moving.length === 1 ? moving[0] : null}
+	{@const here = (projectId: string | null, categoryId: string | null) => !!one && one.project_id === projectId && one.category_id === categoryId}
+	{@const options = moveOptions(moveQuery)}
+	<div class="modal-backdrop" onclick={() => (movingTasks = null)} aria-hidden="true"></div>
 	<div class="modal-overlay">
 		<div class="modal-panel max-w-sm" role="dialog" aria-modal="true" aria-labelledby="move-task-title">
 			<div class="modal-header">
-				<h2 id="move-task-title" class="modal-title truncate">Move "{plainText(moving.title)}" to</h2>
-				<button onclick={() => (movingTask = null)} class="modal-close" aria-label="Close">
+				<h2 id="move-task-title" class="modal-title truncate">{one ? `Move "${plainText(one.title)}" to` : `Move ${moving.length} tasks to`}</h2>
+				<button onclick={() => (movingTasks = null)} class="modal-close" aria-label="Close">
 					<svg aria-hidden="true" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
 				</button>
 			</div>
+			<div class="move-search">
+				<svg aria-hidden="true" class="move-search-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M11 18a7 7 0 100-14 7 7 0 000 14z" /></svg>
+				<input
+					class="move-search-input"
+					type="search"
+					placeholder="Type a project or category"
+					aria-label="Filter projects and categories"
+					aria-controls="move-task-list"
+					autocomplete="off"
+					spellcheck="false"
+					bind:value={moveQuery}
+					use:focusOnMount
+					onkeydown={(e) => {
+						if (e.key === 'Enter' && options[0]) {
+							e.preventDefault();
+							moveTasks(moving, options[0].projectId, options[0].categoryId);
+						} else if (e.key === 'ArrowDown') {
+							e.preventDefault();
+							(e.currentTarget.closest('.modal-panel')?.querySelector('.category-move-option') as HTMLElement | null)?.focus();
+						}
+					}}
+				/>
+			</div>
 			<div class="modal-body">
-				<ul class="category-move-list" use:focusFirstButton>
-					<li>
-						<button type="button" class="category-move-option" aria-current={here(null, null) || undefined} onclick={() => moveTask(moving, null, null)}>
-							<PlaceMark color={null} />
-							<span class="truncate">Inbox</span>
-						</button>
-					</li>
-					{#each projects as p (p.id)}
+				<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+				<ul id="move-task-list" class="category-move-list" onkeydown={moveListKeys}>
+					{#each options as o, i (o.key)}
 						<li>
-							<button type="button" class="category-move-option" aria-current={here(p.id, null) || undefined} onclick={() => moveTask(moving, p.id, null)}>
-								<PlaceMark color={projectColor(p.color)} />
-								<span class="truncate">{p.name}</span>
+							<button
+								type="button"
+								class="category-move-option"
+								class:category-move-sub={o.kind === 'category'}
+								class:category-move-first={i === 0 && moveQuery.trim() !== ''}
+								aria-current={here(o.projectId, o.categoryId) || undefined}
+								onclick={() => moveTasks(moving, o.projectId, o.categoryId)}
+							>
+								<PlaceMark kind={o.kind === 'category' ? 'category' : undefined} color={o.color} />
+								<span class="truncate">{o.name}</span>
+								{#if o.kind === 'category' && moveQuery.trim() && o.parent}<span class="category-move-parent truncate">{o.parent}</span>{/if}
 							</button>
 						</li>
-						{#each categories.filter((c) => c.project_id === p.id).sort((a, b) => a.position - b.position) as c (c.id)}
-							<li>
-								<button type="button" class="category-move-option category-move-sub" aria-current={here(p.id, c.id) || undefined} onclick={() => moveTask(moving, p.id, c.id)}>
-									<PlaceMark kind="category" color={projectColor(p.color)} />
-									<span class="truncate">{c.name}</span>
-								</button>
-							</li>
-						{/each}
+					{:else}
+						<li class="category-move-empty">Nothing matches "{moveQuery.trim()}"</li>
 					{/each}
 				</ul>
 			</div>
 		</div>
+	</div>
+{/if}
+
+{#if selectedTasks.length}
+	{@const n = selectedTasks.length}
+	<div class="task-bulkbar" role="toolbar" aria-label="{n} selected {n === 1 ? 'task' : 'tasks'}">
+		<button type="button" class="task-bulk-btn" onclick={clearSelection} title="Clear the selection (Esc)">
+			<svg aria-hidden="true" class="task-bulk-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+			<span class="task-bulk-count">{n} selected</span>
+		</button>
+		<span class="task-bulk-sep" aria-hidden="true"></span>
+		<DropdownMenu
+			class="task-bulk-menu"
+			triggerClass="task-bulk-btn"
+			label="Date"
+			align="start"
+			items={[
+				{ id: 'today', label: 'Today' },
+				{ id: 'tomorrow', label: 'Tomorrow' },
+				{ id: 'nextweek', label: 'Next week' },
+				{ id: 'pick', label: 'Pick a date…' },
+				{ id: 'none', label: 'No date' },
+			]}
+			onselect={onBulkDate}
+		>
+			{#snippet icon()}
+				<svg aria-hidden="true" class="task-bulk-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+			{/snippet}
+		</DropdownMenu>
+		<input
+			bind:this={bulkDateInput}
+			class="task-bulk-date"
+			type="date"
+			tabindex="-1"
+			aria-hidden="true"
+			onchange={(e) => { const v = e.currentTarget.value; if (v) bulkDate(v); }}
+		/>
+		<DropdownMenu
+			class="task-bulk-menu"
+			triggerClass="task-bulk-btn"
+			label="Priority"
+			align="start"
+			items={[
+				{ id: 'p1', label: 'Priority 1' },
+				{ id: 'p2', label: 'Priority 2' },
+				{ id: 'p3', label: 'Priority 3' },
+				{ id: 'p4', label: 'Priority 4' },
+			]}
+			onselect={bulkPriority}
+		>
+			{#snippet icon()}
+				<svg aria-hidden="true" class="task-bulk-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M5 21V4m0 0h11l-2 4 2 4H5" /></svg>
+			{/snippet}
+		</DropdownMenu>
+		<button type="button" class="task-bulk-btn" onclick={() => openMove(selectedTasks)}>
+			<svg aria-hidden="true" class="task-bulk-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4.38l1.5 2h9.12A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5v-10zM10 13.5h5m0 0l-2-2m2 2l-2 2" /></svg>
+			Move to…
+		</button>
+		<button type="button" class="task-bulk-btn" onclick={bulkComplete}>
+			<svg aria-hidden="true" class="task-bulk-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+			Complete
+		</button>
+		<button type="button" class="task-bulk-btn task-bulk-danger" onclick={bulkDelete}>
+			<svg aria-hidden="true" class="task-bulk-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6" /></svg>
+			Delete
+		</button>
 	</div>
 {/if}
 

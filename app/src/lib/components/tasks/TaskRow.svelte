@@ -26,6 +26,7 @@
 	let {
 		task, parent = null, subtasksOf, nested = false, subtaskFilter = null, showDoneSubtasks = false, showNote = true, place = null, fields = null, now,
 		editingId = null, editor, sort = null, compact = false, ontoggle, onopen, onedit, onmove = null, onduplicate = null, onpin = null, ondelete,
+		selectedIds = null, onselect = null, ondragstart = null, ondragend = null,
 	}: {
 		task: Task;
 		/** The task this subtask belongs to, when the list doesn't already show it. */
@@ -57,7 +58,15 @@
 		/** Pins it to the desktop; null where there are no pins (Android). */
 		onpin?: ((task: Task) => void) | null;
 		ondelete?: (task: Task) => void;
+		/** The tasks picked with Ctrl/Shift+click; a picked row is highlighted. */
+		selectedIds?: ReadonlySet<string> | null;
+		/** Ctrl (⌘) + click picks or unpicks it; Shift + click picks the rows up to it. */
+		onselect?: ((task: Task, how: 'toggle' | 'range') => void) | null;
+		/** A picked row drags by the mouse (HTML5), with the other picked ones, to a board column or the side pane. */
+		ondragstart?: ((e: DragEvent, task: Task) => void) | null;
+		ondragend?: (() => void) | null;
 	} = $props();
+
 
 	let subtasks = $derived(task.parent_id === null ? subtasksOf(task.id) : []);
 	let openSubtasks = $derived(subtasks.filter((s) => !s.completed_at));
@@ -78,6 +87,9 @@
 		(showDoneSubtasks ? subtasks : openSubtasks).filter((s) => !subtaskFilter || subtaskFilter(task, s)),
 	);
 	let editing = $derived(!!editor && editingId === task.id);
+	let selected = $derived(!!selectedIds?.has(task.id));
+	/** Only picked rows drag natively, so a plain press still selects text and follows links. */
+	let nativeDrag = $derived(selected && !!ondragstart && !editing);
 	/** The subtask count shows or hides the subtasks listed under it. */
 	let canCollapse = $derived(nested && subtaskCount && shownSubtasks.length > 0);
 	let collapsed = $derived(canCollapse && $collapsedSubtasks.includes(task.id));
@@ -101,6 +113,12 @@
 	}
 
 	function onMainClick(e: MouseEvent) {
+		if (onselect && (e.ctrlKey || e.metaKey || e.shiftKey)) {
+			// A link in the title is clicked through to the row, not followed.
+			e.preventDefault();
+			onselect(task, e.shiftKey ? 'range' : 'toggle');
+			return;
+		}
 		if (e.altKey && onedit) {
 			e.preventDefault();
 			onedit(task);
@@ -110,9 +128,14 @@
 	}
 </script>
 
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	class="task-item"
 	data-flip={task.id}
+	data-select-id={onselect ? task.id : undefined}
+	draggable={nativeDrag || undefined}
+	ondragstart={nativeDrag ? (e) => { if (e.target === e.currentTarget) { e.stopPropagation(); ondragstart?.(e, task); } } : undefined}
+	ondragend={nativeDrag ? () => ondragend?.() : undefined}
 	data-sort-id={sort ? task.id : undefined}
 	data-sort-kind={sort ? (task.parent_id ? 'sub' : 'top') : undefined}
 	use:sortHold={sort && !editing ? { id: task.id, kind: task.parent_id ? 'sub' : 'top', ondrop: sort.ondrop, onstep: sort.onstep } : null}
@@ -120,7 +143,7 @@
 	{#if editing && editor}
 		{@render editor(task)}
 	{:else}
-		<div class="task-row" class:task-row-done={done} class:task-row-compact={compact}>
+		<div class="task-row" class:task-row-done={done} class:task-row-compact={compact} class:task-row-selected={selected}>
 			{#if sort}<TaskGrip id={task.id} kind={task.parent_id ? 'sub' : 'top'} {name} {sort} />{/if}
 			<button
 				type="button"
@@ -214,7 +237,7 @@
 	{#if nested && shownSubtasks.length && !collapsed}
 		<div class="task-subtasks">
 			{#each shownSubtasks as sub (sub.id)}
-				<TaskRow task={sub} {subtasksOf} {showNote} {fields} {now} {editingId} {editor} {sort} {compact} {ontoggle} {onopen} {onedit} {onmove} {onduplicate} {onpin} {ondelete} />
+				<TaskRow task={sub} {subtasksOf} {showNote} {fields} {now} {editingId} {editor} {sort} {compact} {ontoggle} {onopen} {onedit} {onmove} {onduplicate} {onpin} {ondelete} {selectedIds} {onselect} />
 			{/each}
 		</div>
 	{/if}

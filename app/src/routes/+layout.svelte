@@ -13,7 +13,8 @@
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import QuickAddDialog from '$lib/components/tasks/QuickAddDialog.svelte';
 	import { setTasksClient, tasksChanged } from '$lib/tasks/client';
-	import { isQuickAddShortcut, openQuickAdd, quickAdd, quickAddKeys } from '$lib/stores/taskQuickAdd';
+	import { isQuickAddShortcut, openQuickAdd, quickAdd, quickAddKeys, type QuickAddDefaults } from '$lib/stores/taskQuickAdd';
+	import { addDays, ymd } from '$lib/taskParse';
 	import { keyLabels } from '$lib/shortcutKeys';
 	import { applyTheme, followSystemTheme } from '$lib/stores/theme';
 	// Loaded in every window (the pins and popup too): it puts the date & time settings in effect.
@@ -66,6 +67,43 @@
 		goto(`/tasks?task=${encodeURIComponent(id)}`);
 	}
 
+	/**
+	 * The quick add, with what Android's widget or the app icon's "Add task" asked for
+	 * (app_take_quick_add: `{project_id?, category_id?, due?: 'today' | 'tomorrow'}`;
+	 * `project_id: null` is the Inbox),
+	 * else the page's own defaults. `force` opens it even when nothing was asked (Alt+N).
+	 */
+	async function takeQuickAdd(force: boolean) {
+		const asked = await call<string | null>('app_take_quick_add').catch(() => null);
+		if (!asked) {
+			if (force) openQuickAdd();
+			return;
+		}
+		try {
+			const a = JSON.parse(asked) as { project_id?: string | null; category_id?: string; due?: string };
+			// The app icon's "Add task" asks for nothing in particular: the page's defaults.
+			if (!Object.keys(a).length) {
+				openQuickAdd();
+				return;
+			}
+			const today = ymd(new Date());
+			const defaults: QuickAddDefaults = {};
+			if ('project_id' in a) defaults.project_id = a.project_id ?? null;
+			if (a.category_id) defaults.category_id = a.category_id;
+			if (a.due === 'today') defaults.due_date = today;
+			else if (a.due === 'tomorrow') defaults.due_date = addDays(today, 1);
+			openQuickAdd(defaults);
+		} catch {
+			openQuickAdd();
+		}
+	}
+
+	/** A view Android's widget or an app shortcut asked for: the Tasks page's query string. */
+	async function takeOpenView() {
+		const query = await call<string | null>('app_take_open_view').catch(() => null);
+		if (query) goto(`/tasks?${query}`);
+	}
+
 	function syncNow() {
 		call('app_sync_now').catch(() => {});
 	}
@@ -94,6 +132,8 @@
 				if (s.configured && s.sync.ready) checkForUpdate();
 			});
 			call<string | null>('app_take_open_task').then((id) => id && openTask(id));
+			// Android: the widget or an app shortcut started the app.
+			takeOpenView().then(() => takeQuickAdd(false));
 			// Settings → Desktop's quick add shortcut, for the window's own key handler below.
 			call<{ quick_add: string | null } | null>('app_desktop_get')
 				.then((d) => d && quickAddKeys.set(d.quick_add))
@@ -104,7 +144,8 @@
 				listen<SyncStatus>('tasks://sync', (e) => {
 					if (status) status = { ...status, sync: e.payload, configured: e.payload.state !== 'signed_out' && status.configured };
 				}),
-				listen('tasks://quick-add', () => openQuickAdd()),
+				listen('tasks://quick-add', () => takeQuickAdd(true)),
+				listen('tasks://open-view', () => takeOpenView()),
 				listen<string>('tasks://open-task', (e) => openTask(e.payload)),
 			);
 		}

@@ -83,6 +83,8 @@ pub(crate) async fn round(app: &AppHandle, st: &Arc<AppState>) -> Duration {
     // changes next time, so this is the only chance to show them.
     if force || report.changed > 0 {
         let _ = app.emit(EVENT_CHANGED, report.changed);
+        #[cfg(target_os = "android")]
+        crate::android::refresh_widgets();
     }
     let pending = pending(st);
     match result {

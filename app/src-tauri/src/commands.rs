@@ -349,6 +349,26 @@ pub fn app_take_open_task(st: St) -> Option<String> {
     lock(&st.open_task).take()
 }
 
+/// Android: what the home screen widget's + or the app icon's "Add task" asked
+/// for, once, as JSON `{project_id?, category_id?, due?}`. None elsewhere.
+#[tauri::command]
+pub fn app_take_quick_add() -> Option<String> {
+    #[cfg(target_os = "android")]
+    return crate::android::take_quick_add();
+    #[cfg(not(target_os = "android"))]
+    None
+}
+
+/// Android: the Tasks page view the widget or an app shortcut asked for, once, as
+/// its query string ("view=today", "project=<id>#task-cat-<id>"). None elsewhere.
+#[tauri::command]
+pub fn app_take_open_view() -> Option<String> {
+    #[cfg(target_os = "android")]
+    return crate::android::take_open_view();
+    #[cfg(not(target_os = "android"))]
+    None
+}
+
 /// Opens a task in the main window, from a pin.
 #[tauri::command]
 pub fn app_show_task(app: AppHandle, id: String) {

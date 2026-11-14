@@ -7,6 +7,11 @@
 //! - A WorkManager job (SyncWorker) calls `backgroundSync` every 15 minutes while
 //!   the app is closed, so reminders set on another device still get scheduled.
 //! - A tapped reminder calls `openTask`.
+//! - The home screen widget (TasksWidget.kt) reads its lists through
+//!   `widgetSources` and `widgetList` (home_widget.rs), ticks tasks with
+//!   `widgetComplete`, and is told to reload by `refresh_widgets`.
+//! - The widget's + and the app icon's "Add task" shortcut call `openQuickAdd`;
+//!   the widget's title and the app icon's Search, Today and Inbox call `openView`.
 
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -19,6 +24,7 @@ use serde::Serialize;
 use tauri::plugin::{Builder, PluginHandle, TauriPlugin};
 use tauri::{AppHandle, Emitter, Manager, Wry};
 
+use crate::home_widget;
 use crate::state::{lock, AppState};
 
 /// The running app, once its state is ready. Unset when Android started the
@@ -26,6 +32,12 @@ use crate::state::{lock, AppState};
 static APP: OnceLock<AppHandle> = OnceLock::new();
 /// A tapped reminder's task, when the tap started the app before its state was ready.
 static PENDING_TASK: Mutex<Option<String>> = Mutex::new(None);
+/// The quick add the widget or the app shortcut asked for (JSON defaults), until
+/// the page takes it (app_take_quick_add).
+static PENDING_QUICK_ADD: Mutex<Option<String>> = Mutex::new(None);
+/// The view the widget or a shortcut asked for (the Tasks page's query string,
+/// e.g. "view=today"), until the page takes it (app_take_open_view).
+static PENDING_VIEW: Mutex<Option<String>> = Mutex::new(None);
 
 struct Bridge(Arc<PluginHandle<Wry>>);
 
@@ -70,6 +82,26 @@ pub fn schedule(app: &AppHandle, dir: &Path, reminders: String) {
             eprintln!("Can't schedule the reminders: {e}");
         }
     });
+}
+
+/// Tells the home screen widgets to load their lists again. A no-op when the app
+/// isn't running in this process: whoever changed the DB then refreshes them (Kotlin).
+pub fn refresh_widgets() {
+    let Some(handle) = APP.get().and_then(bridge) else { return };
+    tauri::async_runtime::spawn(async move {
+        let call = handle.run_mobile_plugin_async::<serde_json::Value>("refreshWidgets", serde_json::json!({}));
+        if let Ok(Err(e)) = tokio::time::timeout(Duration::from_secs(10), call).await {
+            eprintln!("Can't refresh the widgets: {e}");
+        }
+    });
+}
+
+pub fn take_quick_add() -> Option<String> {
+    lock(&PENDING_QUICK_ADD).take()
+}
+
+pub fn take_open_view() -> Option<String> {
+    lock(&PENDING_VIEW).take()
 }
 
 /// Whether Android will deliver reminders on time: notifications, exact alarms, battery.
@@ -132,6 +164,114 @@ pub extern "system" fn Java_dev_tasks_app_Native_openTask(mut env: JNIEnv, _clas
         *lock(&st.open_task) = Some(id.clone());
     }
     let _ = app.emit(crate::EVENT_OPEN_TASK, id);
+}
+
+/// Opens the page's quick add with these defaults (JSON). Kept until the page takes
+/// it, since the page may not be listening yet when the tap started the app.
+#[no_mangle]
+pub extern "system" fn Java_dev_tasks_app_Native_openQuickAdd(mut env: JNIEnv, _class: JClass, defaults: JString) {
+    let Ok(defaults) = env.get_string(&defaults).map(String::from) else { return };
+    *lock(&PENDING_QUICK_ADD) = Some(defaults);
+    if let Some(app) = APP.get() {
+        let _ = app.emit(crate::EVENT_QUICK_ADD, ());
+    }
+}
+
+/// Shows a view of the Tasks page: its query string, e.g. "view=inbox" or
+/// "project=<id>#task-cat-<id>". Kept until the page takes it, like openQuickAdd.
+#[no_mangle]
+pub extern "system" fn Java_dev_tasks_app_Native_openView(mut env: JNIEnv, _class: JClass, query: JString) {
+    let Ok(query) = env.get_string(&query).map(String::from) else { return };
+    *lock(&PENDING_VIEW) = Some(query);
+    if let Some(app) = APP.get() {
+        let _ = app.emit(crate::EVENT_OPEN_VIEW, ());
+    }
+}
+
+/// The lists a widget can show (home_widget::sources), or null.
+#[no_mangle]
+pub extern "system" fn Java_dev_tasks_app_Native_widgetSources<'l>(mut env: JNIEnv<'l>, _class: JClass<'l>, dir: JString<'l>) -> jstring {
+    let Ok(dir) = env.get_string(&dir).map(String::from) else { return std::ptr::null_mut() };
+    let json = guarded(|| with_db(Path::new(&dir), |conn| home_widget::sources(conn).ok().map(|v| v.to_string())));
+    to_java(&mut env, json)
+}
+
+/// One list for a widget (home_widget::list), or null.
+#[no_mangle]
+pub extern "system" fn Java_dev_tasks_app_Native_widgetList<'l>(
+    mut env: JNIEnv<'l>,
+    _class: JClass<'l>,
+    dir: JString<'l>,
+    kind: JString<'l>,
+    id: JString<'l>,
+) -> jstring {
+    let mut text = |s: &JString<'l>| env.get_string(s).map(String::from).ok();
+    let (Some(dir), Some(kind), Some(id)) = (text(&dir), text(&kind), text(&id)) else {
+        return std::ptr::null_mut();
+    };
+    let json = guarded(|| with_db(Path::new(&dir), |conn| home_widget::list(conn, &kind, &id).ok().map(|v| v.to_string())));
+    to_java(&mut env, json)
+}
+
+/// Ticks a task from a widget, as the page's tick does. Returns the reminders to
+/// schedule as JSON when the app is closed (the caller then syncs), else null.
+#[no_mangle]
+pub extern "system" fn Java_dev_tasks_app_Native_widgetComplete<'l>(mut env: JNIEnv<'l>, _class: JClass<'l>, dir: JString<'l>, id: JString<'l>) -> jstring {
+    let mut text = |s: &JString<'l>| env.get_string(s).map(String::from).ok();
+    let (Some(dir), Some(id)) = (text(&dir), text(&id)) else { return std::ptr::null_mut() };
+    let json = guarded(|| {
+        if let Some(st) = running_state() {
+            // The write wakes the sync loop and refreshes the widgets.
+            if let Err(e) = complete(&st, &id) {
+                eprintln!("Can't complete the task: {e}");
+            }
+            return None;
+        }
+        let st = AppState::open(Path::new(&dir)).ok()?;
+        if let Err(e) = complete(&st, &id) {
+            eprintln!("Can't complete the task: {e}");
+        }
+        Some(crate::reminders::upcoming_json(&st))
+    });
+    to_java(&mut env, json)
+}
+
+fn complete(st: &AppState, id: &str) -> Result<bool, String> {
+    crate::commands::db(st, true, |conn, ctx| {
+        let task = tasks_core::ops::get_task(conn, id)?;
+        if task.completed_at.is_some() {
+            return Ok(false);
+        }
+        tasks_core::ops::update_task(conn, ctx, id, crate::reminders::complete_patch(&task))?;
+        Ok(true)
+    })
+}
+
+/// The running app's state, when the app is running in this process.
+fn running_state() -> Option<Arc<AppState>> {
+    APP.get()?.try_state::<Arc<AppState>>().map(|s| s.inner().clone())
+}
+
+/// Reads with the running app's connection, or opens the DB when the app is closed.
+fn with_db<T>(dir: &Path, f: impl FnOnce(&rusqlite::Connection) -> Option<T>) -> Option<T> {
+    if let Some(st) = running_state() {
+        return f(&lock(&st.db));
+    }
+    let st = AppState::open(dir).ok()?;
+    let conn = lock(&st.db);
+    f(&conn)
+}
+
+/// A panic in Rust must not unwind into Java.
+fn guarded<T>(f: impl FnOnce() -> Option<T>) -> Option<T> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).ok().flatten()
+}
+
+fn to_java(env: &mut JNIEnv, json: Option<String>) -> jstring {
+    match json {
+        Some(json) => env.new_string(json).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut()),
+        None => std::ptr::null_mut(),
+    }
 }
 
 #[no_mangle]

@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The list widget (HomeWidgets.kt). Copied in by scripts/android-native.mjs. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/tasks_widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/tasks_widget_bg"
+    android:orientation="vertical"
+    android:padding="4dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="12dp"
+        android:paddingEnd="2dp">
+
+        <TextView
+            android:id="@+id/tasks_widget_title"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:gravity="center_vertical"
+            android:maxLines="1"
+            android:text="Today"
+            android:textColor="@color/tasks_widget_text"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <ImageView
+            android:id="@+id/tasks_widget_pick"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:contentDescription="Choose the list"
+            android:padding="9dp"
+            android:src="@drawable/ic_widget_pick" />
+
+        <ImageView
+            android:id="@+id/tasks_widget_add"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:contentDescription="Add task"
+            android:padding="5dp"
+            android:src="@drawable/ic_shortcut_add" />
+    </LinearLayout>
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <ListView
+            android:id="@+id/tasks_widget_list"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:divider="@null"
+            android:dividerHeight="0dp" />
+
+        <TextView
+            android:id="@+id/tasks_widget_empty"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:padding="16dp"
+            android:text="Nothing to do"
+            android:textColor="@color/tasks_widget_muted"
+            android:textSize="14sp" />
+    </FrameLayout>
+</LinearLayout>

@@ -778,6 +778,17 @@
 		loadSearch().catch((e) => toast.error(errorDetail(e)));
 	});
 
+	// ?focus=search (Android's Search shortcut and widget, as "view=browse&focus=search"):
+	// the cursor goes into the pane's search box, then the parameter is dropped.
+	$effect(() => {
+		if (params.get('focus') !== 'search' || !pane) return;
+		const keep = browsing ? { view: 'browse' } : here();
+		tick().then(() => {
+			pane?.focusSearch();
+			go(keep, true);
+		});
+	});
+
 	function runSearch(text: string) {
 		const q = text.trim();
 		if (q) {
@@ -1525,6 +1536,29 @@
 		return view === 'upcoming' ? `date:${tomorrow}` : 'main';
 	}
 
+	/** G then I, T or U: go to the Inbox, Today or Upcoming, as in Todoist. */
+	const GO_VIEWS: Record<string, TaskView> = { i: 'inbox', t: 'today', u: 'upcoming' };
+	let goPending = 0;
+
+	function goKey(e: KeyboardEvent): boolean {
+		const key = e.key.toLowerCase();
+		if (goPending && Date.now() - goPending < 1500) {
+			goPending = 0;
+			const to = GO_VIEWS[key];
+			if (!to) return false;
+			if (projectDialog || filterDialog || movingCategory || movingTasks) return true;
+			e.preventDefault();
+			go({ view: to });
+			return true;
+		}
+		goPending = 0;
+		if (key !== 'g' || e.shiftKey || e.repeat) return false;
+		if (projectDialog || filterDialog || movingCategory || movingTasks) return false;
+		goPending = Date.now();
+		e.preventDefault();
+		return true;
+	}
+
 	function onKeydown(e: KeyboardEvent) {
 		if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') {
 			if (projectDialog || filterDialog || movingCategory || movingTasks) return;
@@ -1555,9 +1589,11 @@
 			clearSelection();
 			return;
 		}
-		if (e.key !== 'q' || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
+		if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
 		const el = e.target as HTMLElement | null;
 		if (el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName))) return;
+		if (goKey(e)) return;
+		if (e.key !== 'q') return;
 		if (projectDialog || filterDialog || movingCategory || movingTasks || taskId || view === 'karma' || view === 'search') return;
 		e.preventDefault();
 		addingAt = mainAddKey();

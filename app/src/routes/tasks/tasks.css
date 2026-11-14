@@ -314,6 +314,35 @@
   font-weight: 500;
 }
 
+/* "Go to Today  G then T", beside the pane's Inbox, Today and Upcoming on hover. */
+.tasks-pane-tip {
+  position: fixed;
+  z-index: var(--z-tooltip);
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.3125rem 0.5rem;
+  border-radius: var(--radius-control);
+  background-color: #1f1f1f;
+  color: #fff;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.2);
+}
+
+.tasks-pane-tip kbd {
+  min-width: 1.125rem;
+  padding: 0 0.25rem;
+  border-radius: 3px;
+  background-color: rgb(255 255 255 / 0.18);
+  font-family: inherit;
+  font-size: var(--text-xs);
+  line-height: 1.125rem;
+  text-align: center;
+}
+
 .tasks-pane-label {
   flex: 1;
   min-width: 0;
@@ -753,14 +782,73 @@
   }
 }
 
-/* The line where it will land fades in rather than blinking on. */
-.sort-drop-before::before,
-.sort-drop-after::after {
-  animation: tasks-fade-in var(--dur-micro) var(--ease-out);
+/* Where it will land: one line (sortable.ts places it with `translate`) that glides from
+   gap to gap, with a dot at its start. The two items either side ease apart to make room. */
+.sort-indicator {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 61;
+  border-radius: 1px;
+  background-color: var(--color-brand);
+  pointer-events: none;
+  opacity: 0;
+  transition:
+    translate 140ms var(--ease-out),
+    width 140ms var(--ease-out),
+    height 140ms var(--ease-out),
+    opacity var(--dur-micro) var(--ease-out);
 }
 
+.sort-indicator-on {
+  opacity: 1;
+}
+
+.sort-indicator::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: -4px;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  border: 2px solid var(--color-brand);
+  border-radius: 50%;
+  background-color: var(--bg-card);
+}
+
+.sort-indicator-row::before {
+  top: -4px;
+  left: 50%;
+  margin-top: 0;
+  margin-left: -4px;
+}
+
+html.sort-active [data-sort-id],
+html.sort-active [data-sort-lift],
+html.sort-active [data-cat-id] {
+  transition: translate 180ms var(--ease-out), opacity var(--dur-micro) var(--ease-out);
+}
+
+.sort-nudge-a {
+  translate: 0 -4px;
+}
+
+.sort-nudge-b {
+  translate: 0 4px;
+}
+
+.sort-nudge-row.sort-nudge-a {
+  translate: -6px 0;
+}
+
+.sort-nudge-row.sort-nudge-b {
+  translate: 6px 0;
+}
+
+.sort-drop-into > .task-row,
 .sort-drop-zone {
-  transition: background-color var(--dur-micro) var(--ease-out);
+  transition: background-color var(--dur-micro) var(--ease-out), outline-color var(--dur-micro) var(--ease-out);
 }
 
 /* A category is picked up by its head: grabbed with the mouse, held with a finger. */
@@ -780,34 +868,6 @@
   }
 }
 
-/* In the list, its line sits in the gap above or below the category. */
-.task-group[data-cat-id].sort-drop-before::before {
-  top: calc(var(--space-lg) / -2 - 1px);
-}
-
-.task-group[data-cat-id].sort-drop-after::after {
-  bottom: calc(var(--space-lg) / -2 - 1px);
-}
-
-/* On the board, in the gap left or right of the column. */
-.task-col[data-cat-id].sort-drop-before::before,
-.task-col[data-cat-id].sort-drop-after::after {
-  top: 0;
-  bottom: 0;
-  left: auto;
-  right: auto;
-  width: 2px;
-  height: auto;
-}
-
-.task-col[data-cat-id].sort-drop-before::before {
-  left: calc(var(--space-lg) / -2 - 1px);
-}
-
-.task-col[data-cat-id].sort-drop-after::after {
-  right: calc(var(--space-lg) / -2 - 1px);
-}
-
 /* A picked-up category reads as a card: its colour spreads a little past its edge,
    with the shadow under that. */
 .sort-ghost-group {
@@ -823,32 +883,23 @@
   }
 
   .tasks-topbar,
-  .sort-ghost,
-  .sort-drop-before::before,
-  .sort-drop-after::after {
+  .sort-ghost {
     animation: none;
   }
-}
 
-.sort-drop-before::before,
-.sort-drop-after::after {
-  content: "";
-  position: absolute;
-  z-index: 1;
-  left: 0;
-  right: 0;
-  height: 2px;
-  border-radius: 1px;
-  background-color: var(--color-brand);
-  pointer-events: none;
-}
+  .sort-indicator,
+  html.sort-active [data-sort-id],
+  html.sort-active [data-sort-lift],
+  html.sort-active [data-cat-id] {
+    transition: none;
+  }
 
-.sort-drop-before::before {
-  top: -1px;
-}
-
-.sort-drop-after::after {
-  bottom: -1px;
+  .sort-nudge-a,
+  .sort-nudge-b,
+  .sort-nudge-row.sort-nudge-a,
+  .sort-nudge-row.sort-nudge-b {
+    translate: none;
+  }
 }
 
 /* A subtask dropped here goes under this task. */
@@ -2174,21 +2225,6 @@ button.task-modal-crumb:hover {
 /* A board card moves by dragging it anywhere (touch: holding it first), so it has no grip. */
 .task-card .task-grip {
   display: none;
-}
-
-/* A card held by touch: its place in the gap above or below the card it lands by. */
-.task-card > .task-item.sort-drop-before::before,
-.task-card > .task-item.sort-drop-after::after {
-  left: calc(-1 * var(--space-sm) - 1px);
-  right: calc(-1 * var(--space-sm) - 1px);
-}
-
-.task-card > .task-item.sort-drop-before::before {
-  top: calc(-1 * var(--space-xs) / 2 - 2px);
-}
-
-.task-card > .task-item.sort-drop-after::after {
-  bottom: calc(-1 * var(--space-xs) / 2 - 2px);
 }
 
 /* A held card lifts a little, so it's clear it's picked up. */

@@ -274,18 +274,72 @@
   opacity: 1;
 }
 
-/* ── App-wide quick add dialog ──────────────────────────────────────────── */
-.quick-add-overlay {
+/* ── The quick add card ─────────────────────────────────────────────────── */
+/* The Ctrl+Space popup (routes/widget/quick) and the in-app dialog below share it. */
+.widget-quick-card {
+  width: 100%;
+  padding: var(--space-xs) var(--space-sm);
+  border: var(--rule-hair) solid var(--clr-border-light);
+  border-radius: var(--radius-card);
+  background-color: var(--bg-card);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.35);
+}
+
+.widget-quick-card .quick-add {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+/* The line takes the width; the tips button sits at its top right. */
+.widget-quick-row {
+  display: flex;
   align-items: flex-start;
-  padding-top: 14vh;
+  gap: var(--space-2xs);
+}
+
+.widget-quick-row > .quick-add,
+.widget-quick-row > .quick-add-loading {
+  flex: 1;
+  min-width: 0;
+}
+
+.widget-quick-row > .smart-tips {
+  margin-top: var(--space-2xs);
+}
+
+/* ── App-wide quick add dialog ──────────────────────────────────────────── */
+/* Placed as the popup is: a 560 × 360 window centred on the screen, with the
+ card at its top inside --space-md of padding, and no scrim. */
+.quick-add-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+
+.quick-add-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: max(var(--space-md), calc(50vh - 180px + var(--space-md))) var(--space-md) var(--space-md);
+  pointer-events: none;
 }
 
 .quick-add-panel {
-  max-width: 40rem;
+  width: min(calc(560px - 2 * var(--space-md)), 100%);
+  pointer-events: auto;
 }
 
-.quick-add-panel .quick-add {
-  margin: 0;
+.quick-add-loading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 0.375rem var(--space-xs);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
 }
 
 /* ── Smart input tips (info button + card) ─────────────────────────────── */
@@ -388,7 +442,6 @@
   color: var(--text-muted);
 }
 
-.quick-add-head-actions,
 .task-drawer-head-actions {
   display: flex;
   align-items: center;

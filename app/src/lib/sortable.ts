@@ -50,8 +50,10 @@ type Point = { x: number; y: number };
 const DRAG_FROM = 4; // px moved before a press becomes a drag
 const HOLD_MS = 450; // how long a touch is held before it picks the item up
 const HOLD_SLOP = 8; // px a finger can wander while holding; more is a scroll
-const SCROLL_EDGE = 48; // px from a scroller's edge where it starts to scroll
-const SCROLL_STEP = 10; // px a frame
+const SCROLL_EDGE = 72; // px from a scroller's edge where it starts to scroll
+const SCROLL_MAX = 24; // px a frame, right at the edge; slower further in
+const HYSTERESIS = 6; // px past a row's middle before its line jumps to the other side
+const SIDE_REACH = 240; // px beside a list where the pointer still drops into it
 
 let pressed = false;
 /** The pointer a press has taken, so an item's own grip and the item's hold don't both act on it. */
@@ -84,16 +86,41 @@ function nearestIn(column: HTMLElement, y: number, source: HTMLElement): Hit {
 	return last ? { el: last, mode: 'after' } : { el: column, mode: 'zone' };
 }
 
+/** The zone (a category, or the tasks outside them) at that height, or the nearest one. */
+function nearestZone(scope: HTMLElement, y: number): HTMLElement | null {
+	let best: HTMLElement | null = null;
+	let gap = Infinity;
+	for (const z of scope.querySelectorAll<HTMLElement>('[data-sort-zone]')) {
+		const r = z.getBoundingClientRect();
+		if (!r.height) continue;
+		const d = y < r.top ? r.top - y : y > r.bottom ? y - r.bottom : 0;
+		if (d < gap) { gap = d; best = z; }
+	}
+	return best;
+}
+
+/**
+ * What's under the pointer in the dragged item's list. A pointer that drifted off to the
+ * side of a list (not a board, where sideways picks the column) reads the list at that height.
+ */
+function underInList(x: number, y: number, source: HTMLElement, scope: HTMLElement | null): Element | null {
+	const at = under(x, y, source);
+	if (!scope || scope.closest('[data-sort-board]') || (at && (scope.contains(at) || at.closest('nav, [role="dialog"]')))) return at;
+	const r = scope.getBoundingClientRect();
+	if (y < r.top || y > r.bottom || x < r.left - SIDE_REACH || x > r.right + SIDE_REACH) return at;
+	return under(Math.min(Math.max(x, r.left + 24), r.right - 24), y, source) ?? at;
+}
+
 /** Where a task would land under the pointer, if anywhere. */
 function findTaskHit(x: number, y: number, source: HTMLElement, kind: SortKind): Hit | null {
-	const at = under(x, y, source);
+	const scope = source.closest<HTMLElement>('[data-sort-scope]');
+	const at = underInList(x, y, source, scope);
 	if (!at) return null;
 	let item = at.closest<HTMLElement>('[data-sort-id]');
 	if (kind === 'sub') {
 		if (!item || item === source) return null;
 		return item.dataset.sortKind === 'sub' ? { el: item, mode: half(item, y) } : { el: item, mode: 'into' };
 	}
-	const scope = source.closest<HTMLElement>('[data-sort-scope]');
 	const underScope = at.closest<HTMLElement>('[data-sort-scope]');
 	if (!scope || !underScope) return null;
 	const board = scope.closest('[data-sort-board]');
@@ -102,8 +129,11 @@ function findTaskHit(x: number, y: number, source: HTMLElement, kind: SortKind):
 	// Over a subtask, it's the task that holds it.
 	while (item && item.dataset.sortKind !== 'top') item = item.parentElement?.closest<HTMLElement>('[data-sort-id]') ?? null;
 	if (item) return item === source ? null : { el: item, mode: half(item, y) };
-	const zone = at.closest<HTMLElement>('[data-sort-zone]');
-	return zone ? { el: zone, mode: 'zone' } : null;
+	// In a gap, on a category's head or by its Add task: by the nearest task in that
+	// category (or the nearest category), so there's always somewhere to land.
+	const zone = at.closest<HTMLElement>('[data-sort-zone]') ?? nearestZone(scope, y);
+	const hit = nearestIn(zone ?? scope, y, source);
+	return hit.mode === 'zone' && !hit.el.hasAttribute('data-sort-zone') ? null : hit;
 }
 
 /** Where a category would land under the pointer: before or after another in its list. */
@@ -118,8 +148,104 @@ function findCategoryHit(x: number, y: number, source: HTMLElement): Hit | null 
 	return { el: item, mode: after ? 'after' : 'before' };
 }
 
+/** A task under which a subtask goes, or a zone, is tinted; the lines are the indicator's. */
 function mark(hit: Hit | null, on: boolean) {
-	if (hit) hit.el.classList.toggle(`sort-drop-${hit.mode}`, on);
+	if (hit && (hit.mode === 'into' || hit.mode === 'zone')) hit.el.classList.toggle(`sort-drop-${hit.mode}`, on);
+}
+
+/** What moves in a list: a board card's wrapper, else the item itself. */
+function slotOf(el: HTMLElement): HTMLElement {
+	const wrap = el.parentElement;
+	return wrap?.hasAttribute('data-sort-lift') ? wrap : el;
+}
+
+const SLOT = '[data-sort-id], [data-sort-lift], [data-cat-id]';
+
+/** The item next to it in its list, skipping the floating copy. */
+function neighbour(slot: HTMLElement, after: boolean): HTMLElement | null {
+	let at = after ? slot.nextElementSibling : slot.previousElementSibling;
+	while (at?.classList.contains('sort-ghost')) at = after ? at.nextElementSibling : at.previousElementSibling;
+	return at instanceof HTMLElement && at.matches(SLOT) ? at : null;
+}
+
+/** A category list laid out in a row (the board) goes by left and right. */
+function inRow(slot: HTMLElement): boolean {
+	if (!slot.hasAttribute('data-cat-id') || !slot.parentElement) return false;
+	const s = getComputedStyle(slot.parentElement);
+	return s.display.includes('flex') && s.flexDirection.startsWith('row');
+}
+
+/**
+ * The line where a drop lands: one element that glides from gap to gap, rather than a
+ * line on each row that blinks on and off. It sits in the middle of the gap between the
+ * two items it goes between, and those two ease apart a little to make room.
+ */
+class Indicator {
+	readonly el: HTMLElement;
+	shown = false;
+	nudged: HTMLElement[] = [];
+
+	constructor() {
+		this.el = document.createElement('div');
+		this.el.className = 'sort-indicator';
+		this.el.setAttribute('aria-hidden', 'true');
+		document.body.append(this.el);
+	}
+
+	/** Moves the line to the hit; `fresh` when the hit changed (the rows around it move apart). */
+	show(hit: Hit | null, fresh: boolean) {
+		if (!hit || hit.mode === 'into' || hit.mode === 'zone') {
+			this.unnudge();
+			this.el.classList.remove('sort-indicator-on');
+			this.shown = false;
+			return;
+		}
+		const slot = slotOf(hit.el);
+		const after = hit.mode === 'after';
+		const other = neighbour(slot, after);
+		const row = inRow(slot);
+		const r = slot.getBoundingClientRect();
+		const o = other?.getBoundingClientRect();
+		// The middle of the gap to the next item (both are nudged evenly, so it holds still).
+		const edge = row ? (after ? r.right : r.left) : after ? r.bottom : r.top;
+		const far = o ? (row ? (after ? o.left : o.right) : after ? o.top : o.bottom) : null;
+		const at = far !== null && Math.abs(far - edge) < 48 ? (edge + far) / 2 : edge + (after ? 2 : -2);
+		const [x, y, w, h] = row ? [at - 1, r.top, 2, r.height] : [r.left, at - 1, r.width, 2];
+		const s = this.el.style;
+		if (!this.shown) {
+			// Appearing: put it in place without gliding there from wherever it last was.
+			s.transition = 'none';
+			this.el.classList.toggle('sort-indicator-row', row);
+			Object.assign(s, { width: `${w}px`, height: `${h}px`, translate: `${x}px ${y}px` });
+			void this.el.offsetWidth;
+			s.transition = '';
+			this.el.classList.add('sort-indicator-on');
+			this.shown = true;
+		} else {
+			this.el.classList.toggle('sort-indicator-row', row);
+			Object.assign(s, { width: `${w}px`, height: `${h}px`, translate: `${x}px ${y}px` });
+		}
+		if (!fresh) return;
+		this.unnudge();
+		// The one before the line eases back, the one after it forward.
+		const [lead, trail] = after ? [slot, other] : [other, slot];
+		for (const [el, cls] of [[lead, 'sort-nudge-a'], [trail, 'sort-nudge-b']] as const) {
+			if (!el || el.classList.contains('sort-dragging')) continue;
+			el.classList.add(cls);
+			el.classList.toggle('sort-nudge-row', row);
+			this.nudged.push(el);
+		}
+	}
+
+	unnudge() {
+		for (const el of this.nudged) el.classList.remove('sort-nudge-a', 'sort-nudge-b', 'sort-nudge-row');
+		this.nudged = [];
+	}
+
+	remove() {
+		this.unnudge();
+		this.el.remove();
+	}
 }
 
 /** The nearest scrollers around it, up and down and sideways (a board scrolls sideways). */
@@ -134,8 +260,13 @@ function scrollersOf(el: HTMLElement): { y: HTMLElement | null; x: HTMLElement |
 	return { y, x };
 }
 
+/** Scrolls faster the closer the pointer is to the edge (and past it), so it eases in. */
 function edgeStep(at: number, lo: number, hi: number): number {
-	return at < lo + SCROLL_EDGE ? -SCROLL_STEP : at > hi - SCROLL_EDGE ? SCROLL_STEP : 0;
+	const edge = Math.min(SCROLL_EDGE, (hi - lo) / 4);
+	const into = at < lo + edge ? (lo + edge - at) / edge : at > hi - edge ? -(at - (hi - edge)) / edge : 0;
+	if (!into) return 0;
+	const speed = Math.max(1, Math.round(SCROLL_MAX * Math.min(1, Math.abs(into)) ** 2));
+	return into > 0 ? -speed : speed;
 }
 
 /** What a drag is of: where it lands under the pointer, and what landing there does. */
@@ -183,6 +314,7 @@ class Drag {
 	readonly lift: HTMLElement;
 	readonly ghost: HTMLElement;
 	readonly scrollers: { y: HTMLElement | null; x: HTMLElement | null };
+	readonly indicator = new Indicator();
 
 	constructor(
 		readonly source: HTMLElement,
@@ -200,16 +332,32 @@ class Drag {
 	}
 
 	setHit(next: Hit | null) {
-		if (next?.el === this.hit?.el && next?.mode === this.hit?.mode) return;
-		mark(this.hit, false);
-		mark(next, true);
-		this.hit = next;
+		const same = next?.el === this.hit?.el && next?.mode === this.hit?.mode;
+		if (!same) {
+			mark(this.hit, false);
+			mark(next, true);
+			this.hit = next;
+		}
+		// Even when it's the same, the list may have scrolled under the line.
+		this.indicator.show(this.hit, !same);
+	}
+
+	/** Near a row's middle the line stays where it was, so it doesn't flicker between sides. */
+	steady(next: Hit | null, x: number, y: number): Hit | null {
+		const was = this.hit;
+		if (!next || !was || next.el !== was.el || next.mode === was.mode) return next;
+		if ((next.mode !== 'before' && next.mode !== 'after') || (was.mode !== 'before' && was.mode !== 'after')) return next;
+		const slot = slotOf(next.el);
+		const r = slot.getBoundingClientRect();
+		const row = inRow(slot);
+		const off = row ? x - (r.left + r.width / 2) : y - (r.top + r.height / 2);
+		return Math.abs(off) < HYSTERESIS ? was : next;
 	}
 
 	move(x: number, y: number) {
 		this.last = { x, y };
 		this.ghost.style.translate = `${x - this.start.x}px ${y - this.start.y}px`;
-		this.setHit(this.target().find(x, y, this.source));
+		this.setHit(this.steady(this.target().find(x, y, this.source), x, y));
 	}
 
 	autoScroll = () => {
@@ -235,6 +383,7 @@ class Drag {
 		const landed = commit ? this.hit : null;
 		cancelAnimationFrame(this.frame);
 		this.setHit(null);
+		this.indicator.remove();
 		// The item glides from where the copy was let go to its place (or back home,
 		// when it wasn't dropped anywhere).
 		const at = this.ghost.getBoundingClientRect();

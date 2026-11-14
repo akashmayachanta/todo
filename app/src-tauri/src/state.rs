@@ -171,6 +171,9 @@ impl AppState {
     /// A local change was made: sync soon (the loop waits ~2 s for more).
     pub fn changed(&self) {
         self.wake.notify_one();
+        // The home screen widgets show the new state now, not after the sync.
+        #[cfg(target_os = "android")]
+        crate::android::refresh_widgets();
     }
 
     // ── Device token ─────────────────────────────────────────────────────────

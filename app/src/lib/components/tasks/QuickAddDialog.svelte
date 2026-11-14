@@ -54,24 +54,17 @@
 <svelte:window onkeydown={(e) => { if (e.key === 'Escape' && $quickAdd && !e.defaultPrevented) closeQuickAdd(); }} />
 
 {#if $quickAdd}
-	<div class="modal-backdrop" onclick={closeQuickAdd} aria-hidden="true"></div>
-	<div class="modal-overlay quick-add-overlay">
-		<div class="modal-panel quick-add-panel" role="dialog" aria-modal="true" aria-labelledby="quick-add-title">
-			<div class="modal-header">
-				<h2 id="quick-add-title" class="modal-title">Add task</h2>
-				<div class="quick-add-head-actions">
-					<SmartTips />
-					<button onclick={closeQuickAdd} class="modal-close" aria-label="Close">
-						<svg aria-hidden="true" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
-					</button>
-				</div>
-			</div>
-			<div class="modal-body">
+	<!-- Laid out like the Ctrl+Space popup (routes/widget/quick): no heading, the card where that window puts it. -->
+	<div class="quick-add-backdrop" onclick={closeQuickAdd} aria-hidden="true"></div>
+	<div class="quick-add-overlay">
+		<div class="widget-quick-card quick-add-panel" role="dialog" aria-modal="true" aria-label="Add task">
+			<div class="widget-quick-row">
 				{#if ready}
 					<QuickAdd {projects} {categories} defaults={$quickAdd} onadd={add} oncancel={closeQuickAdd} />
 				{:else}
-					<div class="flex items-center gap-3 text-[var(--text-muted)]"><div class="spinner"></div>Loading…</div>
+					<div class="quick-add-loading"><div class="spinner"></div>Loading…</div>
 				{/if}
+				<SmartTips />
 			</div>
 		</div>
 	</div>

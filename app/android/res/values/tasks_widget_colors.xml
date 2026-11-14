@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The list widget's colours; values-night has the dark ones. -->
+<resources>
+    <color name="tasks_widget_bg">#F7FFFFFF</color>
+    <color name="tasks_widget_text">#FF1F2937</color>
+    <color name="tasks_widget_muted">#FF6B7280</color>
+    <color name="tasks_widget_due">#FF15803D</color>
+    <color name="tasks_widget_overdue">#FFDC2626</color>
+    <color name="tasks_widget_p1">#FFDC2626</color>
+    <color name="tasks_widget_p2">#FFEA580C</color>
+    <color name="tasks_widget_p3">#FF2563EB</color>
+    <color name="tasks_widget_p4">#FF9CA3AF</color>
+</resources>

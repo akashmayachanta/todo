@@ -50,6 +50,21 @@ object Native {
    * reminders to schedule as JSON, or null when the running app schedules them itself.
    */
   @JvmStatic external fun reminderAction(dataDir: String, action: String, id: String, remindAt: String): String?
+
+  /** Opens the page's quick add with these defaults (JSON; `{}` = the page's own). */
+  @JvmStatic external fun openQuickAdd(defaults: String)
+
+  /** Shows a view of the Tasks page: its query string, e.g. "view=today". */
+  @JvmStatic external fun openView(query: String)
+
+  /** The lists a widget can show, as JSON, or null. */
+  @JvmStatic external fun widgetSources(dataDir: String): String?
+
+  /** One list for a widget, as JSON, or null. `kind`: today, inbox, upcoming, project, category. */
+  @JvmStatic external fun widgetList(dataDir: String, kind: String, id: String): String?
+
+  /** Ticks a task. Returns the reminders to schedule when the app is closed, else null. */
+  @JvmStatic external fun widgetComplete(dataDir: String, id: String): String?
 }
 
 /** `remindAt` is the task's stored reminder, which the buttons hand back to Rust. */
@@ -208,6 +223,7 @@ class ReminderActionReceiver : BroadcastReceiver() {
           Reminders.schedule(app, json)
           SyncWorker.runOnce(app)
         }
+        HomeWidgets.refreshAll(app)
       } catch (_: Throwable) {
         // The task stays as it was; the reminder is gone, so the app shows it.
       } finally {
@@ -236,6 +252,8 @@ class SyncWorker(context: Context, params: WorkerParameters) : Worker(context, p
       return Result.retry()
     }
     if (json != null) Reminders.schedule(applicationContext, json)
+    // What came in shows on the home screen too.
+    HomeWidgets.refreshAll(applicationContext)
     return Result.success()
   }
 

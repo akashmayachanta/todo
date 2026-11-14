@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A task in the list widget: tapping the circle ticks it, the rest opens it. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/tasks_widget_row"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:minHeight="44dp"
+    android:orientation="horizontal"
+    android:paddingStart="4dp"
+    android:paddingTop="4dp"
+    android:paddingEnd="12dp"
+    android:paddingBottom="4dp">
+
+    <ImageView
+        android:id="@+id/tasks_widget_check"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:contentDescription="Complete"
+        android:padding="8dp"
+        android:src="@drawable/ic_widget_ring" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginStart="4dp"
+        android:orientation="vertical"
+        android:paddingTop="7dp">
+
+        <TextView
+            android:id="@+id/tasks_widget_item_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:textColor="@color/tasks_widget_text"
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/tasks_widget_item_due"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="1dp"
+            android:maxLines="1"
+            android:textColor="@color/tasks_widget_due"
+            android:textSize="12sp" />
+    </LinearLayout>
+</LinearLayout>

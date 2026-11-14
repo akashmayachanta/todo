@@ -75,6 +75,23 @@
 		{ key: 'karma',    label: 'Karma',    icon: 'M4 20h16M7 16v-4m5 4V8m5 8v-7' },
 	] as const;
 
+	/** The keys that go to a view (handled on the page), shown in a tooltip on hover. */
+	const GO_KEYS: Record<string, string> = { inbox: 'I', today: 'T', upcoming: 'U' };
+	let tip = $state<{ label: string; key: string; x: number; y: number } | null>(null);
+	let tipTimer: ReturnType<typeof setTimeout> | undefined;
+
+	function showTip(e: PointerEvent, label: string, key: string | undefined) {
+		if (!key || browsing || e.pointerType === 'touch') return;
+		const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+		clearTimeout(tipTimer);
+		tipTimer = setTimeout(() => (tip = { label, key, x: r.right + 8, y: r.top + r.height / 2 }), 500);
+	}
+
+	function hideTip() {
+		clearTimeout(tipTimer);
+		tip = null;
+	}
+
 	/** Which projects have their categories shown, remembered in this browser. */
 	const EXPANDED_KEY = 'tasks-pane-expanded';
 	let expanded = $state<string[]>([]);
@@ -199,6 +216,12 @@
 	const count = (n: number | undefined) => (settings.showCounts && n ? n : 0);
 </script>
 
+{#if tip}
+	<div class="tasks-pane-tip" role="tooltip" style="left: {tip.x}px; top: {tip.y}px">
+		Go to {tip.label} <kbd>G</kbd> then <kbd>{tip.key}</kbd>
+	</div>
+{/if}
+
 <nav class="tasks-pane" class:tasks-pane-browsing={browsing} aria-label="Task lists">
 	<div class="tasks-pane-top">
 		{#if header}<div class="tasks-pane-account">{@render header()}</div>{/if}
@@ -214,6 +237,10 @@
 					class="tasks-pane-link"
 					class:tasks-pane-task-over={taskDropOn === v.key}
 					aria-current={view === v.key ? 'page' : undefined}
+					aria-keyshortcuts={GO_KEYS[v.key] ? `G ${GO_KEYS[v.key]}` : undefined}
+					onpointerenter={(e) => showTip(e, v.label, GO_KEYS[v.key])}
+					onpointerleave={hideTip}
+					onclick={hideTip}
 					ondragover={takes ? (e) => taskOver(e, v.key) : undefined}
 					ondragleave={takes ? (e) => taskLeave(e, v.key) : undefined}
 					ondrop={takes ? (e) => taskDrop(e, v.key === 'today' ? { due_date: today } : { project_id: null, category_id: null }) : undefined}

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="tasks_widget_bg">#F21F2023</color>
+    <color name="tasks_widget_text">#FFF3F4F6</color>
+    <color name="tasks_widget_muted">#FF9CA3AF</color>
+    <color name="tasks_widget_due">#FF4ADE80</color>
+    <color name="tasks_widget_overdue">#FFF87171</color>
+    <color name="tasks_widget_p1">#FFF87171</color>
+    <color name="tasks_widget_p2">#FFFB923C</color>
+    <color name="tasks_widget_p3">#FF60A5FA</color>
+    <color name="tasks_widget_p4">#FF6B7280</color>
+</resources>

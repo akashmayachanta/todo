@@ -3,6 +3,8 @@
 
 #[cfg(target_os = "android")]
 mod android;
+#[cfg(target_os = "android")]
+mod home_widget;
 mod commands;
 #[cfg(desktop)]
 mod desktop;
@@ -23,6 +25,9 @@ use state::AppState;
 /// Tells the main page to open its own quick add dialog: Alt+N while it's in front.
 /// From anywhere else Alt+N brings up the popup instead (widgets.rs).
 pub const EVENT_QUICK_ADD: &str = "tasks://quick-add";
+/// Android: the widget or an app shortcut asked for a view (app_take_open_view).
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub const EVENT_OPEN_VIEW: &str = "tasks://open-view";
 /// Tells the page to open a task (a tapped notification).
 pub const EVENT_OPEN_TASK: &str = "tasks://open-task";
 
@@ -224,6 +229,8 @@ pub fn run() {
             commands::app_foreground,
             commands::app_force_sync,
             commands::app_take_open_task,
+            commands::app_take_quick_add,
+            commands::app_take_open_view,
             commands::app_show_task,
             commands::app_pin_open,
             commands::app_pin_close,

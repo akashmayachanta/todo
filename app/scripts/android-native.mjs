@@ -1,9 +1,10 @@
 // Puts the app's own Android code into the generated project, which lives only in
 // the WSL copy (gen/android is never synced from Windows):
-// - android/java/*.kt into the app's package (reminders, background sync, the plugin)
-// - android/res/** into its resources (the reminder's status bar icon)
-// - the receivers, the crash log's provider and the battery permission into
-//   AndroidManifest.xml
+// - android/java/*.kt into the app's package (reminders, background sync, the plugin,
+//   the home screen widget and the app icon's shortcuts)
+// - android/res/** into its resources (the reminder's status bar icon, the widget)
+// - the receivers, the crash log's provider, the widget and the battery permission
+//   into AndroidManifest.xml
 // - WorkManager into app/build.gradle.kts, and R8 rules into app/proguard-tasks.pro
 // It also takes out what earlier versions put in and the app no longer has
 // (REMOVED below), since gen/android keeps whatever was copied into it.
@@ -94,6 +95,42 @@ const CRASH_LOG = `
 // Replaced each run, so an older entry (without initOrder) is updated.
 manifest = manifest.replace(/\n[ \t]*<!-- tasks-native: crash log [^>]*-->\s*<provider[^>]*?\/>/g, '');
 manifest = manifest.replace(/(\s*<\/application>)/, `${CRASH_LOG.trimEnd()}$1`);
+// The home screen widget, its list picker, and the step between a tap (a widget
+// row, an app icon shortcut) and the app (HomeWidgets.kt). Replaced each run,
+// between its two markers.
+const WIDGETS = `
+        <!-- tasks-native: widgets (scripts/android-native.mjs) -->
+        <receiver android:name=".TasksWidget" android:label="Tasks" android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/tasks_widget_info" />
+        </receiver>
+        <service
+            android:name=".TasksWidgetService"
+            android:permission="android.permission.BIND_REMOTEVIEWS"
+            android:exported="false" />
+        <activity
+            android:name=".TasksWidgetConfig"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name=".TapActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <!-- /tasks-native: widgets -->
+`;
+manifest = manifest.replace(/\n[ \t]*<!-- tasks-native: widgets [^>]*-->[\s\S]*?<!-- \/tasks-native: widgets -->/g, '');
+manifest = manifest.replace(/(\s*<\/application>)/, `${WIDGETS.trimEnd()}$1`);
 writeFileSync(manifestPath, manifest);
 
 // ── R8 ───────────────────────────────────────────────────────────────────────

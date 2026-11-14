@@ -315,7 +315,7 @@ fn snooze_patch() -> tasks_core::TaskPatch {
 
 /// What the page's tick does: a repeating task moves to its next date and its
 /// reminder by as many days; any other task is done.
-fn complete_patch(task: &tasks_core::Task) -> tasks_core::TaskPatch {
+pub(crate) fn complete_patch(task: &tasks_core::Task) -> tasks_core::TaskPatch {
     use chrono::{Local, NaiveDate};
 
     let today = Local::now().date_naive();

@@ -2,7 +2,9 @@
 //
 // The app's own Tauri plugin ("tasks-android" in app/src-tauri/src/android.rs):
 // schedules reminders, reports whether Android will deliver them on time, and
-// opens the settings that fix it. A tapped reminder's task goes to Rust from here.
+// opens the settings that fix it. A tapped reminder's task goes to Rust from here,
+// and so does what a home screen widget or an app icon shortcut asked for
+// (HomeWidgets.kt). Rust tells the widgets to reload through refreshWidgets.
 package dev.tasks.app
 
 import android.app.Activity
@@ -36,6 +38,7 @@ class TasksPlugin(private val activity: Activity) : Plugin(activity) {
   override fun load(webView: WebView) {
     Reminders.ensureChannel(activity)
     SyncWorker.enqueue(activity)
+    AppShortcuts.publish(activity)
     takeTask(activity.intent)
   }
 
@@ -44,9 +47,24 @@ class TasksPlugin(private val activity: Activity) : Plugin(activity) {
   }
 
   private fun takeTask(intent: Intent?) {
-    val id = intent?.getStringExtra(Reminders.EXTRA_TASK) ?: return
+    if (intent == null) return
+    intent.getStringExtra(HomeWidgets.EXTRA_VIEW)?.let {
+      intent.removeExtra(HomeWidgets.EXTRA_VIEW)
+      Native.openView(it)
+    }
+    intent.getStringExtra(HomeWidgets.EXTRA_QUICK_ADD)?.let {
+      intent.removeExtra(HomeWidgets.EXTRA_QUICK_ADD)
+      Native.openQuickAdd(it)
+    }
+    val id = intent.getStringExtra(Reminders.EXTRA_TASK) ?: return
     intent.removeExtra(Reminders.EXTRA_TASK)
     Native.openTask(id)
+  }
+
+  @Command
+  fun refreshWidgets(invoke: Invoke) {
+    HomeWidgets.refreshAll(activity.applicationContext)
+    invoke.resolve()
   }
 
   @Command

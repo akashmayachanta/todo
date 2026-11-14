@@ -243,8 +243,18 @@
 
 	// ── Reminders on this phone (Android) ────────────────────────────────────
 
-	type ReminderHealth = { notifications: boolean; exactAlarms: boolean; batteryUnrestricted: boolean };
-	type HealthKey = keyof ReminderHealth;
+	type BackgroundRun = { at: number; ok: boolean; error: string | null; source: string };
+	type ReminderHealth = {
+		notifications: boolean;
+		exactAlarms: boolean;
+		batteryUnrestricted: boolean;
+		/** Older builds don't report these. */
+		powerSave?: boolean;
+		backgroundRestricted?: boolean;
+		dataSaver?: boolean;
+		lastBackgroundSync?: BackgroundRun | null;
+	};
+	type HealthKey = 'notifications' | 'exactAlarms' | 'batteryUnrestricted';
 	const HEALTH: { key: HealthKey; label: string; ok: string; off: string }[] = [
 		{ key: 'notifications', label: 'Notifications', ok: 'Allowed', off: 'Off: reminders are not shown' },
 		{ key: 'exactAlarms', label: 'Alarms & reminders', ok: 'Allowed: reminders fire on the minute', off: 'Off: Android may hold reminders back by minutes' },
@@ -257,7 +267,16 @@
 		health = await call<ReminderHealth | null>('app_reminder_health').catch(() => null);
 	}
 
-	async function fixHealth(kind: HealthKey) {
+	/** What Settings says about the last sync made with the app closed. */
+	function backgroundLine(run: BackgroundRun | null | undefined): { ok: boolean; text: string } {
+		if (!run) return { ok: false, text: "Hasn't run with the app closed yet. Close the app and check back in 20 minutes." };
+		const when = ago(new Date(run.at).toISOString());
+		return run.ok ? { ok: true, text: `Last ran ${when}: up to date` } : { ok: false, text: `Last ran ${when}: ${run.error ?? 'failed'}` };
+	}
+
+	let bg = $derived(backgroundLine(health?.lastBackgroundSync));
+
+	async function fixHealth(kind: HealthKey | 'background' | 'dataSaver') {
 		try {
 			await call('app_open_reminder_setting', { kind });
 		} catch (e) {
@@ -606,7 +625,38 @@
 									</div>
 								{/each}
 							</div>
-							<span class="set-hint">Some phones also stop apps in the background on their own. If reminders still come late, look for the app in the phone's autostart or background app settings.</span>
+							<div class="set-toggles">
+								<div class="set-toggle">
+									<span class="set-toggle-text">
+										<span class="set-toggle-label">
+											<span class="set-dot" data-state={bg.ok ? 'synced' : 'error'}></span>
+											Background sync
+										</span>
+										<span class="set-hint">{bg.text}</span>
+									</span>
+								</div>
+								{#if health.backgroundRestricted}
+									<div class="set-toggle">
+										<span class="set-toggle-text">
+											<span class="set-toggle-label"><span class="set-dot" data-state="error"></span>Background use</span>
+											<span class="set-hint">Restricted: Android stops this app once it's closed</span>
+										</span>
+										<button type="button" class="btn btn-secondary" onclick={() => fixHealth('background')}>Allow</button>
+									</div>
+								{/if}
+								{#if health.dataSaver}
+									<div class="set-toggle">
+										<span class="set-toggle-text">
+											<span class="set-toggle-label"><span class="set-dot" data-state="error"></span>Data Saver</span>
+											<span class="set-hint">On: the app has no data in the background on mobile data</span>
+										</span>
+										<button type="button" class="btn btn-secondary" onclick={() => fixHealth('dataSaver')}>Allow</button>
+									</div>
+								{/if}
+							</div>
+							<span class="set-hint">
+								{health.powerSave ? 'Battery Saver is on: Android may hold background sync back. ' : ''}Some phones also stop apps in the background on their own, or when they're swiped away from recent apps. If the app still doesn't sync while closed, look for it in the phone's autostart or background app settings.
+							</span>
 						</div>
 					{/if}
 				{:else if current === 'desktop'}

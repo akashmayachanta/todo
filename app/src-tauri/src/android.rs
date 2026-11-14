@@ -334,25 +334,46 @@ fn reminder_action(dir: &Path, action: &str, id: &str, remind_at: &str) -> Optio
     Some(crate::reminders::upcoming_json(&st))
 }
 
-/// One sync round, then the reminders to schedule. Uses the app's own state when
-/// the app is running in this process, else opens the DB itself.
+/// One sync round, then what Kotlin needs: `{ok, error, reminders}`, where
+/// `reminders` is the schedule (reminders::upcoming_json) and `error` says why the
+/// round failed (offline, signed out, ...), for Settings' "Background sync" line.
+/// Uses the app's own state when the app is running in this process, else opens
+/// the DB itself. None only when the DB can't be opened.
 fn background_sync(dir: &Path) -> Option<String> {
-    if let Some(app) = APP.get() {
+    let (st, error) = if let Some(app) = APP.get() {
         let st = app.try_state::<Arc<AppState>>()?.inner().clone();
         tauri::async_runtime::block_on(crate::syncer::round(app, &st));
-        return Some(crate::reminders::upcoming_json(&st));
-    }
+        let error = {
+            let status = lock(&st.status);
+            (status.state != "synced").then(|| status.message.clone().unwrap_or_else(|| status.state.replace('_', " ")))
+        };
+        (st, error)
+    } else {
+        let st = Arc::new(AppState::open(dir).ok()?);
+        let error = sync_closed(&st);
+        (st, error)
+    };
+    let reminders: serde_json::Value = serde_json::from_str(&crate::reminders::upcoming_json(&st)).unwrap_or_default();
+    Some(serde_json::json!({ "ok": error.is_none(), "error": error, "reminders": reminders }).to_string())
+}
 
-    let st = AppState::open(dir).ok()?;
-    let token = st.token()?;
-    let server = lock(&st.config).server.clone()?;
-    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().ok()?;
+/// A round with the app closed. Returns why it failed, or None when it worked.
+fn sync_closed(st: &AppState) -> Option<String> {
+    let Some(token) = st.token() else { return Some("Signed out".into()) };
+    let Some(server) = lock(&st.config).server.clone() else { return Some("No server set up".into()) };
+    let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+        Ok(r) => r,
+        Err(e) => return Some(e.to_string()),
+    };
     runtime.block_on(async {
         let client = tasks_core::client::Client::new(server);
         let mut report = tasks_core::client::SyncReport::default();
-        if let Err(e) = tasks_core::client::sync_once(&client, &token, &st.db, &st.ctx, &mut report).await {
-            eprintln!("Background sync failed: {e}");
+        match tasks_core::client::sync_once(&client, &token, &st.db, &st.ctx, &mut report).await {
+            Ok(()) => None,
+            Err(e) => {
+                eprintln!("Background sync failed: {e}");
+                Some(e.to_string())
+            }
         }
-    });
-    Some(crate::reminders::upcoming_json(&st))
+    })
 }

@@ -81,6 +81,12 @@ const ACTION_RECEIVER = '<receiver android:name=".ReminderActionReceiver" androi
 if (!manifest.includes('.ReminderActionReceiver"')) {
 	manifest = manifest.replace(/(<receiver android:name="\.ReminderReceiver"[^>]*\/>)/, `$1\n        ${ACTION_RECEIVER}`);
 }
+// The 15-minute background sync alarm (BackgroundSync in Reminders.kt), on its own
+// for the same reason.
+const SYNC_ALARM_RECEIVER = '<receiver android:name=".SyncAlarmReceiver" android:exported="false" />';
+if (!manifest.includes('.SyncAlarmReceiver"')) {
+	manifest = manifest.replace(/(<receiver android:name="\.ReminderReceiver"[^>]*\/>)/, `$1\n        ${SYNC_ALARM_RECEIVER}`);
+}
 // Crash reports to Download/Tasks (CrashLog.kt). A provider starts with the
 // process; the high initOrder starts it before the others (WorkManager's), so a
 // crash in one of those is caught too.

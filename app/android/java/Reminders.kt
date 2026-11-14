@@ -6,7 +6,8 @@
 //   again after a reboot, an app update, or the exact-alarm permission being granted.
 // - SyncWorker syncs every 15 minutes (Android's shortest period) through Rust
 //   (Native.backgroundSync), so reminders set on another device get scheduled here
-//   even while the app is closed.
+//   even while the app is closed. A 15-minute alarm (SyncAlarmReceiver) does the
+//   same when Android holds the job back; BackgroundSync records each run.
 // - The notification's Snooze and Complete buttons go to ReminderActionReceiver,
 //   which edits the task through Rust (Native.reminderAction) without opening the app.
 package dev.tasks.app
@@ -30,7 +31,10 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.Worker
 import androidx.work.WorkerParameters
+import android.os.SystemClock
+import app.tauri.plugin.JSObject
 import org.json.JSONArray
+import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /** The Rust side (app/src-tauri/src/android.rs). */
@@ -42,7 +46,10 @@ object Native {
   /** Opens a task in the page (a tapped reminder). */
   @JvmStatic external fun openTask(id: String)
 
-  /** Syncs once; returns the reminders to schedule as JSON, or null when signed out. */
+  /**
+   * Syncs once; returns `{ok, error, reminders}` as JSON (reminders: the schedule),
+   * or null when the DB can't be opened.
+   */
   @JvmStatic external fun backgroundSync(dataDir: String): String?
 
   /**
@@ -239,23 +246,124 @@ class BootReceiver : BroadcastReceiver() {
     Reminders.restore(c)
     SyncWorker.enqueue(c)
     SyncWorker.runOnce(c)
+    BackgroundSync.armAlarm(c)
   }
 }
 
-/** Syncs while the app is closed, then schedules what came in. */
-class SyncWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
-  override fun doWork(): Result {
-    val dir = Reminders.dataDir(applicationContext) ?: return Result.success()
-    val json = try {
-      Native.backgroundSync(dir)
-    } catch (_: Throwable) {
-      return Result.retry()
+/**
+ * A sync with the app closed, from either trigger: WorkManager's job (SyncWorker)
+ * or the alarm (SyncAlarmReceiver). Each run is recorded for Settings' "Background
+ * sync" line (TasksPlugin.health), so it shows whether Android runs it at all and,
+ * when it does, why a round failed.
+ */
+object BackgroundSync {
+  private const val PREFS = "tasks-sync"
+  private const val INTERVAL_MS = 15 * 60 * 1000L
+  private const val ALARM_CODE = 0x5a1c
+  /** The job and the alarm landing close together sync once. */
+  private const val MIN_GAP_MS = 2 * 60 * 1000L
+
+  private fun prefs(c: Context) = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+  /** Runs a round. False when it should be tried again soon (the job retries). */
+  fun run(c: Context, source: String): Boolean {
+    val app = c.applicationContext
+    val dir = Reminders.dataDir(app)
+    if (dir == null) {
+      record(app, source, false, "Open the app once so it can sync in the background")
+      return true
     }
-    if (json != null) Reminders.schedule(applicationContext, json)
-    // What came in shows on the home screen too.
-    HomeWidgets.refreshAll(applicationContext)
-    return Result.success()
+    synchronized(this) {
+      val p = prefs(app)
+      if (p.getBoolean("ok", false) && System.currentTimeMillis() - p.getLong("at", 0) < MIN_GAP_MS) return true
+      val json = try {
+        Native.backgroundSync(dir)
+      } catch (t: Throwable) {
+        record(app, source, false, t.toString())
+        return false
+      }
+      if (json == null) {
+        record(app, source, false, "Can't open the tasks database")
+        return false
+      }
+      try {
+        val o = JSONObject(json)
+        Reminders.schedule(app, o.optJSONArray("reminders")?.toString() ?: "[]")
+        record(app, source, o.optBoolean("ok"), if (o.isNull("error")) null else o.optString("error"))
+      } catch (e: Exception) {
+        record(app, source, false, e.toString())
+      }
+      // What came in shows on the home screen too.
+      HomeWidgets.refreshAll(app)
+      return true
+    }
   }
+
+  private fun record(c: Context, source: String, ok: Boolean, error: String?) {
+    prefs(c).edit()
+      .putLong("at", System.currentTimeMillis())
+      .putBoolean("ok", ok)
+      .putString("error", error)
+      .putString("source", source)
+      .apply()
+  }
+
+  /** The last run: `{at (ms), ok, error, source}`, or null when there was none. */
+  fun last(c: Context): JSObject? {
+    val p = prefs(c)
+    val at = p.getLong("at", 0)
+    if (at == 0L) return null
+    val o = JSObject()
+    o.put("at", at)
+    o.put("ok", p.getBoolean("ok", false))
+    o.put("error", p.getString("error", null))
+    o.put("source", p.getString("source", ""))
+    return o
+  }
+
+  /**
+   * The next alarm, 15 minutes on. An alarm that may fire while the phone is idle
+   * runs even when Android holds WorkManager's job back (Doze, Battery Saver).
+   * Exact when exact alarms are allowed (as for reminders), else roughly then.
+   */
+  fun armAlarm(c: Context) {
+    val am = c.getSystemService(AlarmManager::class.java)
+    val pi = PendingIntent.getBroadcast(
+      c,
+      ALARM_CODE,
+      Intent(c, SyncAlarmReceiver::class.java),
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+    val at = SystemClock.elapsedRealtime() + INTERVAL_MS
+    try {
+      if (Reminders.canExact(c)) am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, at, pi)
+      else am.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, at, pi)
+    } catch (_: SecurityException) {
+      am.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, at, pi)
+    }
+  }
+}
+
+/** The 15-minute sync alarm: arms the next one, then syncs. */
+class SyncAlarmReceiver : BroadcastReceiver() {
+  override fun onReceive(c: Context, intent: Intent) {
+    BackgroundSync.armAlarm(c)
+    val pending = goAsync()
+    Thread {
+      try {
+        BackgroundSync.run(c, "alarm")
+      } catch (_: Throwable) {
+      } finally {
+        pending.finish()
+      }
+    }.start()
+  }
+}
+
+/** WorkManager's sync job: every 15 minutes while online, and once after a change made with the app closed. */
+class SyncWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
+  override fun doWork(): Result =
+    if (BackgroundSync.run(applicationContext, "job")) Result.success() else Result.retry()
 
   companion object {
     private const val PERIODIC = "tasks-sync"

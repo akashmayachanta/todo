@@ -8,6 +8,9 @@
 package dev.tasks.app
 
 import android.app.Activity
+import android.app.ActivityManager
+import android.net.ConnectivityManager
+import org.json.JSONObject
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -38,6 +41,7 @@ class TasksPlugin(private val activity: Activity) : Plugin(activity) {
   override fun load(webView: WebView) {
     Reminders.ensureChannel(activity)
     SyncWorker.enqueue(activity)
+    BackgroundSync.armAlarm(activity)
     AppShortcuts.publish(activity)
     takeTask(activity.intent)
   }
@@ -82,6 +86,18 @@ class TasksPlugin(private val activity: Activity) : Plugin(activity) {
     ret.put("notifications", NotificationManagerCompat.from(activity).areNotificationsEnabled())
     ret.put("exactAlarms", Reminders.canExact(activity))
     ret.put("batteryUnrestricted", power.isIgnoringBatteryOptimizations(activity.packageName))
+    // What else stops the closed-app sync: Battery Saver (informational), the app
+    // set to "Restricted" in the background, Data Saver blocking its data.
+    ret.put("powerSave", power.isPowerSaveMode)
+    ret.put(
+      "backgroundRestricted",
+      Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && activity.getSystemService(ActivityManager::class.java).isBackgroundRestricted,
+    )
+    ret.put(
+      "dataSaver",
+      activity.getSystemService(ConnectivityManager::class.java).restrictBackgroundStatus == ConnectivityManager.RESTRICT_BACKGROUND_STATUS_ENABLED,
+    )
+    ret.put("lastBackgroundSync", BackgroundSync.last(activity) ?: JSONObject.NULL)
     invoke.resolve(ret)
   }
 
@@ -96,6 +112,8 @@ class TasksPlugin(private val activity: Activity) : Plugin(activity) {
         Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:$pkg"))
       kind == "battery" ->
         Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$pkg"))
+      kind == "dataSaver" ->
+        Intent(Settings.ACTION_IGNORE_BACKGROUND_DATA_RESTRICTIONS_SETTINGS, Uri.parse("package:$pkg"))
       else -> null
     }
     try {

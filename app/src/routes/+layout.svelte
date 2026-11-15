@@ -69,7 +69,7 @@
 
 	/**
 	 * The quick add, with what Android's widget or the app icon's "Add task" asked for
-	 * (app_take_quick_add: `{project_id?, category_id?, due?: 'today' | 'tomorrow'}`;
+	 * (app_take_quick_add: `{project_id?, section_id?, due?: 'today' | 'tomorrow'}`;
 	 * `project_id: null` is the Inbox),
 	 * else the page's own defaults. `force` opens it even when nothing was asked (Alt+N).
 	 */
@@ -80,7 +80,7 @@
 			return;
 		}
 		try {
-			const a = JSON.parse(asked) as { project_id?: string | null; category_id?: string; due?: string };
+			const a = JSON.parse(asked) as { project_id?: string | null; section_id?: string; due?: string };
 			// The app icon's "Add task" asks for nothing in particular: the page's defaults.
 			if (!Object.keys(a).length) {
 				openQuickAdd();
@@ -89,7 +89,7 @@
 			const today = ymd(new Date());
 			const defaults: QuickAddDefaults = {};
 			if ('project_id' in a) defaults.project_id = a.project_id ?? null;
-			if (a.category_id) defaults.category_id = a.category_id;
+			if (a.section_id) defaults.section_id = a.section_id;
 			if (a.due === 'today') defaults.due_date = today;
 			else if (a.due === 'tomorrow') defaults.due_date = addDays(today, 1);
 			openQuickAdd(defaults);

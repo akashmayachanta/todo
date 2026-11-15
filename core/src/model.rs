@@ -25,7 +25,7 @@ pub struct Project {
 
 /// A section of a project.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Category {
+pub struct Section {
     pub id: String,
     pub project_id: String,
     pub name: String,
@@ -37,12 +37,12 @@ pub struct Category {
 }
 
 /// No project_id means the Inbox. A subtask (parent_id) shares its parent's
-/// project and category.
+/// project and section.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Task {
     pub id: String,
     pub project_id: Option<String>,
-    pub category_id: Option<String>,
+    pub section_id: Option<String>,
     pub parent_id: Option<String>,
     pub title: String,
     pub description: Option<String>,
@@ -120,7 +120,7 @@ pub struct ProjectOrder {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-pub struct CategoryIn {
+pub struct SectionIn {
     pub project_id: String,
     pub name: String,
     #[serde(default, deserialize_with = "double")]
@@ -131,7 +131,7 @@ pub struct CategoryIn {
 }
 
 /// A new task. No project_id puts it in the Inbox; a parent_id makes it a
-/// subtask, which takes its parent's project and category.
+/// subtask, which takes its parent's project and section.
 #[derive(Clone, Debug, Deserialize)]
 pub struct TaskIn {
     pub title: String,
@@ -140,7 +140,7 @@ pub struct TaskIn {
     #[serde(default)]
     pub project_id: Option<String>,
     #[serde(default)]
-    pub category_id: Option<String>,
+    pub section_id: Option<String>,
     #[serde(default)]
     pub parent_id: Option<String>,
     #[serde(default)]
@@ -180,7 +180,7 @@ pub struct TaskPatch {
     #[serde(default, deserialize_with = "double")]
     pub project_id: Option<Option<String>>,
     #[serde(default, deserialize_with = "double")]
-    pub category_id: Option<Option<String>>,
+    pub section_id: Option<Option<String>>,
     #[serde(default, deserialize_with = "double")]
     pub priority: Option<Option<i64>>,
     #[serde(default, deserialize_with = "double")]
@@ -210,7 +210,7 @@ pub struct FilterCriteria {
     #[serde(default)]
     pub projects: Vec<Option<String>>,
     #[serde(default)]
-    pub categories: Vec<String>,
+    pub sections: Vec<String>,
     #[serde(default)]
     pub priorities: Vec<i64>,
     #[serde(default)]
@@ -260,7 +260,7 @@ pub struct TaskQuery {
 
 const DUE_WINDOWS: &[&str] = &["overdue", "today", "tomorrow", "next_7", "next_30", "no_date"];
 const ROW_FIELDS: &[&str] = &["due", "place", "description", "duration", "repeat", "reminder", "subtasks"];
-const GROUP_BYS: &[&str] = &["none", "priority", "project", "category", "due"];
+const GROUP_BYS: &[&str] = &["none", "priority", "project", "section", "due"];
 
 fn invalid(field: &str, msg: &str) -> Error {
     Error::Invalid(format!("{field}: {msg}"))
@@ -364,8 +364,8 @@ impl FilterIn {
         if c.projects.len() > 500 {
             return Err(invalid("criteria.projects", "List should have at most 500 items"));
         }
-        if c.categories.len() > 2000 {
-            return Err(invalid("criteria.categories", "List should have at most 2000 items"));
+        if c.sections.len() > 2000 {
+            return Err(invalid("criteria.sections", "List should have at most 2000 items"));
         }
         for p in &c.priorities {
             check_priority(*p)?;
@@ -374,7 +374,7 @@ impl FilterIn {
             return Err(invalid("criteria.due", &format!("unknown due window '{bad}'")));
         }
         c.projects = unique(&c.projects);
-        c.categories = unique(&c.categories);
+        c.sections = unique(&c.sections);
         c.priorities = unique(&c.priorities);
         c.due = unique(&c.due);
         if let Some(bad) = self.fields.iter().find(|f| !ROW_FIELDS.contains(&f.as_str())) {
@@ -391,7 +391,7 @@ impl FilterIn {
         let c = &self.criteria;
         serde_json::json!({
             "projects": c.projects,
-            "categories": c.categories,
+            "sections": c.sections,
             "priorities": c.priorities,
             "due": c.due,
         })

@@ -1,4 +1,4 @@
-import type { Task, TaskCategory, TaskFilter, TaskIn, TaskProject } from '$lib/api';
+import type { Task, TaskSection, TaskFilter, TaskIn, TaskProject } from '$lib/api';
 import { plainText } from '$lib/links';
 import { addDays } from '$lib/taskParse';
 import { byDue, byPosition, parentFinder, projectColor, shownWhenDue, taskRoots } from './shared';
@@ -8,7 +8,7 @@ import { compileFilter, filterDefaults, type AddDefaults, type GroupCtx } from '
  * What a pinned window shows. The window's label names its list
  * (`pin-today`, `pin-project-<id>`; src-tauri/src/state.rs has the same kinds).
  */
-export type PinKind = 'inbox' | 'today' | 'upcoming' | 'project' | 'category' | 'filter' | 'task';
+export type PinKind = 'inbox' | 'today' | 'upcoming' | 'project' | 'section' | 'filter' | 'task';
 
 export interface PinTarget {
 	kind: PinKind;
@@ -16,7 +16,7 @@ export interface PinTarget {
 }
 
 export function pinFromLabel(label: string): PinTarget | null {
-	const m = /^pin-(inbox|today|upcoming|project|category|filter|task)(?:-(.+))?$/.exec(label);
+	const m = /^pin-(inbox|today|upcoming|project|section|filter|task)(?:-(.+))?$/.exec(label);
 	return m ? { kind: m[1] as PinKind, id: m[2] ?? null } : null;
 }
 
@@ -26,19 +26,19 @@ export interface PinData {
 	/** A pinned task when it isn't among those (done). */
 	pinnedTask: Task | null;
 	projects: TaskProject[];
-	categories: TaskCategory[];
+	sections: TaskSection[];
 	filters: TaskFilter[];
 	today: string;
 }
 
 export interface PinView {
-	/** Its project, category or task was deleted. */
+	/** Its project, section or task was deleted. */
 	missing: boolean;
 	title: string;
 	/** A CSS colour for the mark before the title. */
 	color: string | null;
-	/** That mark: `#` for a project (or a task in one), `/` for a category, a dot for a filter. */
-	mark?: 'project' | 'category';
+	/** That mark: `#` for a project (or a task in one), `/` for a section, a dot for a filter. */
+	mark?: 'project' | 'section';
 	tasks: Task[];
 	/** Their subtasks are listed under them. */
 	nested: boolean;
@@ -56,7 +56,7 @@ const MISSING: PinView = { missing: true, title: 'Removed', color: null, tasks: 
 
 /** The tasks of a pin, in the order the main page lists them. */
 export function pinView(target: PinTarget, data: PinData): PinView {
-	const { tasks, projects, categories, filters, today } = data;
+	const { tasks, projects, sections, filters, today } = data;
 	const open = tasks.filter((t) => !t.completed_at);
 	const top = open.filter((t) => t.parent_id === null);
 	const dated = open.filter((t) => t.due_date);
@@ -81,8 +81,8 @@ export function pinView(target: PinTarget, data: PinData): PinView {
 		case 'project': {
 			const project = projects.find((p) => p.id === target.id);
 			if (!project) return MISSING;
-			const order = new Map(categories.map((c) => [c.id, c.position]));
-			const rank = (t: Task) => (t.category_id === null ? -Infinity : order.get(t.category_id) ?? Infinity);
+			const order = new Map(sections.map((c) => [c.id, c.position]));
+			const rank = (t: Task) => (t.section_id === null ? -Infinity : order.get(t.section_id) ?? Infinity);
 			return {
 				...base,
 				title: project.name,
@@ -93,24 +93,24 @@ export function pinView(target: PinTarget, data: PinData): PinView {
 				defaults: { project_id: project.id },
 			};
 		}
-		case 'category': {
-			const category = categories.find((c) => c.id === target.id);
-			const project = category && projects.find((p) => p.id === category.project_id);
-			if (!category || !project) return MISSING;
+		case 'section': {
+			const section = sections.find((c) => c.id === target.id);
+			const project = section && projects.find((p) => p.id === section.project_id);
+			if (!section || !project) return MISSING;
 			return {
 				...base,
-				title: `${project.name} / ${category.name}`,
+				title: `${project.name} / ${section.name}`,
 				color: projectColor(project.color),
-				mark: 'category',
-				tasks: top.filter((t) => t.category_id === category.id).sort(byPosition),
+				mark: 'section',
+				tasks: top.filter((t) => t.section_id === section.id).sort(byPosition),
 				nested: true,
-				defaults: { project_id: project.id, category_id: category.id },
+				defaults: { project_id: project.id, section_id: section.id },
 			};
 		}
 		case 'filter': {
 			const filter = filters.find((f) => f.id === target.id);
 			if (!filter) return MISSING;
-			const ctx: GroupCtx = { projects, categories, today };
+			const ctx: GroupCtx = { projects, sections, today };
 			return {
 				...base,
 				title: filter.name,
@@ -138,5 +138,5 @@ export function pinView(target: PinTarget, data: PinData): PinView {
 
 /** A new task from a pin's Add row; a subtask's place follows its parent. */
 export function pinNewTask(view: PinView, data: TaskIn): TaskIn {
-	return view.parentId ? { ...data, parent_id: view.parentId, project_id: null, category_id: null } : data;
+	return view.parentId ? { ...data, parent_id: view.parentId, project_id: null, section_id: null } : data;
 }

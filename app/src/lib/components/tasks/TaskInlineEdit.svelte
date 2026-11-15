@@ -2,7 +2,7 @@
 	import PlaceMark from '$lib/components/tasks/PlaceMark.svelte';
 	import { formatInstant } from '$lib/datePrefs.svelte';
 	import { onMount, untrack } from 'svelte';
-	import type { Task, TaskCategory, TaskPatch, TaskProject } from '$lib/api';
+	import type { Task, TaskSection, TaskPatch, TaskProject } from '$lib/api';
 	import { askReminderPermission } from '$lib/stores/taskReminders';
 	import { describeDue, formatDuration } from '$lib/taskParse';
 	import SmartTaskInput from './SmartTaskInput.svelte';
@@ -14,10 +14,10 @@
 	 * and its description. The chips show the task as it will be once saved. Enter in the
 	 * title or Ctrl+Enter in the description saves, Esc cancels.
 	 */
-	let { task, projects, categories, onpatch, ondone }: {
+	let { task, projects, sections, onpatch, ondone }: {
 		task: Task;
 		projects: TaskProject[];
-		categories: TaskCategory[];
+		sections: TaskSection[];
 		onpatch: (task: Task, patch: TaskPatch) => Promise<void>;
 		ondone: () => void;
 	} = $props();
@@ -29,7 +29,7 @@
 	let field = $state<SmartTaskInput | null>(null);
 	let root = $state<HTMLFormElement | null>(null);
 
-	let st = $derived(smartTitle(title, task, projects, categories));
+	let st = $derived(smartTitle(title, task, projects, sections));
 	let limit = $derived(task.parent_id ? subtaskLimit(st.smart.title, task.title) : null);
 	/** The task as it will be once saved, with the reminder a new due time brings or moves. */
 	let next = $derived({ ...task, ...settlePatch(task, smartPatch(st.smart, task)) });
@@ -99,7 +99,7 @@
 		bind:value={title}
 		tokens={st.smart.tokens}
 		projects={st.projects}
-		categories={st.categories}
+		sections={st.sections}
 		scopeProjectId={st.scope}
 		ariaLabel="Title"
 		class="task-inline-title"
@@ -143,7 +143,7 @@
 		{#if !task.parent_id}
 			<span class="task-chip" data-kind="project">
 				{#if project}<PlaceMark color={projectColor(project.color)} />{:else}#{/if}
-				{placeName(next, projects, categories)}
+				{placeName(next, projects, sections)}
 			</span>
 		{/if}
 	</div>

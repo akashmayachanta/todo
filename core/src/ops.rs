@@ -3,19 +3,19 @@
 //! (the server and the app both do).
 //!
 //! - A task with no project is in the Inbox.
-//! - A subtask is one level deep and shares its parent's project and category.
+//! - A subtask is one level deep and shares its parent's project and section.
 //!   Its title shows at most 255 characters; a task's stored title at most 500.
 //! - A time needs a date; clearing the date clears the time and the reminder
 //!   (unless the same change sets a new reminder).
-//! - Moving a category moves its tasks; moving a task moves its subtasks.
-//! - A subtask can move to another task; it takes that task's project and category.
+//! - Moving a section moves its tasks; moving a task moves its subtasks.
+//! - A subtask can move to another task; it takes that task's project and section.
 //! - Completing a task completes its open subtasks (they aren't logged).
 //! - Karma: a tick adds a completion, an untick deletes the task's latest one,
 //!   and ticking one occurrence of a repeating task (completes_occurrence)
 //!   adds one too.
 //! - A delete is a tombstone, and cascades as tombstones: a project takes its
-//!   categories and tasks, a task its subtasks; a deleted category's tasks stay
-//!   in the project without a category.
+//!   sections and tasks, a task its subtasks; a deleted section's tasks stay
+//!   in the project without a section.
 
 use rusqlite::types::Value as SqlValue;
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Row, ToSql};
@@ -29,9 +29,9 @@ use crate::{new_id, Ctx, Error, Result};
 // ── Reading rows ─────────────────────────────────────────────────────────────
 
 const PROJECT_COLS: &str = "id, name, color, position, created_at, updated_at, favorite, description";
-const CATEGORY_COLS: &str = "id, project_id, name, position, created_at, updated_at, description";
+const SECTION_COLS: &str = "id, project_id, name, position, created_at, updated_at, description";
 const FILTER_COLS: &str = "id, name, color, criteria, fields, group_by, position, created_at, updated_at";
-const TASK_COLS: &str = "t.id, t.project_id, t.category_id, t.parent_id, t.title, t.description, t.priority, \
+const TASK_COLS: &str = "t.id, t.project_id, t.section_id, t.parent_id, t.title, t.description, t.priority, \
     t.due_date, t.due_time, t.duration_minutes, t.location, t.remind_at, t.recurrence, t.position, \
     t.completed_at, t.created_at, t.updated_at";
 
@@ -48,8 +48,8 @@ fn project_row(r: &Row) -> rusqlite::Result<Project> {
     })
 }
 
-fn category_row(r: &Row) -> rusqlite::Result<Category> {
-    Ok(Category {
+fn section_row(r: &Row) -> rusqlite::Result<Section> {
+    Ok(Section {
         id: r.get(0)?,
         project_id: r.get(1)?,
         name: r.get(2)?,
@@ -76,7 +76,7 @@ fn filter_row(r: &Row) -> rusqlite::Result<Filter> {
         color: r.get(2)?,
         criteria: json_col(
             r.get(3)?,
-            serde_json::json!({"projects": [], "categories": [], "priorities": [], "due": []}),
+            serde_json::json!({"projects": [], "sections": [], "priorities": [], "due": []}),
         ),
         fields: json_col(r.get(4)?, Value::Array(vec![])),
         group_by: r.get(5)?,
@@ -90,7 +90,7 @@ fn task_row(r: &Row) -> rusqlite::Result<Task> {
     Ok(Task {
         id: r.get(0)?,
         project_id: r.get(1)?,
-        category_id: r.get(2)?,
+        section_id: r.get(2)?,
         parent_id: r.get(3)?,
         title: r.get(4)?,
         description: r.get(5)?,
@@ -235,12 +235,12 @@ pub fn reorder_projects(conn: &Connection, ctx: &Ctx, ids: &[String]) -> Result<
     list_projects(conn)
 }
 
-/// Its categories and tasks go with it.
+/// Its sections and tasks go with it.
 pub fn delete_project(conn: &Connection, ctx: &Ctx, id: &str) -> Result<()> {
     get_project(conn, id)?;
     tombstone(conn, ctx, "task_projects", id)?;
-    for cat in live_ids(conn, "task_categories", "project_id = ?1", &[&id])? {
-        tombstone(conn, ctx, "task_categories", &cat)?;
+    for cat in live_ids(conn, "task_sections", "project_id = ?1", &[&id])? {
+        tombstone(conn, ctx, "task_sections", &cat)?;
     }
     for task in live_ids(conn, "tasks", "project_id = ?1", &[&id])? {
         tombstone(conn, ctx, "tasks", &task)?;
@@ -248,69 +248,69 @@ pub fn delete_project(conn: &Connection, ctx: &Ctx, id: &str) -> Result<()> {
     Ok(())
 }
 
-// ── Categories ───────────────────────────────────────────────────────────────
+// ── Sections ───────────────────────────────────────────────────────────────
 
-pub fn list_categories(conn: &Connection, project_id: Option<&str>) -> Result<Vec<Category>> {
+pub fn list_sections(conn: &Connection, project_id: Option<&str>) -> Result<Vec<Section>> {
     match project_id {
         Some(p) => query(
             conn,
             &format!(
-                "SELECT {CATEGORY_COLS} FROM task_categories WHERE deleted_at IS NULL AND project_id = ?1
+                "SELECT {SECTION_COLS} FROM task_sections WHERE deleted_at IS NULL AND project_id = ?1
                  ORDER BY project_id, position, id"
             ),
             &[&p],
-            category_row,
+            section_row,
         ),
         None => query(
             conn,
             &format!(
-                "SELECT {CATEGORY_COLS} FROM task_categories WHERE deleted_at IS NULL ORDER BY project_id, position, id"
+                "SELECT {SECTION_COLS} FROM task_sections WHERE deleted_at IS NULL ORDER BY project_id, position, id"
             ),
             &[],
-            category_row,
+            section_row,
         ),
     }
 }
 
-pub fn get_category(conn: &Connection, id: &str) -> Result<Category> {
+pub fn get_section(conn: &Connection, id: &str) -> Result<Section> {
     conn.query_row(
-        &format!("SELECT {CATEGORY_COLS} FROM task_categories WHERE id = ?1 AND deleted_at IS NULL"),
+        &format!("SELECT {SECTION_COLS} FROM task_sections WHERE id = ?1 AND deleted_at IS NULL"),
         [id],
-        category_row,
+        section_row,
     )
     .optional()?
-    .ok_or(Error::NotFound("Category not found"))
+    .ok_or(Error::NotFound("Section not found"))
 }
 
-pub fn create_category(conn: &Connection, ctx: &Ctx, input: CategoryIn) -> Result<Category> {
+pub fn create_section(conn: &Connection, ctx: &Ctx, input: SectionIn) -> Result<Section> {
     check_title("name", &input.name)?;
     get_project(conn, &input.project_id)?;
     let position = match input.position.flatten() {
         Some(p) if p != 0 => p,
-        _ => next_position(conn, "task_categories", "project_id = ?1", &[&input.project_id])?,
+        _ => next_position(conn, "task_sections", "project_id = ?1", &[&input.project_id])?,
     };
     let id = new_id();
     conn.execute(
-        "INSERT INTO task_categories (id, project_id, name, position, created_at, description) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO task_sections (id, project_id, name, position, created_at, description) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         params![id, input.project_id, input.name, position, now_iso(), description(input.description.flatten())],
     )?;
-    touch(conn, ctx, "task_categories", &id)?;
-    get_category(conn, &id)
+    touch(conn, ctx, "task_sections", &id)?;
+    get_section(conn, &id)
 }
 
-/// A category moves with its tasks and their subtasks, and goes last in the
+/// A section moves with its tasks and their subtasks, and goes last in the
 /// new project unless a position is given.
-pub fn update_category(conn: &Connection, ctx: &Ctx, id: &str, input: CategoryIn) -> Result<Category> {
-    let item = get_category(conn, id)?;
+pub fn update_section(conn: &Connection, ctx: &Ctx, id: &str, input: SectionIn) -> Result<Section> {
+    let item = get_section(conn, id)?;
     check_title("name", &input.name)?;
     let mut position = input.position.flatten();
     if input.project_id != item.project_id {
         get_project(conn, &input.project_id)?;
-        for task in live_ids(conn, "tasks", "category_id = ?1", &[&id])? {
+        for task in live_ids(conn, "tasks", "section_id = ?1", &[&id])? {
             set_columns(conn, ctx, "tasks", &task, vec![("project_id", SqlValue::Text(input.project_id.clone()))])?;
         }
         if position.unwrap_or(0) == 0 {
-            position = Some(next_position(conn, "task_categories", "project_id = ?1", &[&input.project_id])?);
+            position = Some(next_position(conn, "task_sections", "project_id = ?1", &[&input.project_id])?);
         }
     }
     let mut changes = vec![("project_id", SqlValue::Text(input.project_id)), ("name", SqlValue::Text(input.name))];
@@ -320,16 +320,16 @@ pub fn update_category(conn: &Connection, ctx: &Ctx, id: &str, input: CategoryIn
     if let Some(desc) = input.description {
         changes.push(("description", text(description(desc))));
     }
-    set_columns(conn, ctx, "task_categories", id, changes)?;
-    get_category(conn, id)
+    set_columns(conn, ctx, "task_sections", id, changes)?;
+    get_section(conn, id)
 }
 
-/// Sets a project's categories to positions 1..n in the order given. Its
-/// categories left out keep their relative order after the listed ones; ids
+/// Sets a project's sections to positions 1..n in the order given. Its
+/// sections left out keep their relative order after the listed ones; ids
 /// that aren't the project's are ignored. Only the rows that change are written.
-pub fn reorder_categories(conn: &Connection, ctx: &Ctx, project_id: &str, ids: &[String]) -> Result<Vec<Category>> {
+pub fn reorder_sections(conn: &Connection, ctx: &Ctx, project_id: &str, ids: &[String]) -> Result<Vec<Section>> {
     get_project(conn, project_id)?;
-    let mut rest = list_categories(conn, Some(project_id))?;
+    let mut rest = list_sections(conn, Some(project_id))?;
     let mut ordered = Vec::with_capacity(rest.len());
     for id in ids {
         if let Some(i) = rest.iter().position(|c| &c.id == id) {
@@ -337,33 +337,33 @@ pub fn reorder_categories(conn: &Connection, ctx: &Ctx, project_id: &str, ids: &
         }
     }
     ordered.append(&mut rest);
-    for (i, category) in ordered.iter().enumerate() {
+    for (i, section) in ordered.iter().enumerate() {
         let position = i as i64 + 1;
-        if category.position != position {
-            set_columns(conn, ctx, "task_categories", &category.id, vec![("position", SqlValue::Integer(position))])?;
+        if section.position != position {
+            set_columns(conn, ctx, "task_sections", &section.id, vec![("position", SqlValue::Integer(position))])?;
         }
     }
-    list_categories(conn, Some(project_id))
+    list_sections(conn, Some(project_id))
 }
 
-/// Its tasks stay in the project, without a category.
-pub fn delete_category(conn: &Connection, ctx: &Ctx, id: &str) -> Result<()> {
-    get_category(conn, id)?;
-    tombstone(conn, ctx, "task_categories", id)?;
-    for task in live_ids(conn, "tasks", "category_id = ?1", &[&id])? {
-        set_columns(conn, ctx, "tasks", &task, vec![("category_id", SqlValue::Null)])?;
+/// Its tasks stay in the project, without a section.
+pub fn delete_section(conn: &Connection, ctx: &Ctx, id: &str) -> Result<()> {
+    get_section(conn, id)?;
+    tombstone(conn, ctx, "task_sections", id)?;
+    for task in live_ids(conn, "tasks", "section_id = ?1", &[&id])? {
+        set_columns(conn, ctx, "tasks", &task, vec![("section_id", SqlValue::Null)])?;
     }
     Ok(())
 }
 
-fn check_placement(conn: &Connection, project_id: Option<&str>, category_id: Option<&str>) -> Result<()> {
+fn check_placement(conn: &Connection, project_id: Option<&str>, section_id: Option<&str>) -> Result<()> {
     if let Some(p) = project_id {
         get_project(conn, p)?;
     }
-    if let Some(c) = category_id {
-        let category = get_category(conn, c)?;
-        if Some(category.project_id.as_str()) != project_id {
-            return Err(Error::BadRequest("The category belongs to another project".into()));
+    if let Some(c) = section_id {
+        let section = get_section(conn, c)?;
+        if Some(section.project_id.as_str()) != project_id {
+            return Err(Error::BadRequest("The section belongs to another project".into()));
         }
     }
     Ok(())
@@ -371,7 +371,7 @@ fn check_placement(conn: &Connection, project_id: Option<&str>, category_id: Opt
 
 // ── Filters ──────────────────────────────────────────────────────────────────
 // Saved views of the open tasks. Only the definition is kept; the browser
-// matches and groups the tasks. Ids of deleted projects or categories may stay
+// matches and groups the tasks. Ids of deleted projects or sections may stay
 // in a filter's criteria until it is next saved; the browser ignores them.
 
 pub fn list_filters(conn: &Connection) -> Result<Vec<Filter>> {
@@ -565,19 +565,19 @@ pub fn create_task(conn: &Connection, ctx: &Ctx, input: TaskIn) -> Result<Task> 
         return Err(Error::BadRequest("A time needs a date".into()));
     }
 
-    let (project_id, category_id) = if let Some(parent_id) = &input.parent_id {
+    let (project_id, section_id) = if let Some(parent_id) = &input.parent_id {
         let parent = get_task(conn, parent_id)?;
         if parent.parent_id.is_some() {
             return Err(Error::BadRequest("Subtasks can't have subtasks".into()));
         }
-        (parent.project_id, parent.category_id)
-    } else if let (Some(c), None) = (&input.category_id, &input.project_id) {
-        // A category alone is enough to place a task.
-        (Some(get_category(conn, c)?.project_id), Some(c.clone()))
+        (parent.project_id, parent.section_id)
+    } else if let (Some(c), None) = (&input.section_id, &input.project_id) {
+        // A section alone is enough to place a task.
+        (Some(get_section(conn, c)?.project_id), Some(c.clone()))
     } else {
-        (input.project_id.clone(), input.category_id.clone())
+        (input.project_id.clone(), input.section_id.clone())
     };
-    check_placement(conn, project_id.as_deref(), category_id.as_deref())?;
+    check_placement(conn, project_id.as_deref(), section_id.as_deref())?;
 
     let position = match input.position {
         Some(p) if p != 0 => p,
@@ -585,13 +585,13 @@ pub fn create_task(conn: &Connection, ctx: &Ctx, input: TaskIn) -> Result<Task> 
     };
     let id = new_id();
     conn.execute(
-        "INSERT INTO tasks (id, project_id, category_id, parent_id, title, description, priority, due_date,
+        "INSERT INTO tasks (id, project_id, section_id, parent_id, title, description, priority, due_date,
             due_time, duration_minutes, location, remind_at, recurrence, position, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
         params![
             id,
             project_id,
-            category_id,
+            section_id,
             input.parent_id,
             input.title,
             input.description,
@@ -610,7 +610,7 @@ pub fn create_task(conn: &Connection, ctx: &Ctx, input: TaskIn) -> Result<Task> 
     get_task(conn, &id)
 }
 
-/// Puts sibling tasks (same parent, project and category) in the order given,
+/// Puts sibling tasks (same parent, project and section) in the order given,
 /// using the positions they already hold so tasks left out stay where they are.
 /// Only the rows that change are written, which keeps sync traffic small.
 pub fn reorder_tasks(conn: &Connection, ctx: &Ctx, ids: &[String]) -> Result<Vec<Task>> {
@@ -622,7 +622,7 @@ pub fn reorder_tasks(conn: &Connection, ctx: &Ctx, ids: &[String]) -> Result<Vec
         return Err(Error::BadRequest("A task is listed twice".into()));
     }
     let siblings = |t: &Task| {
-        t.parent_id == first.parent_id && t.project_id == first.project_id && t.category_id == first.category_id
+        t.parent_id == first.parent_id && t.project_id == first.project_id && t.section_id == first.section_id
     };
     if !tasks.iter().all(siblings) {
         return Err(Error::BadRequest("Only tasks in the same list can be reordered together".into()));
@@ -756,35 +756,35 @@ pub fn update_task(conn: &Connection, ctx: &Ctx, id: &str, patch: TaskPatch) -> 
             }
             changes.push(("parent_id", SqlValue::Text(new_parent)));
             changes.push(("project_id", text(parent.project_id)));
-            changes.push(("category_id", text(parent.category_id)));
+            changes.push(("section_id", text(parent.section_id)));
         }
     }
     if item.parent_id.is_some() {
         // A subtask stays where its parent is.
         p.project_id = None;
-        p.category_id = None;
-    } else if p.project_id.is_some() || p.category_id.is_some() {
+        p.section_id = None;
+    } else if p.project_id.is_some() || p.section_id.is_some() {
         let mut project_id = p.project_id.clone().unwrap_or_else(|| item.project_id.clone());
-        let mut category_id = p.category_id.clone().unwrap_or_else(|| item.category_id.clone());
-        if p.category_id.is_some() && p.project_id.is_none() {
-            if let Some(c) = &category_id {
-                project_id = Some(get_category(conn, c)?.project_id);
+        let mut section_id = p.section_id.clone().unwrap_or_else(|| item.section_id.clone());
+        if p.section_id.is_some() && p.project_id.is_none() {
+            if let Some(c) = &section_id {
+                project_id = Some(get_section(conn, c)?.project_id);
             }
-        } else if p.project_id.is_some() && p.category_id.is_none() && project_id != item.project_id {
-            category_id = None; // the old category was in the old project
+        } else if p.project_id.is_some() && p.section_id.is_none() && project_id != item.project_id {
+            section_id = None; // the old section was in the old project
         }
-        check_placement(conn, project_id.as_deref(), category_id.as_deref())?;
+        check_placement(conn, project_id.as_deref(), section_id.as_deref())?;
         for sub in live_ids(conn, "tasks", "parent_id = ?1", &[&id])? {
             set_columns(
                 conn,
                 ctx,
                 "tasks",
                 &sub,
-                vec![("project_id", text(project_id.clone())), ("category_id", text(category_id.clone()))],
+                vec![("project_id", text(project_id.clone())), ("section_id", text(section_id.clone()))],
             )?;
         }
         changes.push(("project_id", text(project_id)));
-        changes.push(("category_id", text(category_id)));
+        changes.push(("section_id", text(section_id)));
     }
 
     if let Some(Some(done)) = &p.completed_at {

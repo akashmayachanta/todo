@@ -423,7 +423,7 @@
   visibility: hidden;
 }
 
-/* Project rows keep a gutter on the left for the categories expander. */
+/* Project rows keep a gutter on the left for the sections expander. */
 .tasks-pane-project > .tasks-pane-link {
   padding-left: 1.5rem;
 }
@@ -466,7 +466,7 @@
 }
 
 
-/* A category section opened from the pane stops clear of the top edge. */
+/* A section section opened from the pane stops clear of the top edge. */
 .task-group[id^="task-cat-"],
 .task-col[id^="task-cat-"] {
   scroll-margin-top: var(--space-md);
@@ -533,11 +533,11 @@
   white-space: nowrap;
 }
 
-.task-category-head {
+.task-section-head {
   align-items: center;
 }
 
-/* Descriptions (DescriptionEdit.svelte): under the project's title, and under a category's heading. */
+/* Descriptions (DescriptionEdit.svelte): under the project's title, and under a section's heading. */
 .tasks-project-desc {
   margin-top: var(--space-2xs);
   max-width: 48rem;
@@ -546,7 +546,7 @@
 /* Even spacing: the same gap from the heading to the description as from the
    description to the first task. List: a row has 0.625rem above its text, so the
    description sits 0.625rem under the heading's rule. */
-.task-category-desc {
+.task-section-desc {
   overflow: hidden;
   padding-top: 0.625rem;
   font-family: var(--font-prose);
@@ -558,16 +558,16 @@
   cursor: text;
 }
 
-/* A category's edit form: the name, the description, then Save and Cancel. */
-.task-category-edit {
+/* A section's edit form: the name, the description, then Save and Cancel. */
+.task-section-edit {
   display: flex;
   flex-direction: column;
   gap: var(--space-xs);
   padding-top: var(--space-2xs);
 }
 
-.task-category-edit-name,
-.task-category-edit-desc {
+.task-section-edit-name,
+.task-section-edit-desc {
   display: block;
   width: 100%;
   padding: 0.375rem 0.625rem;
@@ -581,75 +581,75 @@
   box-shadow: none;
 }
 
-.task-category-edit-name {
+.task-section-edit-name {
   font-family: var(--font-display);
   font-weight: 600;
 }
 
-.task-category-edit-desc {
+.task-section-edit-desc {
   min-height: 3.5rem;
   resize: none;
   field-sizing: content;
   font-family: var(--font-prose);
 }
 
-.task-category-edit-name:focus,
-.task-category-edit-desc:focus {
+.task-section-edit-name:focus,
+.task-section-edit-desc:focus {
   border-color: var(--text-muted);
   outline: none;
   box-shadow: none;
 }
 
-.task-category-edit-desc::placeholder,
-.task-category-edit-name::placeholder {
+.task-section-edit-desc::placeholder,
+.task-section-edit-name::placeholder {
   color: var(--text-faint);
   font-weight: 400;
 }
 
-.task-category-edit-actions {
+.task-section-edit-actions {
   display: flex;
   gap: var(--space-xs);
 }
 
 /* Board: the 2rem heading already leaves about the column body's gap under its
    text, and the description lines up with the heading's own inset. */
-.task-col > .task-category-desc {
+.task-col > .task-section-desc {
   padding: 0 0.125rem 0 0.25rem;
 }
 
 /* The one-line description's height (0.75rem × 1.5), kept free in a column without one. */
-.task-col > .task-category-desc-blank {
+.task-col > .task-section-desc-blank {
   height: 1.125rem;
 }
 
-.task-category-name {
+.task-section-name {
   font: inherit;
 }
 
-.task-category-menu {
+.task-section-menu {
   margin-left: auto;
   opacity: 0;
   transition: opacity var(--dur-micro) var(--ease-out);
 }
 
-.task-category-head:hover .task-category-menu,
-.task-category-menu:focus-within {
+.task-section-head:hover .task-section-menu,
+.task-section-menu:focus-within {
   opacity: 1;
 }
 
-.task-category-input {
+.task-section-input {
   padding-top: 0.25rem;
   padding-bottom: 0.25rem;
 }
 
-.task-category-new {
+.task-section-new {
   display: flex;
   gap: var(--space-xs);
   margin-top: var(--space-lg);
 }
 
 /* A rule with the label in it, like Todoist's "Add section". */
-.task-category-add {
+.task-section-add {
   display: flex;
   align-items: center;
   gap: var(--space-xs);
@@ -661,16 +661,95 @@
   transition: opacity var(--dur-micro) var(--ease-out);
 }
 
-.task-category-add::before,
-.task-category-add::after {
+.task-section-add::before,
+.task-section-add::after {
   content: "";
   flex: 1;
   border-top: var(--rule-hair) solid var(--color-brand);
 }
 
-.task-category-add:hover,
-.task-category-add:focus-visible {
+.task-section-add:hover,
+.task-section-add:focus-visible {
   opacity: 1;
+}
+
+.task-section-add-icon {
+  width: 1.125rem;
+  height: 1.125rem;
+  flex-shrink: 0;
+}
+
+/* "Add section" between two sections: hidden until hovered, a rule with the
+   label across it. In the list it's a thin strip between the groups; on the
+   board it fills the gap between two columns, top to bottom. */
+.task-section-insert {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  width: 100%;
+  height: 100%;
+  color: var(--color-brand);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity var(--dur-micro) var(--ease-out);
+}
+
+.task-section-insert:hover,
+.task-section-insert:focus-visible {
+  opacity: 1;
+}
+
+.task-section-insert::before,
+.task-section-insert::after {
+  content: "";
+  flex: 1;
+}
+
+.task-section-insert-row {
+  position: relative;
+  z-index: 1;
+  height: 1.5rem;
+  margin-block: -0.75rem;
+}
+
+.task-section-insert-row .task-section-insert::before,
+.task-section-insert-row .task-section-insert::after {
+  border-top: var(--rule-hair) solid var(--color-brand);
+}
+
+/* Board: a flex item as wide as the gap, pulled back over it by its margins. */
+.task-section-insert-col {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 var(--space-lg);
+  align-self: stretch;
+  margin-inline: calc(-1 * var(--space-lg));
+}
+
+.task-section-insert-col .task-section-insert {
+  flex-direction: column;
+  justify-content: center;
+  overflow: visible;
+}
+
+.task-section-insert-col .task-section-insert span {
+  padding-block: var(--space-xs);
+  background-color: var(--bg-base);
+}
+
+.task-section-insert-col .task-section-insert::before,
+.task-section-insert-col .task-section-insert::after {
+  border-left: var(--rule-hair) solid var(--color-brand);
+}
+
+/* Touch screens can't hover; their "Add section" is the one at the end. */
+@media (hover: none) {
+  .task-section-insert-col,
+  .task-section-insert-row {
+    display: none;
+  }
 }
 
 /* ── Task rows ──────────────────────────────────────────────────────────── */
@@ -851,24 +930,24 @@ html.sort-active [data-cat-id] {
   transition: background-color var(--dur-micro) var(--ease-out), outline-color var(--dur-micro) var(--ease-out);
 }
 
-/* A category is picked up by its head: grabbed with the mouse, held with a finger. */
+/* A section is picked up by its head: grabbed with the mouse, held with a finger. */
 [data-cat-id] {
   position: relative;
 }
 
-[data-cat-id] > .task-category-head {
+[data-cat-id] > .task-section-head {
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
 }
 
 @media (hover: hover) {
-  [data-cat-id] > .task-category-head {
+  [data-cat-id] > .task-section-head {
     cursor: grab;
   }
 }
 
-/* A picked-up category reads as a card: its colour spreads a little past its edge,
+/* A picked-up section reads as a card: its colour spreads a little past its edge,
    with the shadow under that. */
 .sort-ghost-group {
   box-shadow:
@@ -1347,7 +1426,7 @@ html.sort-active * {
 @media (hover: none) {
   .task-actions,
   .tasks-pane-menu,
-  .task-category-menu {
+  .task-section-menu {
     opacity: 1;
   }
 }
@@ -1940,7 +2019,7 @@ button.task-modal-crumb:hover {
 }
 
 /* ── Project dialog ─────────────────────────────────────────────────────── */
-.category-move-list {
+.section-move-list {
   display: flex;
   flex-direction: column;
   gap: var(--space-2xs);
@@ -1948,7 +2027,7 @@ button.task-modal-crumb:hover {
   overflow-y: auto;
 }
 
-.category-move-option {
+.section-move-option {
   display: flex;
   align-items: center;
   gap: var(--space-xs);
@@ -1960,19 +2039,19 @@ button.task-modal-crumb:hover {
   text-align: left;
 }
 
-.category-move-option:hover,
-.category-move-option:focus-visible {
+.section-move-option:hover,
+.section-move-option:focus-visible {
   background-color: var(--bg-hover);
 }
 
-/* A category under its project in "Move to…". */
-.category-move-sub {
+/* A section under its project in "Move to…". */
+.section-move-sub {
   padding-left: 1.75rem;
   color: var(--text-secondary);
 }
 
 /* Where the task already is. */
-.category-move-option[aria-current] {
+.section-move-option[aria-current] {
   color: var(--color-brand);
   font-weight: 600;
 }
@@ -2090,11 +2169,11 @@ button.task-modal-crumb:hover {
   border-bottom: 0;
 }
 
-.task-col .task-category-menu {
+.task-col .task-section-menu {
   opacity: 1;
 }
 
-.task-col .task-category-menu .tasks-icon-btn {
+.task-col .task-section-menu .tasks-icon-btn {
   color: var(--text-muted);
 }
 
@@ -2118,8 +2197,8 @@ button.task-modal-crumb:hover {
   padding-top: 0.125rem;
 }
 
-/* "+ Add category" in the board is a quiet box, like Todoist's "Add section". */
-.task-col-new .task-category-add {
+/* "Add section" in the board is a quiet box, like Todoist's "Add section". */
+.task-col-new .task-section-add {
   justify-content: flex-start;
   padding: var(--space-xs) var(--space-sm);
   border-radius: var(--task-radius);
@@ -2129,22 +2208,22 @@ button.task-modal-crumb:hover {
   transition: color var(--dur-micro) var(--ease-out), background-color var(--dur-micro) var(--ease-out);
 }
 
-.task-col-new .task-category-add::before,
-.task-col-new .task-category-add::after {
+.task-col-new .task-section-add::before,
+.task-col-new .task-section-add::after {
   content: none;
 }
 
-.task-col-new .task-category-add:hover {
+.task-col-new .task-section-add:hover {
   background-color: var(--bg-hover);
   color: var(--color-brand);
 }
 
-.task-col-new .task-category-add,
-.task-col-new .task-category-new {
+.task-col-new .task-section-add,
+.task-col-new .task-section-new {
   margin-top: 0;
 }
 
-.task-col-new .task-category-new {
+.task-col-new .task-section-new {
   flex-wrap: wrap;
 }
 
@@ -3154,18 +3233,18 @@ button.tcal-day:hover {
 }
 
 /* While searching, Enter picks this one. */
-.category-move-first {
+.section-move-first {
   background-color: var(--bg-hover);
 }
 
-.category-move-parent {
+.section-move-parent {
   margin-left: auto;
   padding-left: var(--space-sm);
   font-size: var(--text-xs);
   color: var(--text-muted);
 }
 
-.category-move-empty {
+.section-move-empty {
   padding: var(--space-sm) var(--space-xs);
   font-size: var(--text-sm);
   color: var(--text-muted);

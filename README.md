@@ -95,11 +95,11 @@ Every row has these columns:
 
 - **Merge rule.** Last write wins per row, by `(updated_at, updated_by)`.
   A delete is a version too. A project's delete writes tombstones for its
-  categories and tasks, so it reaches every device.
+  sections and tasks, so it reaches every device.
 - **Repairs.** After every merge, `sync::repair` fixes rows that edits on
   different devices left inconsistent. A task added offline to a project that
-  was deleted elsewhere gets deleted too. A task in a category that another
-  device moved to a different project follows its category.
+  was deleted elsewhere gets deleted too. A task in a section that another
+  device moved to a different project follows its section.
 - **Push.** `POST /sync/push {device_id, rows}` returns `{accepted, ignored, seq}`.
 - **Pull.** `GET /sync/pull?since=<seq>&limit=` returns `{rows, next, more, epoch, seq}`.
 - **Events.** `GET /sync/events` is a server-sent event stream: `ready` once,
@@ -190,7 +190,7 @@ Every route is under `TASKS_API_BASE_PATH`. Errors come back as
 - `POST /`, `GET`/`POST /{id}`, `POST /{id}/delete`
 - `/reorder` takes `{ids}` of sibling tasks in their new order
 - `/projects`, `/projects/reorder`, `/projects/{id}`, `/projects/{id}/delete`
-- `/categories`, `/filters`, with the same `{id}` and `{id}/delete` forms
+- `/sections`, `/filters`, with the same `{id}` and `{id}/delete` forms
 - `GET /completions?since=`
 - `/sync/push`, `/sync/pull`, `/sync/events`, `/health`
 
@@ -228,7 +228,7 @@ On Windows the app also has:
 - **A quick add popup.** `Alt+N` from any app shows a small window on its own,
   without bringing up the main window. If the main window is in front, its own
   dialog opens instead, because it knows which project you're in.
-- **Pins.** The pin button in a page's header, "Pin to desktop" in a category's menu
+- **Pins.** The pin button in a page's header, "Pin to desktop" in a section's menu
   or in a task's menu opens a small always-on-top window for that list or task. Close
   it to unpin. Pins and their positions stay on this device (`config.json`,
   and the window-state plugin's file) and reopen at startup.

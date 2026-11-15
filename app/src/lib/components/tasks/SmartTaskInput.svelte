@@ -1,6 +1,6 @@
 <script lang="ts">
 	import PlaceMark from '$lib/components/tasks/PlaceMark.svelte';
-	import type { TaskCategory, TaskProject } from '$lib/api';
+	import type { TaskSection, TaskProject } from '$lib/api';
 	import type { ParsedToken, TokenKind } from '$lib/taskParse';
 	import { projectColor } from './shared';
 	import './quickadd.css';
@@ -8,14 +8,14 @@
 	/**
 	 * The smart task line, shared by the quick add and the task drawer: the parts the
 	 * parent read as date, priority, place, recurrence or reminder (`tokens`) are tinted
-	 * in a mirror behind the input, `#` offers the projects and categories, and `/` the categories.
+	 * in a mirror behind the input, `#` offers the projects and sections, and `/` the sections.
 	 * Enter calls `onenter`, Esc `onescape` (when given), unless a suggestion list is open.
 	 */
 	let {
 		value = $bindable(''),
 		tokens,
 		projects,
-		categories,
+		sections,
 		scopeProjectId = null,
 		placeholder = '',
 		ariaLabel,
@@ -29,8 +29,8 @@
 		value?: string;
 		tokens: ParsedToken[];
 		projects: TaskProject[];
-		categories: TaskCategory[];
-		/** The project whose categories `/` offers; null offers every category. */
+		sections: TaskSection[];
+		/** The project whose sections `/` offers; null offers every section. */
 		scopeProjectId?: string | null;
 		placeholder?: string;
 		ariaLabel: string;
@@ -75,7 +75,7 @@
 		if (!m || dismissedAt === before) return null;
 		const query = m[3].toLowerCase().trimStart();
 		const start = before.length - m[3].length - 1;
-		// "#Work / Back" is still the category; "and / or" is just a slash.
+		// "#Work / Back" is still the section; "and / or" is just a slash.
 		const afterProject = tokens.some((t) => t.kind === 'project' && !t.unknown && t.end <= start && !value.slice(t.end, start).trim());
 		if (m[2] === '/' && /^\s/.test(m[3]) && !afterProject) return null;
 		if (m[2] === '#') {
@@ -83,27 +83,27 @@
 				...projects
 					.filter((p) => p.name.toLowerCase().includes(query))
 					.map((p) => ({ id: p.id, label: p.name, insert: `#${p.name}`, color: projectColor(p.color), kind: 'project' as const })),
-				...hashCategories(query, start),
+				...hashSections(query, start),
 			];
 			return items.length ? { start, trigger: '#', items: items.slice(0, 8) } : null;
 		}
-		const items = categories
+		const items = sections
 			.filter((c) => (scopeProjectId === null || c.project_id === scopeProjectId) && c.name.toLowerCase().includes(query))
 			.map((c) => {
 				const p = projects.find((x) => x.id === c.project_id);
-				return { id: c.id, label: scopeProjectId === null && p ? `${p.name} / ${c.name}` : c.name, insert: `/${c.name}`, color: projectColor(p?.color), kind: 'category' as const };
+				return { id: c.id, label: scopeProjectId === null && p ? `${p.name} / ${c.name}` : c.name, insert: `/${c.name}`, color: projectColor(p?.color), kind: 'section' as const };
 			});
 		return items.length ? { start, trigger: '/', items: items.slice(0, 8) } : null;
 	});
 
 	/**
-	 * The categories `#` offers, the current project's first. Picking one shows where
+	 * The sections `#` offers, the current project's first. Picking one shows where
 	 * it is, `#Work / Backend`, or just `/Backend` when the line already names a project.
 	 */
-	function hashCategories(query: string, start: number) {
+	function hashSections(query: string, start: number) {
 		const named = tokens.some((t) => t.kind === 'project' && !t.unknown && t.start !== start);
-		const inScope = (c: TaskCategory) => c.project_id === scopeProjectId;
-		return categories
+		const inScope = (c: TaskSection) => c.project_id === scopeProjectId;
+		return sections
 			.filter((c) => c.name.toLowerCase().includes(query) && (!named || inScope(c)))
 			.sort((a, b) => Number(inScope(b)) - Number(inScope(a)))
 			.map((c) => {
@@ -113,7 +113,7 @@
 					label: p ? `${p.name} / ${c.name}` : c.name,
 					insert: named ? `/${c.name}` : p ? `#${p.name} / ${c.name}` : `#${c.name}`,
 					color: projectColor(p?.color),
-					kind: 'category' as const,
+					kind: 'section' as const,
 				};
 			});
 	}
@@ -200,7 +200,7 @@
 	></textarea>
 
 	{#if suggest}
-		<div class="quick-add-suggest" role="listbox" aria-label={suggest.trigger === '#' ? 'Projects and categories' : 'Categories'}>
+		<div class="quick-add-suggest" role="listbox" aria-label={suggest.trigger === '#' ? 'Projects and sections' : 'Sections'}>
 			{#each suggest.items as item, i (item.id)}
 				<!-- Focus stays in the input; options take pointer input only. -->
 				<!-- svelte-ignore a11y_click_events_have_key_events -->

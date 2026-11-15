@@ -1,7 +1,7 @@
 <script lang="ts">
 	import PlaceMark from '$lib/components/tasks/PlaceMark.svelte';
 	import type {
-		Task, TaskCategory, TaskDueWindow, TaskFilter, TaskFilterIn, TaskGroupBy, TaskPriority, TaskProject, TaskRowField,
+		Task, TaskSection, TaskDueWindow, TaskFilter, TaskFilterIn, TaskGroupBy, TaskPriority, TaskProject, TaskRowField,
 	} from '$lib/api';
 	import Select from '$lib/components/Select.svelte';
 	import { PROJECT_COLORS, projectColor } from './shared';
@@ -11,14 +11,14 @@
 
 	/**
 	 * New or edit filter: name and colour, what it matches (projects and their
-	 * categories, priorities, due windows), which row details it shows and how it
+	 * sections, priorities, due windows), which row details it shows and how it
 	 * groups. The count of open tasks it matches updates as you pick.
 	 */
-	let { filter, projects, categories, tasks, today, onsave, onclose }: {
+	let { filter, projects, sections, tasks, today, onsave, onclose }: {
 		/** null for a new filter. */
 		filter: TaskFilter | null;
 		projects: TaskProject[];
-		categories: TaskCategory[];
+		sections: TaskSection[];
 		/** The open tasks, for the live count. */
 		tasks: Task[];
 		today: string;
@@ -26,17 +26,17 @@
 		onclose: () => void;
 	} = $props();
 
-	const ctx = $derived({ projects, categories, today });
+	const ctx = $derived({ projects, sections, today });
 
 	// The dialog edits its own copy; a deleted project's id is dropped on open.
 	// svelte-ignore state_referenced_locally
-	const start = filter ? pruneCriteria(filter.criteria, { projects, categories, today }) : emptyCriteria();
+	const start = filter ? pruneCriteria(filter.criteria, { projects, sections, today }) : emptyCriteria();
 	// svelte-ignore state_referenced_locally
 	let name = $state(filter?.name ?? '');
 	// svelte-ignore state_referenced_locally
 	let color = $state(filter?.color ?? 'blue');
 	let picked = $state<(string | null)[]>([...start.projects]);
-	let pickedCats = $state<string[]>([...start.categories]);
+	let pickedCats = $state<string[]>([...start.sections]);
 	let priorities = $state<TaskPriority[]>([...start.priorities]);
 	let due = $state<TaskDueWindow[]>([...start.due]);
 	// svelte-ignore state_referenced_locally
@@ -50,14 +50,14 @@
 
 	const PRIORITIES: TaskPriority[] = [1, 2, 3, 4];
 
-	let criteria = $derived({ projects: picked, categories: pickedCats, priorities, due });
+	let criteria = $derived({ projects: picked, sections: pickedCats, priorities, due });
 	let matching = $derived.by(() => {
 		const test = compileFilter(criteria, ctx);
 		return tasks.filter((t) => !t.completed_at && test(t)).length;
 	});
 
 	const catsOf = (projectId: string) =>
-		categories.filter((c) => c.project_id === projectId).sort((a, b) => a.position - b.position || a.id.localeCompare(b.id));
+		sections.filter((c) => c.project_id === projectId).sort((a, b) => a.position - b.position || a.id.localeCompare(b.id));
 
 	function toggle<T>(list: T[], value: T): T[] {
 		return list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
@@ -65,7 +65,7 @@
 
 	function toggleProject(id: string | null) {
 		picked = toggle(picked, id);
-		// Unpicking a project unpicks its categories.
+		// Unpicking a project unpicks its sections.
 		if (id !== null && !picked.includes(id)) {
 			const own = new Set(catsOf(id).map((c) => c.id));
 			pickedCats = pickedCats.filter((c) => !own.has(c));
@@ -151,8 +151,8 @@
 							<span>{p.name}</span>
 						</label>
 						{#if picked.includes(p.id) && cats.length}
-							<div class="filter-cats" role="group" aria-label="Categories of {p.name}">
-								<span class="filter-hint">Categories (none picked: all)</span>
+							<div class="filter-cats" role="group" aria-label="Sections of {p.name}">
+								<span class="filter-hint">Sections (none picked: all)</span>
 								{#each cats as c (c.id)}
 									<label class="tasks-setting tasks-setting-sub">
 										<input type="checkbox" checked={pickedCats.includes(c.id)} onchange={() => (pickedCats = toggle(pickedCats, c.id))} />

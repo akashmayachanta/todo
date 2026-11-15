@@ -2,7 +2,7 @@
 	import PlaceMark from '$lib/components/tasks/PlaceMark.svelte';
 	import { formatInstant } from '$lib/datePrefs.svelte';
 	import { onMount, tick } from 'svelte';
-	import type { Task, TaskCategory, TaskIn, TaskPatch, TaskPriority, TaskProject } from '$lib/api';
+	import type { Task, TaskSection, TaskIn, TaskPatch, TaskPriority, TaskProject } from '$lib/api';
 	import DueDatePicker from './DueDatePicker.svelte';
 	import DropdownMenu from '$lib/components/DropdownMenu.svelte';
 	import Select from '$lib/components/Select.svelte';
@@ -22,10 +22,10 @@
 	 * One task in a modal: the title, description and subtasks on the left, its fields in a
 	 * side column on the right; every change is saved as it is made. The title and the
 	 * subtask line are smart, like the quick add: "tomorrow 5pm", "p1", "#Project",
-	 * "/Category", "every monday", "!30m" typed into them set those fields. The arrows in
+	 * "/Section", "every monday", "!30m" typed into them set those fields. The arrows in
 	 * the head (or k / j) step to the previous and next task of the view.
 	 */
-	let { task, parent = null, siblings = [], subtasks, showDoneSubtasks = true, projects, categories, onprev = null, onnext = null, sort = null, onpin = null, onduplicate = null, onpatch, ontoggle, onaddsubtask, onopen, ondelete, onclose }: {
+	let { task, parent = null, siblings = [], subtasks, showDoneSubtasks = true, projects, sections, onprev = null, onnext = null, sort = null, onpin = null, onduplicate = null, onpatch, ontoggle, onaddsubtask, onopen, ondelete, onclose }: {
 		task: Task;
 		/** The task this is a subtask of. */
 		parent?: Task | null;
@@ -35,7 +35,7 @@
 		/** Lists the completed subtasks too (the "Show completed tasks" setting), as the lists do. */
 		showDoneSubtasks?: boolean;
 		projects: TaskProject[];
-		categories: TaskCategory[];
+		sections: TaskSection[];
 		/** Step to the previous / next task of the view; null at either end. */
 		onprev?: (() => void) | null;
 		onnext?: (() => void) | null;
@@ -46,7 +46,7 @@
 		onduplicate?: ((task: Task) => void) | null;
 		onpatch: (task: Task, patch: TaskPatch) => Promise<void>;
 		ontoggle: (task: Task) => void;
-		onaddsubtask: (parent: Task, data: Omit<TaskIn, 'parent_id' | 'project_id' | 'category_id'>) => Promise<void>;
+		onaddsubtask: (parent: Task, data: Omit<TaskIn, 'parent_id' | 'project_id' | 'section_id'>) => Promise<void>;
 		onopen: (task: Task) => void;
 		ondelete: (task: Task) => void;
 		onclose: () => void;
@@ -100,16 +100,16 @@
 	}
 
 	let project = $derived(projects.find((p) => p.id === task.project_id) ?? null);
-	let category = $derived(categories.find((c) => c.id === task.category_id) ?? null);
+	let section = $derived(sections.find((c) => c.id === task.section_id) ?? null);
 
 	let placeOptions = $derived([
 		{ value: 'inbox', label: 'Inbox' },
 		...projects.flatMap((p) => [
 			{ value: `p${p.id}`, label: p.name },
-			...categories.filter((c) => c.project_id === p.id).map((c) => ({ value: `c${c.id}`, label: `${p.name} / ${c.name}` })),
+			...sections.filter((c) => c.project_id === p.id).map((c) => ({ value: `c${c.id}`, label: `${p.name} / ${c.name}` })),
 		]),
 	]);
-	let placeValue = $derived(task.category_id ? `c${task.category_id}` : task.project_id ? `p${task.project_id}` : 'inbox');
+	let placeValue = $derived(task.section_id ? `c${task.section_id}` : task.project_id ? `p${task.project_id}` : 'inbox');
 
 	function save(patch: TaskPatch) {
 		return onpatch(task, finishPatch(task, patch));
@@ -168,8 +168,8 @@
 	}
 
 	// ── Smart title ──────────────────────────────────────────────────────────
-	let st = $derived(smartTitle(title, task, projects, categories));
-	let titleChips = $derived(patchChips(smartPatch(st.smart, task), projects, categories));
+	let st = $derived(smartTitle(title, task, projects, sections));
+	let titleChips = $derived(patchChips(smartPatch(st.smart, task), projects, sections));
 	let titleLimit = $derived(task.parent_id ? subtaskLimit(st.smart.title, task.title) : null);
 	/**
 	 * A subtask's title shows at most two lines, ending in "…", until it is clicked;
@@ -213,11 +213,11 @@
 	}
 
 	function savePlace(value: string) {
-		if (value === 'inbox') save({ project_id: null, category_id: null });
-		else if (value.startsWith('p')) save({ project_id: value.slice(1), category_id: null });
+		if (value === 'inbox') save({ project_id: null, section_id: null });
+		else if (value.startsWith('p')) save({ project_id: value.slice(1), section_id: null });
 		else {
-			const c = categories.find((x) => x.id === value.slice(1));
-			if (c) save({ project_id: c.project_id, category_id: c.id });
+			const c = sections.find((x) => x.id === value.slice(1));
+			if (c) save({ project_id: c.project_id, section_id: c.id });
 		}
 	}
 
@@ -382,11 +382,11 @@
 							<span>Inbox</span>
 						{/if}
 					</span>
-					{#if category}
+					{#if section}
 						<span class="task-modal-crumb-sep" aria-hidden="true">/</span>
 						<span class="task-modal-crumb">
 							<svg aria-hidden="true" class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="16" rx="2" stroke-width="2" /><path stroke-linecap="round" stroke-width="2" d="M5 9h14" /></svg>
-							<span class="truncate">{category.name}</span>
+							<span class="truncate">{section.name}</span>
 						</span>
 					{/if}
 			</nav>
@@ -492,7 +492,7 @@
 								bind:value={title}
 								tokens={st.smart.tokens}
 								projects={st.projects}
-								categories={st.categories}
+								sections={st.sections}
 								scopeProjectId={st.scope}
 								ariaLabel="Title"
 								class="task-modal-title {task.completed_at ? 'task-modal-title-done' : ''}"
@@ -570,7 +570,7 @@
 									bind:value={newSubtask}
 									tokens={subParsed.tokens}
 									projects={[]}
-									categories={[]}
+									sections={[]}
 									placeholder="Sub-task name"
 									ariaLabel="New sub-task"
 									class="task-modal-sub-add"

@@ -1,12 +1,12 @@
 import type {
-	Task, TaskCategory, TaskDueWindow, TaskFilterCriteria, TaskGroupBy, TaskPatch, TaskPriority, TaskProject, TaskRowField,
+	Task, TaskSection, TaskDueWindow, TaskFilterCriteria, TaskGroupBy, TaskPatch, TaskPriority, TaskProject, TaskRowField,
 } from '$lib/api';
 import { addDays, todayHeading } from '$lib/taskParse';
 import { byDue, projectColor } from './shared';
 
 /**
  * Saved filters and grouping on the Tasks page. Pure functions: the page passes in
- * the tasks, projects, categories and today's date, so nothing here reads the clock.
+ * the tasks, projects, sections and today's date, so nothing here reads the clock.
  */
 
 export const DUE_WINDOWS: { value: TaskDueWindow; label: string }[] = [
@@ -34,42 +34,42 @@ export const FILTER_GROUPS: { value: TaskGroupBy; label: string }[] = [
 	{ value: 'none',     label: 'None' },
 	{ value: 'priority', label: 'Priority' },
 	{ value: 'project',  label: 'Project' },
-	{ value: 'category', label: 'Project / category' },
+	{ value: 'section', label: 'Project / section' },
 	{ value: 'due',      label: 'Due date' },
 ];
 
 /** Grouping in Today and Upcoming; 'date' is their own day sections. */
-export type DateViewGroup = 'date' | 'priority' | 'project' | 'category';
+export type DateViewGroup = 'date' | 'priority' | 'project' | 'section';
 
 export const DATE_VIEW_GROUPS: { value: DateViewGroup; label: string }[] = [
 	{ value: 'date',     label: 'Date' },
 	{ value: 'priority', label: 'Priority' },
 	{ value: 'project',  label: 'Project' },
-	{ value: 'category', label: 'Project / category' },
+	{ value: 'section', label: 'Project / section' },
 ];
 
 export function emptyCriteria(): TaskFilterCriteria {
-	return { projects: [], categories: [], priorities: [], due: [] };
+	return { projects: [], sections: [], priorities: [], due: [] };
 }
 
-export type GroupCtx = { projects: TaskProject[]; categories: TaskCategory[]; today: string };
+export type GroupCtx = { projects: TaskProject[]; sections: TaskSection[]; today: string };
 
 /** What a task added from a bucket (or a filter) starts with. */
-export type AddDefaults = { project_id?: string | null; category_id?: string | null; due_date?: string | null; priority?: TaskPriority };
+export type AddDefaults = { project_id?: string | null; section_id?: string | null; due_date?: string | null; priority?: TaskPriority };
 
 // ── Matching ──────────────────────────────────────────────────────────────────
 
 /**
- * The criteria without ids of deleted projects or categories, and without
- * categories whose project isn't picked (they are only offered under one).
+ * The criteria without ids of deleted projects or sections, and without
+ * sections whose project isn't picked (they are only offered under one).
  */
 export function pruneCriteria(c: TaskFilterCriteria, ctx: GroupCtx): TaskFilterCriteria {
 	const projects = c.projects.filter((id) => id === null || ctx.projects.some((p) => p.id === id));
-	const categories = c.categories.filter((id) => {
-		const cat = ctx.categories.find((x) => x.id === id);
+	const sections = c.sections.filter((id) => {
+		const cat = ctx.sections.find((x) => x.id === id);
 		return !!cat && projects.includes(cat.project_id);
 	});
-	return { ...c, projects, categories };
+	return { ...c, projects, sections };
 }
 
 function inWindow(due: string | null, w: TaskDueWindow, today: string): boolean {
@@ -92,13 +92,13 @@ function inWindow(due: string | null, w: TaskDueWindow, today: string): boolean 
 export function compileFilter(c: TaskFilterCriteria, ctx: GroupCtx): (task: Task) => boolean {
 	const pc = pruneCriteria(c, ctx);
 	if (c.projects.length && !pc.projects.length) return () => false;
-	const catProject = new Map(ctx.categories.map((x) => [x.id, x.project_id]));
+	const catProject = new Map(ctx.sections.map((x) => [x.id, x.project_id]));
 	return (task) => {
 		if (pc.projects.length) {
 			if (!pc.projects.includes(task.project_id)) return false;
 			if (task.project_id !== null) {
-				const picked = pc.categories.filter((id) => catProject.get(id) === task.project_id);
-				if (picked.length && (task.category_id === null || !picked.includes(task.category_id))) return false;
+				const picked = pc.sections.filter((id) => catProject.get(id) === task.project_id);
+				if (picked.length && (task.section_id === null || !picked.includes(task.section_id))) return false;
 			}
 		}
 		if (pc.priorities.length && !pc.priorities.includes(task.priority)) return false;
@@ -117,7 +117,7 @@ export function filterDefaults(c: TaskFilterCriteria, ctx: GroupCtx): AddDefault
 	const out: AddDefaults = {};
 	if (pc.projects.length === 1 && pc.projects[0] !== null) {
 		out.project_id = pc.projects[0];
-		if (pc.categories.length === 1) out.category_id = pc.categories[0];
+		if (pc.sections.length === 1) out.section_id = pc.sections[0];
 	}
 	if (pc.priorities.length === 1) out.priority = pc.priorities[0];
 	if (pc.due.length === 1 && pc.due[0] === 'today') out.due_date = ctx.today;
@@ -150,7 +150,7 @@ const PRIORITY_COLORS: Record<TaskPriority, string | null> = {
 };
 
 function bucketSpecs(by: Exclude<TaskGroupBy, 'none'>, ctx: GroupCtx): Spec[] {
-	const sortedCats = [...ctx.categories].sort((a, b) => a.position - b.position || a.id.localeCompare(b.id));
+	const sortedCats = [...ctx.sections].sort((a, b) => a.position - b.position || a.id.localeCompare(b.id));
 	switch (by) {
 		case 'priority':
 			return ([1, 2, 3, 4] as TaskPriority[]).map((p) => ({
@@ -158,23 +158,23 @@ function bucketSpecs(by: Exclude<TaskGroupBy, 'none'>, ctx: GroupCtx): Spec[] {
 			}));
 		case 'project':
 			return [
-				{ key: 'proj:inbox', title: 'Inbox', color: null, drop: { project_id: null, category_id: null }, defaults: {} },
+				{ key: 'proj:inbox', title: 'Inbox', color: null, drop: { project_id: null, section_id: null }, defaults: {} },
 				...ctx.projects.map((p) => ({
 					key: `proj:${p.id}`, title: p.name, color: projectColor(p.color),
-					drop: { project_id: p.id, category_id: null }, defaults: { project_id: p.id },
+					drop: { project_id: p.id, section_id: null }, defaults: { project_id: p.id },
 				})),
 			];
-		case 'category':
+		case 'section':
 			return [
-				{ key: 'cat:inbox:none', title: 'Inbox', color: null, drop: { project_id: null, category_id: null }, defaults: {} },
+				{ key: 'cat:inbox:none', title: 'Inbox', color: null, drop: { project_id: null, section_id: null }, defaults: {} },
 				...ctx.projects.flatMap((p) => [
 					{
-						key: `cat:${p.id}:none`, title: p.name, sub: 'No category', color: projectColor(p.color),
-						drop: { project_id: p.id, category_id: null }, defaults: { project_id: p.id },
+						key: `cat:${p.id}:none`, title: p.name, sub: 'No section', color: projectColor(p.color),
+						drop: { project_id: p.id, section_id: null }, defaults: { project_id: p.id },
 					},
 					...sortedCats.filter((c) => c.project_id === p.id).map((c) => ({
 						key: `cat:${p.id}:${c.id}`, title: `${p.name} / ${c.name}`, color: projectColor(p.color),
-						drop: { project_id: p.id, category_id: c.id }, defaults: { project_id: p.id, category_id: c.id },
+						drop: { project_id: p.id, section_id: c.id }, defaults: { project_id: p.id, section_id: c.id },
 					})),
 				]),
 			];
@@ -196,7 +196,7 @@ function bucketKey(task: Task, by: Exclude<TaskGroupBy, 'none'>, today: string):
 	switch (by) {
 		case 'priority': return `pri:${task.priority}`;
 		case 'project':  return `proj:${task.project_id ?? 'inbox'}`;
-		case 'category': return `cat:${task.project_id ?? 'inbox'}:${task.project_id === null ? 'none' : task.category_id ?? 'none'}`;
+		case 'section': return `cat:${task.project_id ?? 'inbox'}:${task.project_id === null ? 'none' : task.section_id ?? 'none'}`;
 		case 'due': {
 			const d = task.due_date;
 			if (!d) return 'due:no_date';
@@ -210,7 +210,7 @@ function bucketKey(task: Task, by: Exclude<TaskGroupBy, 'none'>, today: string):
 
 /**
  * The tasks in buckets, in a fixed order (P1→P4; Inbox then projects; each
- * project's "No category" then its categories; Overdue → No date), each sorted
+ * project's "No section" then its sections; Overdue → No date), each sorted
  * by due date. Empty buckets are left out, except all four priorities with
  * `allPriorities` (the board, so every priority is a drop target).
  */
@@ -222,7 +222,7 @@ export function groupTasks(
 		const key = bucketKey(t, by, ctx.today);
 		let b = buckets.get(key);
 		if (!b) {
-			// A project or category this page doesn't know yet (a race with a reload).
+			// A project or section this page doesn't know yet (a race with a reload).
 			b = { key, title: 'Other', drop: null, defaults: {}, tasks: [] };
 			buckets.set(key, b);
 		}

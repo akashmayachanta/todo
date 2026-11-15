@@ -1,20 +1,20 @@
 /**
- * Rearranging tasks and categories. It uses pointer events rather than HTML5 drag, so
+ * Rearranging tasks and sections. It uses pointer events rather than HTML5 drag, so
  * it works by touch on Android too. A floating copy of the picked-up item follows the
  * pointer while the item waits faded in its place, a line shows where it will land,
  * and on letting go everything glides to its new place (flip.ts). Three ways in:
  * - `sortGrip`: a task's grip, which drags at once; arrow keys on it do the same.
  * - `sortHold`: touch and hold the task itself (a phone, which has no grip).
- * - `sortCategory`: a category's head. The mouse drags it at once, a finger holds it first.
+ * - `sortSection`: a section's head. The mouse drags it at once, a finger holds it first.
  *
  * The rows say what they are through data attributes (TaskRow, TaskDetail, the page):
  * - `data-sort-id`, `data-sort-kind` ('top' or 'sub'): a task that can be dropped around.
  * - `data-sort-scope`: the list a top-level task stays in (a board's column).
  * - `data-sort-board`: around a board's columns; a top-level task can go to another
  *   column in it, landing by the nearest card (the drop says which column, `scope`).
- * - `data-sort-zone`: an area that takes a task with no row under the pointer (an empty category).
+ * - `data-sort-zone`: an area that takes a task with no row under the pointer (an empty section).
  * - `data-sort-lift` on a task's wrapper (a board card): what is picked up when the task is.
- * - `data-cat-id` in a `data-cat-list`: a category that can be dropped around. A list
+ * - `data-cat-id` in a `data-cat-list`: a section that can be dropped around. A list
  *   laid out in a row (the board) goes by left and right, else by above and below.
  *
  * This only finds where something lands; the page decides what that changes.
@@ -86,7 +86,7 @@ function nearestIn(column: HTMLElement, y: number, source: HTMLElement): Hit {
 	return last ? { el: last, mode: 'after' } : { el: column, mode: 'zone' };
 }
 
-/** The zone (a category, or the tasks outside them) at that height, or the nearest one. */
+/** The zone (a section, or the tasks outside them) at that height, or the nearest one. */
 function nearestZone(scope: HTMLElement, y: number): HTMLElement | null {
 	let best: HTMLElement | null = null;
 	let gap = Infinity;
@@ -129,15 +129,15 @@ function findTaskHit(x: number, y: number, source: HTMLElement, kind: SortKind):
 	// Over a subtask, it's the task that holds it.
 	while (item && item.dataset.sortKind !== 'top') item = item.parentElement?.closest<HTMLElement>('[data-sort-id]') ?? null;
 	if (item) return item === source ? null : { el: item, mode: half(item, y) };
-	// In a gap, on a category's head or by its Add task: by the nearest task in that
-	// category (or the nearest category), so there's always somewhere to land.
+	// In a gap, on a section's head or by its Add task: by the nearest task in that
+	// section (or the nearest section), so there's always somewhere to land.
 	const zone = at.closest<HTMLElement>('[data-sort-zone]') ?? nearestZone(scope, y);
 	const hit = nearestIn(zone ?? scope, y, source);
 	return hit.mode === 'zone' && !hit.el.hasAttribute('data-sort-zone') ? null : hit;
 }
 
-/** Where a category would land under the pointer: before or after another in its list. */
-function findCategoryHit(x: number, y: number, source: HTMLElement): Hit | null {
+/** Where a section would land under the pointer: before or after another in its list. */
+function findSectionHit(x: number, y: number, source: HTMLElement): Hit | null {
 	const list = source.closest<HTMLElement>('[data-cat-list]');
 	const item = under(x, y, source)?.closest<HTMLElement>('[data-cat-id]');
 	if (!list || !item || item === source || item.closest('[data-cat-list]') !== list) return null;
@@ -168,7 +168,7 @@ function neighbour(slot: HTMLElement, after: boolean): HTMLElement | null {
 	return at instanceof HTMLElement && at.matches(SLOT) ? at : null;
 }
 
-/** A category list laid out in a row (the board) goes by left and right. */
+/** A section list laid out in a row (the board) goes by left and right. */
 function inRow(slot: HTMLElement): boolean {
 	if (!slot.hasAttribute('data-cat-id') || !slot.parentElement) return false;
 	const s = getComputedStyle(slot.parentElement);
@@ -590,18 +590,18 @@ export function sortHold(node: HTMLElement, initial: GripOptions | null) {
 	};
 }
 
-export interface CategorySortOptions {
+export interface SectionSortOptions {
 	id: string;
-	/** It landed before or after the category `targetId`. */
+	/** It landed before or after the section `targetId`. */
 	ondrop: (id: string, targetId: string, after: boolean) => void;
 }
 
 /**
- * Makes a category's head pick up the `[data-cat-id]` around it: the mouse drags it
+ * Makes a section's head pick up the `[data-cat-id]` around it: the mouse drags it
  * at once, a finger holds it first. Its buttons and the rename box are left alone.
  * Null options turn it off.
  */
-export function sortCategory(node: HTMLElement, initial: CategorySortOptions | null) {
+export function sortSection(node: HTMLElement, initial: SectionSortOptions | null) {
 	let opts = initial;
 	const teardown = pressToDrag(node, () =>
 		opts && {
@@ -612,7 +612,7 @@ export function sortCategory(node: HTMLElement, initial: CategorySortOptions | n
 			mouse: 'drag',
 			touch: 'hold',
 			target: () => ({
-				find: findCategoryHit,
+				find: findSectionHit,
 				land: (hit) => {
 					const target = hit.el.dataset.catId;
 					if (opts && target) opts.ondrop(opts.id, target, hit.mode === 'after');
@@ -621,7 +621,7 @@ export function sortCategory(node: HTMLElement, initial: CategorySortOptions | n
 		},
 	);
 	return {
-		update(next: CategorySortOptions | null) {
+		update(next: SectionSortOptions | null) {
 			opts = next;
 		},
 		destroy: teardown,

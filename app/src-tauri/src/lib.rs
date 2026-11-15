@@ -31,10 +31,24 @@ pub const EVENT_OPEN_VIEW: &str = "tasks://open-view";
 /// Tells the page to open a task (a tapped notification).
 pub const EVENT_OPEN_TASK: &str = "tasks://open-task";
 
+/// Set once the main window has been shown, so only its first showing is maximized
+/// (after that, a restore from the tray keeps whatever size the user left it at).
+#[cfg(desktop)]
+static MAIN_SHOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The main window opens maximized the first time it's shown.
+#[cfg(desktop)]
+fn first_show_maximized(w: &tauri::WebviewWindow) {
+    if !MAIN_SHOWN.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        let _ = w.maximize();
+    }
+}
+
 #[cfg(desktop)]
 pub(crate) fn show_main(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
+        first_show_maximized(&w);
         let _ = w.show();
         let _ = w.set_focus();
     }
@@ -172,6 +186,8 @@ pub fn run() {
 
             if let Some(w) = app.get_webview_window("main") {
                 if !st.minimized.load(Ordering::Relaxed) {
+                    #[cfg(desktop)]
+                    first_show_maximized(&w);
                     let _ = w.show();
                 }
             }
@@ -203,11 +219,11 @@ pub fn run() {
             commands::tasks_projects_update,
             commands::tasks_projects_delete,
             commands::tasks_projects_reorder,
-            commands::tasks_categories_list,
-            commands::tasks_categories_create,
-            commands::tasks_categories_update,
-            commands::tasks_categories_delete,
-            commands::tasks_categories_reorder,
+            commands::tasks_sections_list,
+            commands::tasks_sections_create,
+            commands::tasks_sections_update,
+            commands::tasks_sections_delete,
+            commands::tasks_sections_reorder,
             commands::tasks_filters_list,
             commands::tasks_filters_create,
             commands::tasks_filters_update,

@@ -1,5 +1,5 @@
 // Syncs tab groups to a Tasks server: each group becomes a task in the
-// Learning project, YT category, and each of its videos becomes a subtask.
+// Learning project, YT section, and each of its videos becomes a subtask.
 // The browser is the source of truth: a video in the group is an open
 // subtask (added, or reopened if it was ticked off), and a video subtask
 // whose tab is gone is ticked off. A group removed from the archive has its
@@ -9,7 +9,7 @@ import { loadArchive } from './archive.js';
 import { attachDurations, videoId } from './durations.js';
 
 export const PROJECT = 'Learning';
-export const CATEGORY = 'YT';
+export const SECTION = 'YT';
 // The popup's pseudo-group for tabs outside any group. It is never in the
 // archive, so it must not count as a removed group.
 export const UNGROUPED_TITLE = 'Ungrouped tabs';
@@ -191,10 +191,10 @@ async function findOrCreateProject() {
     || api('/projects', { method: 'POST', body: { name: PROJECT } });
 }
 
-async function findOrCreateCategory(projectId) {
-  const categories = await api(`/categories?project_id=${encodeURIComponent(projectId)}`);
-  return categories.find((c) => sameName(c.name, CATEGORY))
-    || api('/categories', { method: 'POST', body: { project_id: projectId, name: CATEGORY } });
+async function findOrCreateSection(projectId) {
+  const sections = await api(`/sections?project_id=${encodeURIComponent(projectId)}`);
+  return sections.find((c) => sameName(c.name, SECTION))
+    || api('/sections', { method: 'POST', body: { project_id: projectId, name: SECTION } });
 }
 
 // ---------- Sync ----------
@@ -256,11 +256,11 @@ export async function addGroups(groups) {
   });
 
   const project = await findOrCreateProject();
-  const category = await findOrCreateCategory(project.id);
+  const section = await findOrCreateSection(project.id);
   // One call: the open top-level tasks in the project, plus every subtask of
   // an open task, ticked off or not.
   const tasks = await api(`/?project_id=${encodeURIComponent(project.id)}`);
-  const groupTask = (key) => tasks.find((t) => t.parent_id == null && t.category_id === category.id
+  const groupTask = (key) => tasks.find((t) => t.parent_id == null && t.section_id === section.id
     && titleKey(plainText(t.title)) === key);
 
   const result = { created: 0, added: 0, timed: 0, reopened: 0, ticked: 0, skipped: 0, removed: 0, groups: [] };
@@ -278,7 +278,7 @@ export async function addGroups(groups) {
     if (!task && !videos.length) { result.skipped++; continue; }
     let created = false;
     if (!task) {
-      task = await api('/', { method: 'POST', body: { title: group.title, project_id: project.id, category_id: category.id } });
+      task = await api('/', { method: 'POST', body: { title: group.title, project_id: project.id, section_id: section.id } });
       tasks.push(task);
       created = true;
       result.created++;
@@ -367,7 +367,7 @@ export async function addGroups(groups) {
     // One-time: groups removed before this was tracked. Any group task with
     // a video subtask counts as one this extension made.
     for (const t of tasks) {
-      if (t.parent_id != null || t.category_id !== category.id) continue;
+      if (t.parent_id != null || t.section_id !== section.id) continue;
       if (tasks.some((s) => s.parent_id === t.id && videoIdsIn(s.title).length)) {
         candidates.add(titleKey(plainText(t.title)));
       }

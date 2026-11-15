@@ -11,7 +11,7 @@ use rusqlite::Connection;
 use serde::Serialize;
 use tasks_core::client::{diagnose, Client, ClientError, ServerInfo};
 use tasks_core::{
-    ops, Category, CategoryIn, Completions, Ctx, Filter, FilterIn, Profile, ProfilePatch, Project, ProjectIn, Task, TaskIn, TaskPatch, TaskQuery,
+    ops, Section, SectionIn, Completions, Ctx, Filter, FilterIn, Profile, ProfilePatch, Project, ProjectIn, Task, TaskIn, TaskPatch, TaskQuery,
 };
 use tauri::{AppHandle, Emitter, State, WebviewWindow};
 
@@ -77,31 +77,31 @@ pub fn tasks_projects_reorder(st: St, ids: Vec<String>) -> Res<Vec<Project>> {
     db(&st, true, |c, x| ops::reorder_projects(c, x, &ids))
 }
 
-// ── Categories ───────────────────────────────────────────────────────────────
+// ── Sections ───────────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub fn tasks_categories_list(st: St, project: Option<String>) -> Res<Vec<Category>> {
-    db(&st, false, |c, _| ops::list_categories(c, project.as_deref()))
+pub fn tasks_sections_list(st: St, project: Option<String>) -> Res<Vec<Section>> {
+    db(&st, false, |c, _| ops::list_sections(c, project.as_deref()))
 }
 
 #[tauri::command]
-pub fn tasks_categories_create(st: St, data: CategoryIn) -> Res<Category> {
-    db(&st, true, |c, x| ops::create_category(c, x, data))
+pub fn tasks_sections_create(st: St, data: SectionIn) -> Res<Section> {
+    db(&st, true, |c, x| ops::create_section(c, x, data))
 }
 
 #[tauri::command]
-pub fn tasks_categories_update(st: St, id: String, data: CategoryIn) -> Res<Category> {
-    db(&st, true, |c, x| ops::update_category(c, x, &id, data))
+pub fn tasks_sections_update(st: St, id: String, data: SectionIn) -> Res<Section> {
+    db(&st, true, |c, x| ops::update_section(c, x, &id, data))
 }
 
 #[tauri::command]
-pub fn tasks_categories_reorder(st: St, project: String, ids: Vec<String>) -> Res<Vec<Category>> {
-    db(&st, true, |c, x| ops::reorder_categories(c, x, &project, &ids))
+pub fn tasks_sections_reorder(st: St, project: String, ids: Vec<String>) -> Res<Vec<Section>> {
+    db(&st, true, |c, x| ops::reorder_sections(c, x, &project, &ids))
 }
 
 #[tauri::command]
-pub fn tasks_categories_delete(st: St, id: String) -> Res<Ok> {
-    db(&st, true, |c, x| ops::delete_category(c, x, &id)).map(|_| OK)
+pub fn tasks_sections_delete(st: St, id: String) -> Res<Ok> {
+    db(&st, true, |c, x| ops::delete_section(c, x, &id)).map(|_| OK)
 }
 
 // ── Filters ──────────────────────────────────────────────────────────────────
@@ -248,7 +248,7 @@ fn adopt_user(st: &AppState, user_id: i64) -> Res<()> {
     if previous.as_deref().is_some_and(|p| p != user_id.to_string()) {
         conn.execute_batch(
             "DELETE FROM task_completions; DELETE FROM tasks; DELETE FROM task_filters;
-             DELETE FROM task_categories; DELETE FROM task_projects; DELETE FROM profile;
+             DELETE FROM task_sections; DELETE FROM task_projects; DELETE FROM profile;
              DELETE FROM sync_state WHERE key IN ('last_seq', 'reminders_fired', 'server_epoch');",
         )
         .map_err(|e| core_err(e.into()))?;
@@ -350,7 +350,7 @@ pub fn app_take_open_task(st: St) -> Option<String> {
 }
 
 /// Android: what the home screen widget's + or the app icon's "Add task" asked
-/// for, once, as JSON `{project_id?, category_id?, due?}`. None elsewhere.
+/// for, once, as JSON `{project_id?, section_id?, due?}`. None elsewhere.
 #[tauri::command]
 pub fn app_take_quick_add() -> Option<String> {
     #[cfg(target_os = "android")]

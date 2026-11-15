@@ -3,7 +3,7 @@
 //! android.rs, from the widget's own process when the app is closed.
 //!
 //! A widget shows Today (overdue and due today), Inbox, Upcoming, a project or
-//! one of its categories, ordered as the page orders them.
+//! one of its sections, ordered as the page orders them.
 
 use chrono::{Datelike, Local, NaiveDate};
 use rusqlite::Connection;
@@ -25,13 +25,13 @@ pub fn sources(conn: &Connection) -> tasks_core::Result<Value> {
         source("inbox", "", "Inbox", None, ""),
         source("upcoming", "", "Upcoming", None, ""),
     ];
-    let categories = tasks_core::ops::list_categories(conn, None)?;
+    let sections = tasks_core::ops::list_sections(conn, None)?;
     for p in tasks_core::ops::list_projects(conn)? {
         out.push(source("project", &p.id, &p.name, None, &p.id));
-        let mut own: Vec<_> = categories.iter().filter(|c| c.project_id == p.id).collect();
+        let mut own: Vec<_> = sections.iter().filter(|c| c.project_id == p.id).collect();
         own.sort_by(|a, b| a.position.cmp(&b.position).then_with(|| a.id.cmp(&b.id)));
         for c in own {
-            out.push(source("category", &c.id, &c.name, Some(&p.name), &p.id));
+            out.push(source("section", &c.id, &c.name, Some(&p.name), &p.id));
         }
     }
     Ok(Value::Array(out))
@@ -43,15 +43,15 @@ fn target(kind: &str, id: &str, project_id: &str) -> (String, Value) {
         "inbox" => ("view=inbox".into(), json!({ "project_id": null })),
         "upcoming" => ("view=upcoming".into(), json!({ "due": "tomorrow" })),
         "project" => (format!("project={id}"), json!({ "project_id": id })),
-        "category" => (format!("project={project_id}#task-cat-{id}"), json!({ "project_id": project_id, "category_id": id })),
+        "section" => (format!("project={project_id}#task-cat-{id}"), json!({ "project_id": project_id, "section_id": id })),
         _ => ("view=today".into(), json!({ "due": "today" })),
     }
 }
 
 /// One list for the widget:
-/// `{name, gone, open, add: {project_id?, category_id?, due?}, more, tasks: [{id, title, due, overdue, priority}]}`.
+/// `{name, gone, open, add: {project_id?, section_id?, due?}, more, tasks: [{id, title, due, overdue, priority}]}`.
 /// `open` is the Tasks page's query string for the list (the widget's title opens it).
-/// `gone` when its project or category was deleted. `add` is what a task added
+/// `gone` when its project or section was deleted. `add` is what a task added
 /// from the widget starts with (`due` is "today" or "tomorrow", for the page to
 /// date; `project_id: null` is the Inbox).
 pub fn list(conn: &Connection, kind: &str, id: &str) -> tasks_core::Result<Value> {
@@ -79,20 +79,20 @@ pub fn list(conn: &Connection, kind: &str, id: &str) -> tasks_core::Result<Value
             let Some(project) = tasks_core::ops::list_projects(conn)?.into_iter().find(|p| p.id == id) else {
                 return Ok(gone());
             };
-            // Uncategorised first, then each category in its order, as on the page.
-            let order: Vec<String> = tasks_core::ops::list_categories(conn, Some(id))?.into_iter().map(|c| c.id).collect();
-            let rank = |t: &Task| t.category_id.as_ref().and_then(|c| order.iter().position(|o| o == c)).map_or(0, |i| i + 1);
+            // Unsectioned first, then each section in its order, as on the page.
+            let order: Vec<String> = tasks_core::ops::list_sections(conn, Some(id))?.into_iter().map(|c| c.id).collect();
+            let rank = |t: &Task| t.section_id.as_ref().and_then(|c| order.iter().position(|o| o == c)).map_or(0, |i| i + 1);
             let mut v: Vec<&Task> = open.iter().filter(top).filter(|t| t.project_id.as_deref() == Some(id)).collect();
             v.sort_by(|a, b| rank(*a).cmp(&rank(*b)).then_with(|| by_position(a, b)));
             (project.name, id.to_string(), v)
         }
-        "category" => {
-            let Ok(category) = tasks_core::ops::get_category(conn, id) else {
+        "section" => {
+            let Ok(section) = tasks_core::ops::get_section(conn, id) else {
                 return Ok(gone());
             };
-            let mut v: Vec<&Task> = open.iter().filter(top).filter(|t| t.category_id.as_deref() == Some(id)).collect();
+            let mut v: Vec<&Task> = open.iter().filter(top).filter(|t| t.section_id.as_deref() == Some(id)).collect();
             v.sort_by(by_position);
-            (category.name, category.project_id, v)
+            (section.name, section.project_id, v)
         }
         // "today", and anything unknown.
         _ => {

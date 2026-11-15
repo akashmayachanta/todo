@@ -3,7 +3,7 @@
 use rusqlite::Connection;
 use serde::de::DeserializeOwned;
 use serde_json::json;
-use tasks_core::{db, ops, sync, Category, CategoryIn, Ctx, Error, Project, ProjectIn, Task, TaskIn, TaskPatch};
+use tasks_core::{db, ops, sync, Section, SectionIn, Ctx, Error, Project, ProjectIn, Task, TaskIn, TaskPatch};
 
 fn setup() -> (Connection, Ctx) {
     (db::open_in_memory().unwrap(), Ctx::device("device-a"))
@@ -17,8 +17,8 @@ fn project(conn: &Connection, ctx: &Ctx, name: &str) -> Project {
     ops::create_project(conn, ctx, from::<ProjectIn>(json!({ "name": name }))).unwrap()
 }
 
-fn category(conn: &Connection, ctx: &Ctx, project_id: &str, name: &str) -> Category {
-    ops::create_category(conn, ctx, from::<CategoryIn>(json!({ "project_id": project_id, "name": name }))).unwrap()
+fn section(conn: &Connection, ctx: &Ctx, project_id: &str, name: &str) -> Section {
+    ops::create_section(conn, ctx, from::<SectionIn>(json!({ "project_id": project_id, "name": name }))).unwrap()
 }
 
 fn subtask_in(parent_id: &str, title: &str) -> TaskIn {
@@ -53,19 +53,19 @@ fn clearing_the_date_keeps_a_reminder_set_in_the_same_change() {
     assert_eq!(cleared.remind_at.as_deref(), Some("2026-12-01T05:00:00.000Z"));
 }
 
-// ── Moving a category ────────────────────────────────────────────────────────
+// ── Moving a section ────────────────────────────────────────────────────────
 
 #[test]
-fn a_moved_category_goes_last_and_takes_its_tasks_and_subtasks() {
+fn a_moved_section_goes_last_and_takes_its_tasks_and_subtasks() {
     let (conn, ctx) = setup();
     let (from_project, to_project) = (project(&conn, &ctx, "From"), project(&conn, &ctx, "To"));
-    category(&conn, &ctx, &to_project.id, "One");
-    let taken = category(&conn, &ctx, &to_project.id, "Two");
-    let moving = category(&conn, &ctx, &from_project.id, "Moving");
-    let parent = task(&conn, &ctx, json!({ "title": "Parent", "project_id": from_project.id, "category_id": moving.id }));
+    section(&conn, &ctx, &to_project.id, "One");
+    let taken = section(&conn, &ctx, &to_project.id, "Two");
+    let moving = section(&conn, &ctx, &from_project.id, "Moving");
+    let parent = task(&conn, &ctx, json!({ "title": "Parent", "project_id": from_project.id, "section_id": moving.id }));
     let sub = task(&conn, &ctx, json!({ "title": "Sub", "parent_id": parent.id }));
 
-    let moved = ops::update_category(
+    let moved = ops::update_section(
         &conn,
         &ctx,
         &moving.id,
@@ -78,19 +78,19 @@ fn a_moved_category_goes_last_and_takes_its_tasks_and_subtasks() {
     for id in [&parent.id, &sub.id] {
         let t = ops::get_task(&conn, id).unwrap();
         assert_eq!(t.project_id.as_deref(), Some(to_project.id.as_str()));
-        assert_eq!(t.category_id.as_deref(), Some(moving.id.as_str()));
+        assert_eq!(t.section_id.as_deref(), Some(moving.id.as_str()));
     }
 }
 
 #[test]
-fn a_rename_keeps_the_category_in_its_place() {
+fn a_rename_keeps_the_section_in_its_place() {
     let (conn, ctx) = setup();
     let p = project(&conn, &ctx, "P");
-    let first = category(&conn, &ctx, &p.id, "First");
-    category(&conn, &ctx, &p.id, "Second");
+    let first = section(&conn, &ctx, &p.id, "First");
+    section(&conn, &ctx, &p.id, "Second");
 
     let renamed =
-        ops::update_category(&conn, &ctx, &first.id, from(json!({ "project_id": p.id, "name": "Renamed" }))).unwrap();
+        ops::update_section(&conn, &ctx, &first.id, from(json!({ "project_id": p.id, "name": "Renamed" }))).unwrap();
 
     assert_eq!(renamed.name, "Renamed");
     assert_eq!(renamed.position, first.position);
@@ -140,15 +140,15 @@ fn reordering_gives_tasks_sharing_a_position_their_own() {
 fn only_siblings_can_be_reordered_together() {
     let (conn, ctx) = setup();
     let p = project(&conn, &ctx, "P");
-    let cat = category(&conn, &ctx, &p.id, "Cat");
+    let cat = section(&conn, &ctx, &p.id, "Cat");
     let inbox = task(&conn, &ctx, json!({ "title": "Inbox" }));
     let in_project = task(&conn, &ctx, json!({ "title": "Project", "project_id": p.id }));
-    let in_category = task(&conn, &ctx, json!({ "title": "Category", "project_id": p.id, "category_id": cat.id }));
+    let in_section = task(&conn, &ctx, json!({ "title": "Section", "project_id": p.id, "section_id": cat.id }));
     let sub = task(&conn, &ctx, json!({ "title": "Sub", "parent_id": in_project.id }));
-    let other_sub = task(&conn, &ctx, json!({ "title": "Other", "parent_id": in_category.id }));
+    let other_sub = task(&conn, &ctx, json!({ "title": "Other", "parent_id": in_section.id }));
 
     assert!(order(&conn, &[&inbox.id, &in_project.id]).is_err());
-    assert!(order(&conn, &[&in_project.id, &in_category.id]).is_err());
+    assert!(order(&conn, &[&in_project.id, &in_section.id]).is_err());
     assert!(order(&conn, &[&in_project.id, &sub.id]).is_err());
     assert!(order(&conn, &[&sub.id, &other_sub.id]).is_err());
     assert!(order(&conn, &[&inbox.id, &inbox.id]).is_err());
@@ -162,9 +162,9 @@ fn only_siblings_can_be_reordered_together() {
 fn a_subtask_moves_to_another_task_and_takes_its_place() {
     let (conn, ctx) = setup();
     let p = project(&conn, &ctx, "P");
-    let cat = category(&conn, &ctx, &p.id, "Cat");
+    let cat = section(&conn, &ctx, &p.id, "Cat");
     let from_task = task(&conn, &ctx, json!({ "title": "From" }));
-    let to_task = task(&conn, &ctx, json!({ "title": "To", "project_id": p.id, "category_id": cat.id }));
+    let to_task = task(&conn, &ctx, json!({ "title": "To", "project_id": p.id, "section_id": cat.id }));
     let existing = task(&conn, &ctx, json!({ "title": "Existing", "parent_id": to_task.id }));
     let sub = task(&conn, &ctx, json!({ "title": "Sub", "parent_id": from_task.id }));
 
@@ -172,7 +172,7 @@ fn a_subtask_moves_to_another_task_and_takes_its_place() {
 
     assert_eq!(moved.parent_id.as_deref(), Some(to_task.id.as_str()));
     assert_eq!(moved.project_id.as_deref(), Some(p.id.as_str()));
-    assert_eq!(moved.category_id.as_deref(), Some(cat.id.as_str()));
+    assert_eq!(moved.section_id.as_deref(), Some(cat.id.as_str()));
     assert!(moved.position > existing.position);
 }
 
@@ -362,21 +362,21 @@ fn a_sync_row_from_an_unknown_table_is_skipped() {
 }
 
 #[test]
-fn reorder_categories_sets_the_order_within_a_project() {
+fn reorder_sections_sets_the_order_within_a_project() {
     let (conn, ctx) = setup();
     let p = project(&conn, &ctx, "Learning");
     let other = project(&conn, &ctx, "Work");
-    let a = category(&conn, &ctx, &p.id, "A");
-    category(&conn, &ctx, &p.id, "B");
-    let c = category(&conn, &ctx, &p.id, "C");
-    let elsewhere = category(&conn, &ctx, &other.id, "X");
+    let a = section(&conn, &ctx, &p.id, "A");
+    section(&conn, &ctx, &p.id, "B");
+    let c = section(&conn, &ctx, &p.id, "C");
+    let elsewhere = section(&conn, &ctx, &other.id, "X");
 
     // Listed ones first, the rest after in their old order; another project's id is ignored.
-    let out = ops::reorder_categories(&conn, &ctx, &p.id, &[c.id.clone(), elsewhere.id.clone(), a.id.clone()]).unwrap();
+    let out = ops::reorder_sections(&conn, &ctx, &p.id, &[c.id.clone(), elsewhere.id.clone(), a.id.clone()]).unwrap();
     let names: Vec<_> = out.iter().map(|c| c.name.as_str()).collect();
     assert_eq!(names, ["C", "A", "B"]);
     assert_eq!(out.iter().map(|c| c.position).collect::<Vec<_>>(), [1, 2, 3]);
-    assert_eq!(ops::get_category(&conn, &elsewhere.id).unwrap().position, elsewhere.position);
+    assert_eq!(ops::get_section(&conn, &elsewhere.id).unwrap().position, elsewhere.position);
 
-    assert!(matches!(ops::reorder_categories(&conn, &ctx, "missing", &[]), Err(Error::NotFound(_))));
+    assert!(matches!(ops::reorder_sections(&conn, &ctx, "missing", &[]), Err(Error::NotFound(_))));
 }

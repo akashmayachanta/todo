@@ -4,7 +4,7 @@
 	import LinkedText from './LinkedText.svelte';
 
 	/**
-	 * A project's or category's description, edited in place. Shown as typed, links
+	 * A project's or section's description, edited in place. Shown as typed, links
 	 * included (LinkedText); clicking it, away from a link, opens a textarea. Enter
 	 * adds a line, Ctrl+Enter or leaving the box saves, Escape drops the edit.
 	 * An `<a>` can't sit in a `<button>`, so the text is a clickable div with a

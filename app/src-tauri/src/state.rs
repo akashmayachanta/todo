@@ -45,7 +45,7 @@ impl Default for DesktopPrefs {
 }
 
 /// One pinned window. `kind` is inbox, today or upcoming with no id, or project,
-/// category, filter or task with one (app/src/lib/components/tasks/pins.ts).
+/// section, filter or task with one (app/src/lib/components/tasks/pins.ts).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Pin {
     pub kind: String,
@@ -67,7 +67,7 @@ impl Pin {
         match &self.id {
             None => matches!(self.kind.as_str(), "inbox" | "today" | "upcoming"),
             Some(id) => {
-                matches!(self.kind.as_str(), "project" | "category" | "filter" | "task")
+                matches!(self.kind.as_str(), "project" | "section" | "filter" | "task")
                     && !id.is_empty()
                     && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
             }

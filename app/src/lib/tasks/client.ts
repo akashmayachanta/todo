@@ -2,7 +2,7 @@
 // loads (src/routes/+layout.svelte); components reach it through api.tasks.
 
 import type {
-	Task, TaskCategory, TaskCompletions, TaskFilter, TaskFilterIn, TaskIn, TaskPatch, TaskProject,
+	Task, TaskSection, TaskCompletions, TaskFilter, TaskFilterIn, TaskIn, TaskPatch, TaskProject,
 } from '$lib/api';
 
 export interface TaskListOptions {
@@ -19,19 +19,19 @@ export interface TasksClient {
 		list(): Promise<TaskProject[]>;
 		create(data: { name: string; color?: string | null }): Promise<TaskProject>;
 		update(id: string, data: { name: string; color?: string | null; favorite?: boolean; description?: string | null }): Promise<TaskProject>;
-		/** Its categories and tasks go with it. */
+		/** Its sections and tasks go with it. */
 		delete(id: string): Promise<void>;
 		/** Every project id in the new order; returns the projects in that order. */
 		reorder(ids: string[]): Promise<TaskProject[]>;
 	};
-	categories: {
-		list(projectId?: string): Promise<TaskCategory[]>;
-		create(data: { project_id: string; name: string }): Promise<TaskCategory>;
-		update(id: string, data: { project_id: string; name: string; description?: string | null }): Promise<TaskCategory>;
-		/** Its tasks stay in the project, without a category. */
+	sections: {
+		list(projectId?: string): Promise<TaskSection[]>;
+		create(data: { project_id: string; name: string; description?: string | null }): Promise<TaskSection>;
+		update(id: string, data: { project_id: string; name: string; description?: string | null }): Promise<TaskSection>;
+		/** Its tasks stay in the project, without a section. */
 		delete(id: string): Promise<void>;
-		/** A project's category ids in the new order; returns its categories in that order. */
-		reorder(projectId: string, ids: string[]): Promise<TaskCategory[]>;
+		/** A project's section ids in the new order; returns its sections in that order. */
+		reorder(projectId: string, ids: string[]): Promise<TaskSection[]>;
 	};
 	filters: {
 		list(): Promise<TaskFilter[]>;

@@ -67,7 +67,7 @@ object Native {
   /** The lists a widget can show, as JSON, or null. */
   @JvmStatic external fun widgetSources(dataDir: String): String?
 
-  /** One list for a widget, as JSON, or null. `kind`: today, inbox, upcoming, project, category. */
+  /** One list for a widget, as JSON, or null. `kind`: today, inbox, upcoming, project, section. */
   @JvmStatic external fun widgetList(dataDir: String, kind: String, id: String): String?
 
   /** Ticks a task. Returns the reminders to schedule when the app is closed, else null. */

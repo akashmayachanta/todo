@@ -52,7 +52,7 @@
 		ontoggle: (task: Task) => void;
 		onopen: (task: Task) => void;
 		onedit?: (task: Task) => void;
-		/** Moves it to another project or category; offered for tasks, not subtasks. */
+		/** Moves it to another project or section; offered for tasks, not subtasks. */
 		onmove?: ((task: Task) => void) | null;
 		onduplicate?: ((task: Task) => void) | null;
 		/** Pins it to the desktop; null where there are no pins (Android). */

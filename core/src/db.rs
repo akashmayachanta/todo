@@ -16,6 +16,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("0001_initial", include_str!("../migrations/0001_initial.sql")),
     ("0002_profile", include_str!("../migrations/0002_profile.sql")),
     ("0003_project_details", include_str!("../migrations/0003_project_details.sql")),
+    ("0004_sections", include_str!("../migrations/0004_sections.sql")),
 ];
 
 /// Opens (creating if needed) a tasks DB and migrates it to the newest schema.
@@ -99,6 +100,32 @@ mod tests {
         assert_eq!(version, MIGRATIONS.len() as i64);
         // Running again on an up-to-date DB is a no-op.
         migrate(&conn).unwrap();
+    }
+
+    #[test]
+    fn sections_migration_keeps_categories_and_filters() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn, &MIGRATIONS[..3]).unwrap();
+        conn.execute_batch(
+            "INSERT INTO task_categories (id, project_id, name, created_at) VALUES ('c1', 'p1', 'Later', 'x');
+             INSERT INTO tasks (id, project_id, category_id, title, created_at) VALUES ('t1', 'p1', 'c1', 'A', 'x');
+             INSERT INTO task_filters (id, name, criteria, fields, group_by, created_at)
+               VALUES ('f1', 'F', '{\"projects\":[],\"categories\":[\"c1\"],\"priorities\":[],\"due\":[]}', '[]', 'category', 'x');",
+        )
+        .unwrap();
+        migrate(&conn).unwrap();
+        let (name, section): (String, String) = conn
+            .query_row("SELECT s.name, t.section_id FROM tasks t JOIN task_sections s ON s.id = t.section_id", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!((name.as_str(), section.as_str()), ("Later", "c1"));
+        let (criteria, group_by): (String, String) =
+            conn.query_row("SELECT criteria, group_by FROM task_filters", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        let criteria: serde_json::Value = serde_json::from_str(&criteria).unwrap();
+        assert_eq!(criteria["sections"], serde_json::json!(["c1"]));
+        assert!(criteria.get("categories").is_none());
+        assert_eq!(group_by, "section");
     }
 
     #[test]

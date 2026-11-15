@@ -6,11 +6,11 @@
  * local `HH:MM`; only a reminder is an instant (ISO, UTC).
  */
 import * as chrono from 'chrono-node';
-import type { Task, TaskCategory, TaskPriority, TaskProject } from '$lib/api';
+import type { Task, TaskSection, TaskPriority, TaskProject } from '$lib/api';
 import { blankLinks } from '$lib/links';
 import { clockOptions, datePrefs, daysIntoWeek } from '$lib/datePrefs.svelte';
 
-export type TokenKind = 'date' | 'priority' | 'project' | 'category' | 'recurrence' | 'reminder' | 'duration';
+export type TokenKind = 'date' | 'priority' | 'project' | 'section' | 'recurrence' | 'reminder' | 'duration';
 
 /** A piece of the input that was read as something other than the title; [start, end) in the text. */
 export interface ParsedToken {
@@ -18,7 +18,7 @@ export interface ParsedToken {
 	start: number;
 	end: number;
 	text: string;
-	/** `#Name` or `/Name` that matches no project or category, or a `!` with no due date to remind at. */
+	/** `#Name` or `/Name` that matches no project or section, or a `!` with no due date to remind at. */
 	unknown?: boolean;
 }
 
@@ -32,7 +32,7 @@ export interface QuickAdd {
 	priority: TaskPriority | null;
 	recurrence: string | null;
 	project_id: string | null;
-	category_id: string | null;
+	section_id: string | null;
 	tokens: ParsedToken[];
 }
 
@@ -318,14 +318,14 @@ function hasDay(c: chrono.ParsedComponents): boolean {
 }
 
 /**
- * Reads a quick-add line. `#Name` picks a project or a category and `/Category` a
- * category, for where the task goes, and `#Project / Category` both (names may have
+ * Reads a quick-add line. `#Name` picks a project or a section and `/Section` a
+ * section, for where the task goes, and `#Project / Section` both (names may have
  * spaces; the longest match wins, and a project wins a tie), `p1`–`p4` the priority,
  * `every …` a recurrence, `!5pm` or `!tomorrow 9am` a reminder at that time,
  * `!30m` / `!1h` / `!1d` a reminder that long before the due time (or from now
  * when there is no due date), a lone `!` a reminder at the due time, and any
  * other date phrase chrono understands the due date and time. `contextProjectId`
- * is where a category is looked for first when no project is named. `contextDate`
+ * is where a section is looked for first when no project is named. `contextDate`
  * is the day a time alone ("5pm") falls on, e.g. the Upcoming group or calendar
  * day being added to; without one a time alone is today (or tomorrow once it has
  * passed). With no date in the line, a lone `!` reminds at `contextDate` and
@@ -334,7 +334,7 @@ function hasDay(c: chrono.ParsedComponents): boolean {
 export function parseQuickAdd(
 	line: string,
 	projects: TaskProject[],
-	categories: TaskCategory[],
+	sections: TaskSection[],
 	now = new Date(),
 	contextProjectId: string | null = null,
 	contextDate: string | null = null,
@@ -345,20 +345,20 @@ export function parseQuickAdd(
 	const tokens: ParsedToken[] = [];
 	const out: QuickAdd = {
 		title: '', due_date: null, due_time: null, duration_minutes: null, remind_at: null, priority: null,
-		recurrence: null, project_id: null, category_id: null, tokens,
+		recurrence: null, project_id: null, section_id: null, tokens,
 	};
 	const add = (kind: TokenKind, start: number, end: number, unknown = false) =>
 		tokens.push({ kind, start, end, text: text.slice(start, end), ...(unknown ? { unknown } : {}) });
 
-	// Projects first, then categories, so the order of the tokens doesn't matter.
+	// Projects first, then sections, so the order of the tokens doesn't matter.
 	const places: { at: number; gap: number; rest: string; hash: boolean; project: TaskProject | null }[] = [];
 	for (const m of text.matchAll(/(^|\s)#(?=\S)/g)) {
 		const at = m.index! + m[1].length;
 		const rest = text.slice(at + 1);
 		const project = longestName(rest, projects);
-		const category = longestName(rest, categories);
+		const section = longestName(rest, sections);
 		// #Name is whichever name is longer; a project wins a tie.
-		if (!project || (category && category.name.length > project.name.length)) {
+		if (!project || (section && section.name.length > project.name.length)) {
 			places.push({ at, gap: 0, rest, hash: true, project });
 		} else if (out.project_id === null) {
 			out.project_id = project.id;
@@ -373,25 +373,25 @@ export function parseQuickAdd(
 	}
 	places.sort((a, b) => a.at - b.at);
 
-	let unknownCategory: { start: number; end: number } | null = null;
+	let unknownSection: { start: number; end: number } | null = null;
 	for (const { at, gap, rest, hash, project } of places) {
 		// In the named or current project first; everywhere only when no project is named.
 		const inProject = out.project_id ?? contextProjectId;
-		const pool = inProject !== null ? categories.filter((c) => c.project_id === inProject) : categories;
-		const category = longestName(rest, pool) ?? (out.project_id === null ? longestName(rest, categories) : null);
+		const pool = inProject !== null ? sections.filter((c) => c.project_id === inProject) : sections;
+		const section = longestName(rest, pool) ?? (out.project_id === null ? longestName(rest, sections) : null);
 		const end = at + 1 + gap + rest.split(/\s/)[0].length;
-		if (category) {
-			if (out.category_id !== null) continue;
-			out.category_id = category.id;
-			out.project_id ??= category.project_id;
-			add('category', at, at + 1 + gap + category.name.length);
+		if (section) {
+			if (out.section_id !== null) continue;
+			out.section_id = section.id;
+			out.project_id ??= section.project_id;
+			add('section', at, at + 1 + gap + section.name.length);
 		} else if (hash) {
 			if (!project) add('project', at, end, true);
-		} else if (!unknownCategory) {
-			unknownCategory = { start: at, end };
+		} else if (!unknownSection) {
+			unknownSection = { start: at, end };
 		}
 	}
-	if (unknownCategory) add('category', unknownCategory.start, unknownCategory.end, true);
+	if (unknownSection) add('section', unknownSection.start, unknownSection.end, true);
 
 	// p1–p4
 	for (const m of text.matchAll(PRIORITY_RE)) {
@@ -564,13 +564,13 @@ export function parseEdit(
 	text: string,
 	original: string,
 	projects: TaskProject[],
-	categories: TaskCategory[],
+	sections: TaskSection[],
 	now = new Date(),
 	contextProjectId: string | null = null,
 	contextDate: string | null = null,
 	contextTime: string | null = null,
 ): QuickAdd {
-	const parse = (t: string) => parseQuickAdd(t, projects, categories, now, contextProjectId, contextDate, contextTime);
+	const parse = (t: string) => parseQuickAdd(t, projects, sections, now, contextProjectId, contextDate, contextTime);
 	const key = (t: ParsedToken) => `${t.kind}:${t.text.toLowerCase()}`;
 	const before = new Set(parse(original).tokens.map(key));
 	const all = parse(text);

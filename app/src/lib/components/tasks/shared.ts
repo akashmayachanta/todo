@@ -1,4 +1,4 @@
-import type { Task, TaskCategory, TaskPatch, TaskPriority, TaskProject } from '$lib/api';
+import type { Task, TaskSection, TaskPatch, TaskPriority, TaskProject } from '$lib/api';
 import { plainText } from '$lib/links';
 import { daysBetween, localInstant, nextOccurrence } from '$lib/taskParse';
 import { DEFAULT_DATE_PREFS, type DatePrefs } from '$lib/datePrefs.svelte';
@@ -43,7 +43,7 @@ export type TaskSettings = DatePrefs & {
 	startView: 'today' | 'inbox' | 'upcoming';
 	/** The days after today that Upcoming lists by day and counts in the pane. */
 	upcomingDays: UpcomingDays;
-	/** Quick add files a task in the project and category its words point to ($lib/suggestPlace). */
+	/** Quick add files a task in the project and section its words point to ($lib/suggestPlace). */
 	autoPlace: boolean;
 	/** Karma: tasks to complete a day, and a week. */
 	dailyGoal: number;
@@ -149,11 +149,11 @@ export const PRIORITY_OPTIONS: { value: TaskPriority; label: string }[] = [
 ];
 
 /** Where a task sits, for a label: "Work / Backend", or "Inbox". */
-export function placeName(task: Pick<Task, 'project_id' | 'category_id'>, projects: TaskProject[], categories: TaskCategory[]): string {
+export function placeName(task: Pick<Task, 'project_id' | 'section_id'>, projects: TaskProject[], sections: TaskSection[]): string {
 	const project = projects.find((p) => p.id === task.project_id);
 	if (!project) return 'Inbox';
-	const category = categories.find((c) => c.id === task.category_id);
-	return category ? `${project.name} / ${category.name}` : project.name;
+	const section = sections.find((c) => c.id === task.section_id);
+	return section ? `${project.name} / ${section.name}` : project.name;
 }
 
 /** Finds a subtask's parent among `tasks`; null for a top-level task. */
@@ -205,22 +205,22 @@ export function parentMinutes(parent: Task, subtasks: Task[], hadMinutes = false
 }
 
 /**
- * Minutes of open work in each project and category: every open task's duration. A task
+ * Minutes of open work in each project and section: every open task's duration. A task
  * whose duration is its subtasks' total is left out, as its open subtasks count on their own.
  */
 export function durationTotals(
 	open: Task[],
 	subtasksOf: (id: string) => Task[],
-): { projects: Record<string, number>; categories: Record<string, number> } {
+): { projects: Record<string, number>; sections: Record<string, number> } {
 	const projects: Record<string, number> = {};
-	const categories: Record<string, number> = {};
+	const sections: Record<string, number> = {};
 	for (const t of open) {
 		const m = t.duration_minutes ?? 0;
 		if (!m || (t.parent_id === null && subtaskMinutes(subtasksOf(t.id)) !== null)) continue;
 		if (t.project_id !== null) projects[t.project_id] = (projects[t.project_id] ?? 0) + m;
-		if (t.category_id !== null) categories[t.category_id] = (categories[t.category_id] ?? 0) + m;
+		if (t.section_id !== null) sections[t.section_id] = (sections[t.section_id] ?? 0) + m;
 	}
-	return { projects, categories };
+	return { projects, sections };
 }
 
 /** Due date, then time (untimed last), then priority, then manual order. */

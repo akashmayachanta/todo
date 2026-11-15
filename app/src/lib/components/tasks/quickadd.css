@@ -15,7 +15,7 @@
   height: 0.625rem;
 }
 
-/* PlaceMark.svelte: `#` for a project, `/` for a category, in the project's colour. */
+/* PlaceMark.svelte: `#` for a project, `/` for a section, in the project's colour. */
 .tasks-mark {
   display: inline-flex;
   flex-shrink: 0;
@@ -27,7 +27,7 @@
   line-height: 1;
 }
 
-.tasks-mark[data-kind="category"] {
+.tasks-mark[data-kind="section"] {
   font-weight: 500;
 }
 
@@ -108,7 +108,7 @@
 .quick-add-token[data-kind="reminder"] { --tint: var(--color-warning); }
 .quick-add-token[data-kind="duration"] { --tint: var(--color-brand); }
 .quick-add-token[data-kind="project"],
-.quick-add-token[data-kind="category"] { --tint: var(--color-info); }
+.quick-add-token[data-kind="section"] { --tint: var(--color-info); }
 
 .quick-add-token-unknown {
   background-color: transparent;

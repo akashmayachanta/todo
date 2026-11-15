@@ -40,14 +40,14 @@ pub const TABLES: &[Table] = &[
         required: &["name", "created_at"],
     },
     Table {
-        name: "task_categories",
+        name: "task_sections",
         columns: &["id", "project_id", "name", "position", "created_at", "description"],
         required: &["project_id", "name", "created_at"],
     },
     Table {
         name: "tasks",
         columns: &[
-            "id", "project_id", "category_id", "parent_id", "title", "description", "priority", "due_date",
+            "id", "project_id", "section_id", "parent_id", "title", "description", "priority", "due_date",
             "due_time", "duration_minutes", "location", "remind_at", "recurrence", "position", "completed_at",
             "created_at",
         ],
@@ -407,15 +407,15 @@ pub fn apply(conn: &Connection, ctx: &Ctx, rows: &[SyncRow]) -> Result<Applied> 
 
 /// Fixes rows a merge left inconsistent. Only a parent that is here and
 /// deleted counts: one that hasn't arrived yet may come in the next page.
-/// - categories and tasks of a deleted project are deleted;
+/// - sections and tasks of a deleted project are deleted;
 /// - subtasks of a deleted task are deleted;
-/// - tasks in a deleted category move out of it;
-/// - a task follows its category's project;
-/// - a subtask follows its parent's project and category.
+/// - tasks in a deleted section move out of it;
+/// - a task follows its section's project;
+/// - a subtask follows its parent's project and section.
 pub fn repair(conn: &Connection, ctx: &Ctx) -> Result<()> {
     let deleted_project = "project_id IN (SELECT id FROM task_projects WHERE deleted_at IS NOT NULL)";
-    for id in live_ids(conn, "task_categories", deleted_project, &[])? {
-        tombstone(conn, ctx, "task_categories", &id)?;
+    for id in live_ids(conn, "task_sections", deleted_project, &[])? {
+        tombstone(conn, ctx, "task_sections", &id)?;
     }
     for id in live_ids(conn, "tasks", deleted_project, &[])? {
         tombstone(conn, ctx, "tasks", &id)?;
@@ -426,16 +426,16 @@ pub fn repair(conn: &Connection, ctx: &Ctx) -> Result<()> {
     for id in live_ids(
         conn,
         "tasks",
-        "category_id IN (SELECT id FROM task_categories WHERE deleted_at IS NOT NULL)",
+        "section_id IN (SELECT id FROM task_sections WHERE deleted_at IS NOT NULL)",
         &[],
     )? {
-        conn.execute("UPDATE tasks SET category_id = NULL WHERE id = ?1", [&id])?;
+        conn.execute("UPDATE tasks SET section_id = NULL WHERE id = ?1", [&id])?;
         touch(conn, ctx, "tasks", &id)?;
     }
-    // A task follows its category's project (a category moved on one device
+    // A task follows its section's project (a section moved on one device
     // while the task was edited on another would leave it in neither).
     let mut stmt = conn.prepare(
-        "SELECT t.id, c.project_id FROM tasks t JOIN task_categories c ON c.id = t.category_id
+        "SELECT t.id, c.project_id FROM tasks t JOIN task_sections c ON c.id = t.section_id
          WHERE t.deleted_at IS NULL AND c.deleted_at IS NULL AND t.parent_id IS NULL
            AND t.project_id IS NOT c.project_id",
     )?;
@@ -448,17 +448,17 @@ pub fn repair(conn: &Connection, ctx: &Ctx) -> Result<()> {
         touch(conn, ctx, "tasks", &id)?;
     }
     let mut stmt = conn.prepare(
-        "SELECT t.id, p.project_id, p.category_id FROM tasks t JOIN tasks p ON p.id = t.parent_id
+        "SELECT t.id, p.project_id, p.section_id FROM tasks t JOIN tasks p ON p.id = t.parent_id
          WHERE t.deleted_at IS NULL AND p.deleted_at IS NULL
-           AND (t.project_id IS NOT p.project_id OR t.category_id IS NOT p.category_id)",
+           AND (t.project_id IS NOT p.project_id OR t.section_id IS NOT p.section_id)",
     )?;
     let strays = stmt
         .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?, r.get::<_, Option<String>>(2)?)))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    for (id, project_id, category_id) in strays {
+    for (id, project_id, section_id) in strays {
         conn.execute(
-            "UPDATE tasks SET project_id = ?1, category_id = ?2 WHERE id = ?3",
-            params![project_id, category_id, id],
+            "UPDATE tasks SET project_id = ?1, section_id = ?2 WHERE id = ?3",
+            params![project_id, section_id, id],
         )?;
         touch(conn, ctx, "tasks", &id)?;
     }

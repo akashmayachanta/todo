@@ -12,7 +12,7 @@ import { matchesKeys } from '$lib/shortcutKeys';
 
 export type QuickAddDefaults = {
 	project_id?: string | null;
-	category_id?: string | null;
+	section_id?: string | null;
 	due_date?: string | null;
 	priority?: TaskPriority;
 };

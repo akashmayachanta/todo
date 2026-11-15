@@ -13,7 +13,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tasks_core::sync::{self, PullResponse, PushRequest, PushResponse};
-use tasks_core::{ops, Category, CategoryIn, Completions, Ctx, Filter, FilterIn, Project, ProjectIn, ProjectOrder, Task, TaskIn, TaskOrder, TaskPatch, TaskQuery};
+use tasks_core::{ops, Section, SectionIn, Completions, Ctx, Filter, FilterIn, Project, ProjectIn, ProjectOrder, Task, TaskIn, TaskOrder, TaskPatch, TaskQuery};
 
 use crate::auth::{AuthUser, Device};
 use crate::error::{ApiError, ApiResult};
@@ -77,9 +77,9 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(&p("/projects/reorder"), post(reorder_projects))
         .route(&p("/projects/{id}"), post(update_project))
         .route(&p("/projects/{id}/delete"), post(delete_project))
-        .route(&p("/categories"), get(list_categories).post(create_category))
-        .route(&p("/categories/{id}"), post(update_category))
-        .route(&p("/categories/{id}/delete"), post(delete_category))
+        .route(&p("/sections"), get(list_sections).post(create_section))
+        .route(&p("/sections/{id}"), post(update_section))
+        .route(&p("/sections/{id}/delete"), post(delete_section))
         .route(&p("/filters"), get(list_filters).post(create_filter))
         .route(&p("/filters/{id}"), post(update_filter))
         .route(&p("/filters/{id}/delete"), post(delete_filter))
@@ -133,28 +133,28 @@ async fn delete_project(State(s): St, u: AuthUser, Path(id): Path<String>) -> Ap
     Ok(ok())
 }
 
-// ── Categories ───────────────────────────────────────────────────────────────
+// ── Sections ───────────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
-struct CategoryQuery {
+struct SectionQuery {
     project_id: Option<String>,
 }
 
-async fn list_categories(State(s): St, u: AuthUser, Q(q): Q<CategoryQuery>) -> ApiResult<Json<Vec<Category>>> {
-    Ok(Json(s.store.run(u.user_id, move |c| ops::list_categories(c, q.project_id.as_deref())).await?))
+async fn list_sections(State(s): St, u: AuthUser, Q(q): Q<SectionQuery>) -> ApiResult<Json<Vec<Section>>> {
+    Ok(Json(s.store.run(u.user_id, move |c| ops::list_sections(c, q.project_id.as_deref())).await?))
 }
 
-async fn create_category(State(s): St, u: AuthUser, Body(input): Body<CategoryIn>) -> ApiResult<(StatusCode, Json<Category>)> {
-    let item = write(&s, &u, move |c| ops::create_category(c, &Ctx::server(), input)).await?;
+async fn create_section(State(s): St, u: AuthUser, Body(input): Body<SectionIn>) -> ApiResult<(StatusCode, Json<Section>)> {
+    let item = write(&s, &u, move |c| ops::create_section(c, &Ctx::server(), input)).await?;
     Ok((StatusCode::CREATED, Json(item)))
 }
 
-async fn update_category(State(s): St, u: AuthUser, Path(id): Path<String>, Body(input): Body<CategoryIn>) -> ApiResult<Json<Category>> {
-    Ok(Json(write(&s, &u, move |c| ops::update_category(c, &Ctx::server(), &id, input)).await?))
+async fn update_section(State(s): St, u: AuthUser, Path(id): Path<String>, Body(input): Body<SectionIn>) -> ApiResult<Json<Section>> {
+    Ok(Json(write(&s, &u, move |c| ops::update_section(c, &Ctx::server(), &id, input)).await?))
 }
 
-async fn delete_category(State(s): St, u: AuthUser, Path(id): Path<String>) -> ApiResult<Json<Value>> {
-    write(&s, &u, move |c| ops::delete_category(c, &Ctx::server(), &id)).await?;
+async fn delete_section(State(s): St, u: AuthUser, Path(id): Path<String>) -> ApiResult<Json<Value>> {
+    write(&s, &u, move |c| ops::delete_section(c, &Ctx::server(), &id)).await?;
     Ok(ok())
 }
 

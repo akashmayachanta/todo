@@ -13,8 +13,8 @@
 		{ what: 'Time', how: ['5pm', '10p', 'tom 9:30a'], note: 'A time alone lands on the day you are adding to or the task already has, else today.' },
 		{ what: 'Duration', how: ['for 30m', 'for 1h', 'for 1h30m', 'for 2 hours'] },
 		{ what: 'Priority', how: ['p1', 'p2', 'p3', 'p4'], note: 'p1 is the highest.' },
-		{ what: 'Project', how: ['#Project'], note: 'Type # to pick a project or category.' },
-		{ what: 'Category', how: ['#Category', '/Category', '#Project / Category'], note: 'Type / to pick from categories only. If a project has the same name, # means the project.' },
+		{ what: 'Project', how: ['#Project'], note: 'Type # to pick a project or section.' },
+		{ what: 'Section', how: ['#Section', '/Section', '#Project / Section'], note: 'Type / to pick from sections only. If a project has the same name, # means the project.' },
 		{ what: 'Repeat', how: ['every day', 'every weekday', 'every mon, thu', 'every 2 weeks'] },
 		{ what: 'Reminder', how: ['!', '!10m', '!1h', '!5pm'], note: 'A due time reminds you at that time on its own. ! on its own sets it back to the due time (9:00 for a date with no time); !10m makes it 10 minutes before; !5pm at that time. Or pick one in the task window.' },
 	];

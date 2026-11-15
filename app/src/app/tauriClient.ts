@@ -61,12 +61,12 @@ export const tauriTasksClient: TasksClient = {
 		delete: (id) => write('tasks_projects_delete', { id }).then(done),
 		reorder: (ids) => write('tasks_projects_reorder', { ids }),
 	},
-	categories: {
-		list: (projectId) => call('tasks_categories_list', { project: projectId ?? null }),
-		create: (data) => write('tasks_categories_create', { data }),
-		update: (id, data) => write('tasks_categories_update', { id, data }),
-		delete: (id) => write('tasks_categories_delete', { id }).then(done),
-		reorder: (projectId, ids) => write('tasks_categories_reorder', { project: projectId, ids }),
+	sections: {
+		list: (projectId) => call('tasks_sections_list', { project: projectId ?? null }),
+		create: (data) => write('tasks_sections_create', { data }),
+		update: (id, data) => write('tasks_sections_update', { id, data }),
+		delete: (id) => write('tasks_sections_delete', { id }).then(done),
+		reorder: (projectId, ids) => write('tasks_sections_reorder', { project: projectId, ids }),
 	},
 	filters: {
 		list: () => call('tasks_filters_list'),

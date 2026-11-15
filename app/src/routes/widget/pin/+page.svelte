@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import { api, errorDetail } from '$lib/api';
-	import type { Task, TaskCategory, TaskFilter, TaskIn, TaskProject } from '$lib/api';
+	import type { Task, TaskSection, TaskFilter, TaskIn, TaskProject } from '$lib/api';
 	import PlaceMark from '$lib/components/tasks/PlaceMark.svelte';
 	import QuickAdd from '$lib/components/tasks/QuickAdd.svelte';
 	import TaskRow from '$lib/components/tasks/TaskRow.svelte';
@@ -28,7 +28,7 @@
 	let tasks = $state<Task[]>([]);
 	let pinnedTask = $state<Task | null>(null);
 	let projects = $state<TaskProject[]>([]);
-	let categories = $state<TaskCategory[]>([]);
+	let sections = $state<TaskSection[]>([]);
 	let filters = $state<TaskFilter[]>([]);
 	let loaded = $state(false);
 	let adding = $state(false);
@@ -36,7 +36,7 @@
 
 	let today = $derived(ymd(now));
 	let view = $derived<PinView | null>(
-		target && loaded ? pinView(target, { tasks, pinnedTask, projects, categories, filters, today }) : null,
+		target && loaded ? pinView(target, { tasks, pinnedTask, projects, sections, filters, today }) : null,
 	);
 	let openCount = $derived(view?.count ?? view?.tasks.filter((t) => !t.completed_at).length ?? 0);
 
@@ -54,8 +54,8 @@
 
 	async function load() {
 		try {
-			[tasks, projects, categories, filters] = await Promise.all([
-				api.tasks.list(), api.tasks.projects.list(), api.tasks.categories.list(), api.tasks.filters.list(),
+			[tasks, projects, sections, filters] = await Promise.all([
+				api.tasks.list(), api.tasks.projects.list(), api.tasks.sections.list(), api.tasks.filters.list(),
 			]);
 			// A pinned task that is done isn't among the open ones; gone altogether, the window says so.
 			pinnedTask = target?.kind === 'task' && target.id && !tasks.some((t) => t.id === target.id)
@@ -148,7 +148,7 @@
 				<p class="widget-pin-empty">Nothing here.</p>
 			{/each}
 			{#if adding}
-				<QuickAdd {projects} {categories} defaults={view.defaults} onadd={add} oncancel={() => (adding = false)} />
+				<QuickAdd {projects} {sections} defaults={view.defaults} onadd={add} oncancel={() => (adding = false)} />
 			{:else}
 				<button type="button" class="task-add" onclick={() => (adding = true)}>
 					<svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14m7-7H5" /></svg>

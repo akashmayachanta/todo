@@ -33,15 +33,15 @@ export interface TaskProject {
 	created_at: string; updated_at: string;
 }
 /** A section of a project. */
-export interface TaskCategory {
+export interface TaskSection {
 	id: string; project_id: string; name: string; position: number;
 	/** Shown under the heading, as typed (links included). */
 	description: string | null;
 	created_at: string; updated_at: string;
 }
-/** No project_id means the Inbox. A subtask (parent_id) shares its parent's project and category. */
+/** No project_id means the Inbox. A subtask (parent_id) shares its parent's project and section. */
 export interface Task {
-	id: string; project_id: string | null; category_id: string | null; parent_id: string | null;
+	id: string; project_id: string | null; section_id: string | null; parent_id: string | null;
 	title: string; description: string | null; priority: TaskPriority;
 	/** `YYYY-MM-DD` and `HH:MM`, the user's local date and time. */
 	due_date: string | null; due_time: string | null;
@@ -57,7 +57,7 @@ export interface Task {
 }
 export interface TaskIn {
 	title: string; description?: string | null;
-	project_id?: string | null; category_id?: string | null; parent_id?: string | null;
+	project_id?: string | null; section_id?: string | null; parent_id?: string | null;
 	priority?: TaskPriority; due_date?: string | null; due_time?: string | null;
 	duration_minutes?: number | null; location?: string | null; remind_at?: string | null; recurrence?: string | null; position?: number;
 }
@@ -75,10 +75,10 @@ export interface TaskCompletions { total: number; items: TaskCompletion[] }
 export type TaskDueWindow = 'overdue' | 'today' | 'tomorrow' | 'next_7' | 'next_30' | 'no_date';
 /** A detail a task row can show. */
 export type TaskRowField = 'due' | 'place' | 'description' | 'duration' | 'repeat' | 'reminder' | 'subtasks';
-export type TaskGroupBy = 'none' | 'priority' | 'project' | 'category' | 'due';
+export type TaskGroupBy = 'none' | 'priority' | 'project' | 'section' | 'due';
 /** Each list is "any of"; an empty one means any. null in projects is the Inbox. */
 export interface TaskFilterCriteria {
-	projects: (string | null)[]; categories: string[]; priorities: TaskPriority[]; due: TaskDueWindow[];
+	projects: (string | null)[]; sections: string[]; priorities: TaskPriority[]; due: TaskDueWindow[];
 }
 /** A saved view of the open tasks; the browser does the matching. */
 export interface TaskFilter {

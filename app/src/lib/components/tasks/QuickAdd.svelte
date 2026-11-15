@@ -2,7 +2,7 @@
 	import PlaceMark from '$lib/components/tasks/PlaceMark.svelte';
 	import { formatInstant } from '$lib/datePrefs.svelte';
 	import { onMount } from 'svelte';
-	import type { Task, TaskCategory, TaskIn, TaskPriority, TaskProject } from '$lib/api';
+	import type { Task, TaskSection, TaskIn, TaskPriority, TaskProject } from '$lib/api';
 	import { forgetPlaceExamples, placeExamples } from '$lib/stores/taskPlaces';
 	import { taskSettings } from '$lib/stores/taskSettings';
 	import { guessPlace, trainPlaces, type PlaceGuess } from '$lib/suggestPlace';
@@ -15,15 +15,15 @@
 	/**
 	 * One line that becomes a task: "Call bank tomorrow 5pm p1 #Home !30m". The parts read as
 	 * date, priority, place, recurrence or reminder are highlighted in the line and shown as
-	 * chips under it. `#` offers the projects and categories, `/` the categories. Enter adds, Esc cancels.
+	 * chips under it. `#` offers the projects and sections, `/` the sections. Enter adds, Esc cancels.
 	 * When the line names no place, its words may file it ($lib/suggestPlace): the place chip
 	 * then shows that place, and clicking it puts the task back where it would have gone.
 	 */
-	let { projects, categories, defaults = {}, onadd, oncancel }: {
+	let { projects, sections, defaults = {}, onadd, oncancel }: {
 		projects: TaskProject[];
-		categories: TaskCategory[];
+		sections: TaskSection[];
 		/** Where the task goes, its date and priority unless the line says otherwise. */
-		defaults?: { project_id?: string | null; category_id?: string | null; due_date?: string | null; priority?: TaskPriority };
+		defaults?: { project_id?: string | null; section_id?: string | null; due_date?: string | null; priority?: TaskPriority };
 		onadd: (data: TaskIn) => Promise<void>;
 		oncancel: () => void;
 	} = $props();
@@ -33,21 +33,21 @@
 	let field = $state<SmartTaskInput | null>(null);
 	let now = $state(new Date());
 
-	let parsed = $derived(parseQuickAdd(text, projects, categories, now, defaults.project_id ?? null, defaults.due_date ?? null));
+	let parsed = $derived(parseQuickAdd(text, projects, sections, now, defaults.project_id ?? null, defaults.due_date ?? null));
 
 	// ── Filing by the words ──
 	let examples = $state<Task[]>([]);
-	let model = $derived(trainPlaces(examples, projects, categories));
+	let model = $derived(trainPlaces(examples, projects, sections));
 	/** The place last turned down, which stays down until the words point elsewhere. */
 	let declined = $state<string | null>(null);
-	const placeKey = (g: PlaceGuess) => `${g.project_id}/${g.category_id ?? ''}`;
+	const placeKey = (g: PlaceGuess) => `${g.project_id}/${g.section_id ?? ''}`;
 
 	let guess = $derived.by((): PlaceGuess | null => {
 		if (!$taskSettings.autoPlace || !parsed.title) return null;
 		// A place typed in the line, even one still being typed, is the user's.
-		if (parsed.category_id || parsed.tokens.some((t) => (t.kind === 'project' || t.kind === 'category') && t.unknown)) return null;
-		// Added inside a category: it goes there.
-		if (!parsed.project_id && defaults.category_id) return null;
+		if (parsed.section_id || parsed.tokens.some((t) => (t.kind === 'project' || t.kind === 'section') && t.unknown)) return null;
+		// Added inside a section: it goes there.
+		if (!parsed.project_id && defaults.section_id) return null;
 		return guessPlace(model, parsed.title, parsed.project_id ?? defaults.project_id ?? null);
 	});
 	let auto = $derived(guess && placeKey(guess) !== declined ? guess : null);
@@ -63,9 +63,9 @@
 
 	let result = $derived.by((): TaskIn => {
 		const project_id = parsed.project_id ?? auto?.project_id ?? defaults.project_id ?? null;
-		const category_id = parsed.category_id
-			?? auto?.category_id
-			?? (project_id === (defaults.project_id ?? null) ? defaults.category_id ?? null : null);
+		const section_id = parsed.section_id
+			?? auto?.section_id
+			?? (project_id === (defaults.project_id ?? null) ? defaults.section_id ?? null : null);
 		// "no date" in the line beats the day being added to.
 		const datedByLine = parsed.tokens.some((t) => t.kind === 'date');
 		const due_date = datedByLine ? parsed.due_date : parsed.due_date ?? defaults.due_date ?? null;
@@ -73,7 +73,7 @@
 		return {
 			title: parsed.title,
 			project_id,
-			category_id,
+			section_id,
 			priority: parsed.priority ?? defaults.priority ?? 4,
 			due_date,
 			due_time,
@@ -85,16 +85,16 @@
 	});
 
 	let project = $derived(projects.find((p) => p.id === result.project_id) ?? null);
-	let category = $derived(categories.find((c) => c.id === result.category_id) ?? null);
+	let section = $derived(sections.find((c) => c.id === result.section_id) ?? null);
 	/** The place a turned-down guess names, offered beside the chip to take it back. */
 	let declinedName = $derived.by(() => {
 		if (!guess || auto) return '';
 		const p = projects.find((x) => x.id === guess.project_id);
-		const c = categories.find((x) => x.id === guess.category_id);
+		const c = sections.find((x) => x.id === guess.section_id);
 		return `${p?.name ?? ''}${c ? ` / ${c.name}` : ''}`;
 	});
 	const whyTitle = (g: PlaceGuess) => (g.because.length ? ` because of “${g.because.join('”, “')}”` : '');
-	// `/` offers the categories of the project named in the line, else of the one being added to.
+	// `/` offers the sections of the project named in the line, else of the one being added to.
 	let scopeProjectId = $derived(
 		parsed.tokens.some((t) => t.kind === 'project' && !t.unknown) ? parsed.project_id : defaults.project_id ?? null,
 	);
@@ -129,7 +129,7 @@
 		bind:value={text}
 		tokens={parsed.tokens}
 		{projects}
-		{categories}
+		{sections}
 		{scopeProjectId}
 		placeholder="Task name"
 		ariaLabel="New task"
@@ -163,18 +163,18 @@
 					class="task-chip task-chip-auto"
 					data-kind="project"
 					title="Filed by its words{whyTitle(auto)}. Click to undo."
-					aria-label="Filed in {project?.name ?? 'Inbox'}{category ? ` / ${category.name}` : ''} by its words. Undo"
+					aria-label="Filed in {project?.name ?? 'Inbox'}{section ? ` / ${section.name}` : ''} by its words. Undo"
 					onclick={() => { if (auto) declined = placeKey(auto); field?.focus(); }}
 				>
 					<svg aria-hidden="true" class="task-chip-spark" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.2 6.6L21 11l-6.8 2.4L12 20l-2.2-6.6L3 11l6.8-2.4z" /></svg>
 					{#if project}<PlaceMark color={projectColor(project.color)} />{/if}
-					{project ? project.name : 'Inbox'}{category ? ` / ${category.name}` : ''}
+					{project ? project.name : 'Inbox'}{section ? ` / ${section.name}` : ''}
 					<svg aria-hidden="true" class="task-chip-x" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-width="2.5" d="M6 6l12 12M18 6L6 18" /></svg>
 				</button>
 			{:else}
 				<span class="task-chip" data-kind="project">
 					{#if project}<PlaceMark color={projectColor(project.color)} />{/if}
-					{project ? project.name : 'Inbox'}{category ? ` / ${category.name}` : ''}
+					{project ? project.name : 'Inbox'}{section ? ` / ${section.name}` : ''}
 				</span>
 				{#if guess && declinedName}
 					<button

@@ -3,7 +3,7 @@
 	import { onMount } from 'svelte';
 	import { slide } from 'svelte/transition';
 	import { page } from '$app/state';
-	import type { TaskCategory, TaskFilter, TaskProject } from '$lib/api';
+	import type { TaskSection, TaskFilter, TaskProject } from '$lib/api';
 	import DropdownMenu from '$lib/components/DropdownMenu.svelte';
 	import { getPaneFooter, getPaneHeader } from '$lib/paneHeader';
 	import { formatDuration } from '$lib/taskParse';
@@ -17,24 +17,24 @@
 	 * The Tasks page's own pane: the account (from the app shell) and the sidebar button
 	 * (which hides the whole pane; the page then shows its own) at the top, the fixed views
 	 * (Karma, the progress charts, last), the saved filters, then the projects.
-	 * A project with categories has an expander that lists them; a category links to
+	 * A project with sections has an expander that lists them; a section links to
 	 * its section of the project. Projects are reordered by dragging them, or with
 	 * Move up / Move down in their menu. On phones it is the Browse tab.
 	 */
 	let {
-		projects, categories, filters, counts, minutes, view, projectId, filterId, settings, today, query = '', browsing = false,
+		projects, sections, filters, counts, minutes, view, projectId, filterId, settings, today, query = '', browsing = false,
 		onsearch, onaddproject, oneditproject, ondeleteproject, onreorderprojects, onfavoriteproject, onaddfilter, oneditfilter, ondeletefilter,
 		taskDrag = false, ondroptasks = null,
 	}: {
 		projects: TaskProject[];
-		categories: TaskCategory[];
+		sections: TaskSection[];
 		filters: TaskFilter[];
 		counts: {
 			inbox: number; today: number; upcoming: number;
-			projects: Record<string, number>; categories: Record<string, number>; filters: Record<string, number>;
+			projects: Record<string, number>; sections: Record<string, number>; filters: Record<string, number>;
 		};
-		/** Minutes of open work in each project and category. */
-		minutes: { projects: Record<string, number>; categories: Record<string, number> };
+		/** Minutes of open work in each project and section. */
+		minutes: { projects: Record<string, number>; sections: Record<string, number> };
 		view: TaskView;
 		projectId: string | null;
 		filterId: string | null;
@@ -55,10 +55,10 @@
 		onaddfilter: () => void;
 		oneditfilter: (filter: TaskFilter) => void;
 		ondeletefilter: (filter: TaskFilter) => void;
-		/** Tasks are being dragged on the page: the Inbox, Today, projects and categories take them. */
+		/** Tasks are being dragged on the page: the Inbox, Today, projects and sections take them. */
 		taskDrag?: boolean;
-		/** Tasks dropped on a project, category or the Inbox (a move), or on Today (a date). */
-		ondroptasks?: ((to: { project_id: string | null; category_id: string | null } | { due_date: string }) => void) | null;
+		/** Tasks dropped on a project, section or the Inbox (a move), or on Today (a date). */
+		ondroptasks?: ((to: { project_id: string | null; section_id: string | null } | { due_date: string }) => void) | null;
 	} = $props();
 
 	let search = $state<TaskSearchBox | null>(null);
@@ -92,7 +92,7 @@
 		tip = null;
 	}
 
-	/** Which projects have their categories shown, remembered in this browser. */
+	/** Which projects have their sections shown, remembered in this browser. */
 	const EXPANDED_KEY = 'tasks-pane-expanded';
 	let expanded = $state<string[]>([]);
 
@@ -115,8 +115,8 @@
 	}
 
 	let byProject = $derived.by(() => {
-		const map = new Map<string, TaskCategory[]>();
-		for (const c of [...categories].sort((a, b) => a.position - b.position || a.id.localeCompare(b.id))) {
+		const map = new Map<string, TaskSection[]>();
+		for (const c of [...sections].sort((a, b) => a.position - b.position || a.id.localeCompare(b.id))) {
 			const list = map.get(c.project_id) ?? [];
 			list.push(c);
 			map.set(c.project_id, list);
@@ -201,7 +201,7 @@
 	}
 
 	function projectDrop(e: DragEvent, p: TaskProject) {
-		if (dragId === null) return taskDrop(e, { project_id: p.id, category_id: null });
+		if (dragId === null) return taskDrop(e, { project_id: p.id, section_id: null });
 		e.preventDefault();
 		const at = dropAt;
 		const id = dragId;
@@ -243,7 +243,7 @@
 					onclick={hideTip}
 					ondragover={takes ? (e) => taskOver(e, v.key) : undefined}
 					ondragleave={takes ? (e) => taskLeave(e, v.key) : undefined}
-					ondrop={takes ? (e) => taskDrop(e, v.key === 'today' ? { due_date: today } : { project_id: null, category_id: null }) : undefined}
+					ondrop={takes ? (e) => taskDrop(e, v.key === 'today' ? { due_date: today } : { project_id: null, section_id: null }) : undefined}
 				>
 					{#if v.key === 'today'}
 						<TodayIcon date={today} class="w-4 h-4 shrink-0" />
@@ -270,7 +270,7 @@
 					class:tasks-pane-task-over={taskDropOn === `f:${p.id}`}
 					ondragover={(e) => taskOver(e, `f:${p.id}`)}
 					ondragleave={(e) => taskLeave(e, `f:${p.id}`)}
-					ondrop={(e) => taskDrop(e, { project_id: p.id, category_id: null })}
+					ondrop={(e) => taskDrop(e, { project_id: p.id, section_id: null })}
 				>
 					<a href="?project={p.id}" class="tasks-pane-link" aria-current={here && !hash.startsWith('#task-cat-') ? 'page' : undefined}>
 						<PlaceMark color={projectColor(p.color)} />
@@ -363,7 +363,7 @@
 						class="tasks-pane-expander"
 						aria-expanded={open}
 						aria-controls="tasks-pane-cats-{p.id}"
-						aria-label="{open ? 'Hide' : 'Show'} categories of {p.name}"
+						aria-label="{open ? 'Hide' : 'Show'} sections of {p.name}"
 						onclick={() => toggle(p.id)}
 					>
 						<svg aria-hidden="true" class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7" /></svg>
@@ -396,7 +396,7 @@
 				<ul
 					id="tasks-pane-cats-{p.id}"
 					class="tasks-pane-cats"
-					aria-label="Categories of {p.name}"
+					aria-label="Sections of {p.name}"
 					data-flip="project-cats:{p.id}"
 					transition:slide={{ duration: motion(180) }}
 				>
@@ -409,12 +409,12 @@
 								aria-current={here && hash === `#task-cat-${c.id}` ? 'page' : undefined}
 								ondragover={(e) => taskOver(e, `c:${c.id}`)}
 								ondragleave={(e) => taskLeave(e, `c:${c.id}`)}
-								ondrop={(e) => taskDrop(e, { project_id: p.id, category_id: c.id })}
+								ondrop={(e) => taskDrop(e, { project_id: p.id, section_id: c.id })}
 							>
-								<PlaceMark kind="category" color={projectColor(p.color)} />
+								<PlaceMark kind="section" color={projectColor(p.color)} />
 								<span class="tasks-pane-label">{c.name}</span>
-								{#if count(minutes.categories[c.id])}<span class="tasks-pane-count tasks-pane-time">{formatDuration(minutes.categories[c.id])}</span>{/if}
-								{#if count(counts.categories[c.id])}<span class="tasks-pane-count">{count(counts.categories[c.id])}</span>{/if}
+								{#if count(minutes.sections[c.id])}<span class="tasks-pane-count tasks-pane-time">{formatDuration(minutes.sections[c.id])}</span>{/if}
+								{#if count(counts.sections[c.id])}<span class="tasks-pane-count">{count(counts.sections[c.id])}</span>{/if}
 							</a>
 						</li>
 					{/each}

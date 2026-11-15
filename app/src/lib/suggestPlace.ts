@@ -1,36 +1,36 @@
 // Files a new task by what its title says. A small Naive Bayes classifier is
 // trained on the user's own tasks: each task is an example of its project (or,
 // once done there, of the Inbox, which then means "leave it be"), and of its
-// category (or of "no category") within the project. The project and category
+// section (or of "no section") within the project. The project and section
 // names count as examples too, along with words that usually go with such a name
-// (WORD_GROUPS), so a new category gets suggestions before it holds any tasks.
+// (WORD_GROUPS), so a new section gets suggestions before it holds any tasks.
 // Everything runs on the device, from the tasks already synced to it, so every
 // device learns the same things.
 
-import type { Task, TaskCategory, TaskProject } from '$lib/api';
+import type { Task, TaskSection, TaskProject } from '$lib/api';
 import { linkParts } from '$lib/links';
 
-/** A place the task's words point to. category_id null means the project alone. */
+/** A place the task's words point to. section_id null means the project alone. */
 export interface PlaceGuess {
 	project_id: string;
-	category_id: string | null;
+	section_id: string | null;
 	/** The words in the title that weighed most, as typed. */
 	because: string[];
 }
 
 /** How sure it must be before filing the task without being asked. */
 const PROJECT_SURE = 0.75;
-const CATEGORY_SURE = 0.65;
+const SECTION_SURE = 0.65;
 /** A task this many days old counts half as much as a new one. */
 const HALF_LIFE_DAYS = 180;
 const MIN_WEIGHT = 0.2;
-/** A project or category name counts as this many tasks; the words that go with it, as one. */
+/** A project or section name counts as this many tasks; the words that go with it, as one. */
 const NAME_WEIGHT = 2;
 const GROUP_WEIGHT = 1;
 /** Smoothing: low, so one word seen only in one place is enough to go on. */
 const ALPHA = 0.1;
-/** The class for a task in a project but in none of its categories. */
-const NO_CATEGORY = '';
+/** The class for a task in a project but in none of its sections. */
+const NO_SECTION = '';
 /** The class for a task left in the Inbox. */
 const INBOX = '';
 
@@ -52,7 +52,7 @@ function stem(w: string): string {
 }
 
 /**
- * Words that go together. A project or category named with any of them (say "Paisa"
+ * Words that go together. A project or section named with any of them (say "Paisa"
  * or "Bills") starts out knowing the rest, until the user's own tasks say more.
  */
 const WORD_GROUPS = [
@@ -156,11 +156,11 @@ class Bayes {
 
 export interface PlaceModel {
 	projects: Bayes;
-	/** By project id; only projects with categories. */
-	categories: Map<string, Bayes>;
-	/** Which projects and categories still exist. */
+	/** By project id; only projects with sections. */
+	sections: Map<string, Bayes>;
+	/** Which projects and sections still exist. */
 	projectIds: Set<string>;
-	categoryProject: Map<string, string>;
+	sectionProject: Map<string, string>;
 }
 
 /** The words of the groups a name belongs to. */
@@ -184,18 +184,18 @@ function ageWeight(createdAt: string, now: number): number {
 export function trainPlaces(
 	tasks: Task[],
 	projects: TaskProject[],
-	categories: TaskCategory[],
+	sections: TaskSection[],
 	now = Date.now(),
 ): PlaceModel {
 	const model: PlaceModel = {
 		projects: new Bayes(),
-		categories: new Map(),
+		sections: new Map(),
 		projectIds: new Set(projects.map((p) => p.id)),
-		categoryProject: new Map(categories.map((c) => [c.id, c.project_id])),
+		sectionProject: new Map(sections.map((c) => [c.id, c.project_id])),
 	};
 	const inProject = (projectId: string) => {
-		let b = model.categories.get(projectId);
-		if (!b) model.categories.set(projectId, (b = new Bayes()));
+		let b = model.sections.get(projectId);
+		if (!b) model.sections.set(projectId, (b = new Bayes()));
 		return b;
 	};
 	for (const p of projects) {
@@ -203,7 +203,7 @@ export function trainPlaces(
 		model.projects.add(p.id, feats, NAME_WEIGHT);
 		model.projects.add(p.id, groupFeatures(feats), GROUP_WEIGHT);
 	}
-	for (const c of categories) {
+	for (const c of sections) {
 		if (!model.projectIds.has(c.project_id)) continue;
 		const feats = features(c.name);
 		const group = groupFeatures(feats);
@@ -223,17 +223,17 @@ export function trainPlaces(
 		}
 		if (!model.projectIds.has(t.project_id)) continue;
 		model.projects.add(t.project_id, feats, w);
-		const category = t.category_id && model.categoryProject.get(t.category_id) === t.project_id ? t.category_id : NO_CATEGORY;
-		// "No category" is only worth learning in a project that has some.
-		if (category !== NO_CATEGORY || model.categories.has(t.project_id)) inProject(t.project_id).add(category, feats, w);
+		const section = t.section_id && model.sectionProject.get(t.section_id) === t.project_id ? t.section_id : NO_SECTION;
+		// "No section" is only worth learning in a project that has some.
+		if (section !== NO_SECTION || model.sections.has(t.project_id)) inProject(t.project_id).add(section, feats, w);
 	}
 	return model;
 }
 
 /**
- * Where a title belongs, when it is sure enough: a project and one of its categories,
- * or the project alone when no category fits. With `projectId`, the task already has
- * its project and only a category of it is guessed.
+ * Where a title belongs, when it is sure enough: a project and one of its sections,
+ * or the project alone when no section fits. With `projectId`, the task already has
+ * its project and only a section of it is guessed.
  */
 export function guessPlace(model: PlaceModel, title: string, projectId: string | null = null): PlaceGuess | null {
 	const feats = features(title);
@@ -246,10 +246,10 @@ export function guessPlace(model: PlaceModel, title: string, projectId: string |
 		project = best.label;
 		because = best.because;
 	}
-	const inProject = model.categories.get(project);
+	const inProject = model.sections.get(project);
 	const best = inProject ? inProject.best(feats) : null;
-	if (best && best.label !== NO_CATEGORY && best.p >= CATEGORY_SURE) {
-		return { project_id: project, category_id: best.label, because: because.length ? because : best.because };
+	if (best && best.label !== NO_SECTION && best.p >= SECTION_SURE) {
+		return { project_id: project, section_id: best.label, because: because.length ? because : best.because };
 	}
-	return projectId === null ? { project_id: project, category_id: null, because } : null;
+	return projectId === null ? { project_id: project, section_id: null, because } : null;
 }

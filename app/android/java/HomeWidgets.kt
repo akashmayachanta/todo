@@ -2,7 +2,7 @@
 //
 // The home screen widgets and the app icon's shortcuts:
 // - TasksWidget lists one list's open tasks: Today unless another was picked
-//   (TasksWidgetConfig: Inbox, Upcoming, a project or a category). The lists come
+//   (TasksWidgetConfig: Inbox, Upcoming, a project or a section). The lists come
 //   from Rust (Native.widgetList, app/src-tauri/src/home_widget.rs). Its title opens
 //   the list in the app, + adds a task to it, the list icon picks another list, a
 //   task's circle ticks it and the task itself opens it.
@@ -259,7 +259,7 @@ class TasksWidgetFactory(private val c: Context, private val widgetId: Int) : Re
         val t = arr.getJSONObject(it)
         Row(t.getString("id"), t.optString("title"), t.optString("due"), t.optBoolean("overdue"), t.optInt("priority", 4))
       }
-      // A renamed (or deleted) project or category: the title follows.
+      // A renamed (or deleted) project or section: the title follows.
       val name = o.optString("name")
       if (name.isNotEmpty() && name != s.name) {
         HomeWidgets.saveSource(c, widgetId, s.copy(name = name))
@@ -360,7 +360,7 @@ class TasksWidgetConfig : Activity() {
     val labels = sources.map {
       when (it.kind) {
         "project" -> "#  ${it.name}"
-        "category" -> "        /  ${it.name}"
+        "section" -> "        /  ${it.name}"
         else -> it.name
       }
     }.toTypedArray()

@@ -594,7 +594,7 @@
 							<label class="set-toggle">
 								<span class="set-toggle-text">
 									<span class="set-toggle-label">File tasks by their words</span>
-									<span class="set-hint">Picks the project and category your past tasks point to. Click the place chip to undo.</span>
+									<span class="set-hint">Picks the project and section your past tasks point to. Click the place chip to undo.</span>
 								</span>
 								<input
 									type="checkbox"

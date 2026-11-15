@@ -163,4 +163,17 @@ if (!gradle.includes('androidx.work:work-runtime')) {
 	writeFileSync(gradlePath, gradle);
 }
 
+// ── gradle.properties ────────────────────────────────────────────────────────
+// Tauri's template sets android.proguard.failOnMissingFiles, android.builtInKotlin
+// and android.newDsl to false so its plugins still build on AGP 9; the plugins and
+// the Kotlin Gradle plugin also still call the old variant API (applicationVariants
+// and friends). Both are needed until Tauri v3, so the warnings AGP prints about
+// them each build are silenced here rather than the settings taken out.
+const propsPath = here('../src-tauri/gen/android/gradle.properties');
+let props = readFileSync(propsPath, 'utf8');
+const SUPPRESS = 'android.sync.suppressAgpWarnings=UNSUPPORTED_PROJECT_OPTION_USE,DEPRECATED_DSL';
+props = props.replace(/\n*# tasks-native: quiet AGP[^\n]*\n[^\n]*/g, '').replace(/\n+$/, '\n');
+props += `\n# tasks-native: quiet AGP (scripts/android-native.mjs)\n${SUPPRESS}\n`;
+writeFileSync(propsPath, props);
+
 console.log('Android native code, manifest entries and WorkManager are in place.');

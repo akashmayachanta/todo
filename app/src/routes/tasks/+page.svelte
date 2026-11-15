@@ -7,7 +7,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { api, errorDetail } from '$lib/api';
-	import type { Task, TaskCategory, TaskFilter, TaskFilterIn, TaskGroupBy, TaskIn, TaskPatch, TaskPriority, TaskProject } from '$lib/api';
+	import type { Task, TaskSection, TaskFilter, TaskFilterIn, TaskGroupBy, TaskIn, TaskPatch, TaskPriority, TaskProject } from '$lib/api';
 	import { toast } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import { askReminderPermission } from '$lib/stores/taskReminders';
@@ -15,7 +15,7 @@
 	import { taskSettings } from '$lib/stores/taskSettings';
 	import { onTasksChanged } from '$lib/tasks/client';
 	import { plainText } from '$lib/links';
-	import { sortCategory, sorting, type SortApi, type SortDrop, type SortKind } from '$lib/sortable';
+	import { sortSection, sorting, type SortApi, type SortDrop, type SortKind } from '$lib/sortable';
 	import { withFlip } from '$lib/flip';
 	import { addDays, dayLabel, daysBetween, formatDuration, fromYmd, todayHeading, ymd } from '$lib/taskParse';
 	import DropdownMenu from '$lib/components/DropdownMenu.svelte';
@@ -61,7 +61,7 @@
 	] as const;
 
 	let projects = $state<TaskProject[]>([]);
-	let categories = $state<TaskCategory[]>([]);
+	let sections = $state<TaskSection[]>([]);
 	let filters = $state<TaskFilter[]>([]);
 	/** Open tasks, each open one with all its subtasks (done ones too). */
 	let tasks = $state<Task[]>([]);
@@ -98,17 +98,19 @@
 	let projectDialog = $state<{ id: string | null; name: string; color: string } | null>(null);
 	/** The filter being edited, 'new' for a new one. */
 	let filterDialog = $state<TaskFilter | 'new' | null>(null);
-	let addingCategory = $state(false);
-	let newCategory = $state('');
-	/** The category open in its edit form (name and description). */
-	let renamingCategory = $state<string | null>(null);
-	let categoryName = $state('');
-	let categoryDesc = $state('');
+	/** Where the new-section form is open: an index into projectSections (its length = the end), or null. */
+	let addingSection = $state<number | null>(null);
+	let newSectionDesc = $state('');
+	let newSection = $state('');
+	/** The section open in its edit form (name and description). */
+	let renamingSection = $state<string | null>(null);
+	let sectionName = $state('');
+	let sectionDesc = $state('');
 	/** Which box of the edit form takes the focus when it opens. */
-	let categoryFocus = $state<'name' | 'desc'>('name');
-	/** The category being moved to another project. */
-	let movingCategory = $state<TaskCategory | null>(null);
-	/** The tasks being moved to another project or category (a task's "⋯" menu, or the selection's Move to…). */
+	let sectionFocus = $state<'name' | 'desc'>('name');
+	/** The section being moved to another project. */
+	let movingSection = $state<TaskSection | null>(null);
+	/** The tasks being moved to another project or section (a task's "⋯" menu, or the selection's Move to…). */
 	let movingTasks = $state<Task[] | null>(null);
 	/** What "Move to…" is narrowed to. */
 	let moveQuery = $state('');
@@ -144,7 +146,7 @@
 	let filter = $derived(filters.find((f) => f.id === filterId) ?? null);
 	let today = $derived(ymd(now));
 	let tomorrow = $derived(addDays(today, 1));
-	let groupCtx = $derived<GroupCtx>({ projects, categories, today });
+	let groupCtx = $derived<GroupCtx>({ projects, sections, today });
 
 	function go(query: Record<string, string | number | null>, replaceState = false) {
 		const q = new URLSearchParams();
@@ -187,13 +189,13 @@
 	let dated = $derived(open.filter((t) => t.due_date));
 	let lastUpcoming = $derived(addDays(today, UPCOMING_DAYS));
 
-	/** The pane's counts: open tasks with their subtasks (a subtask shares its parent's project and category). */
+	/** The pane's counts: open tasks with their subtasks (a subtask shares its parent's project and section). */
 	let counts = $derived.by(() => {
 		const byProject: Record<string, number> = {};
-		const byCategory: Record<string, number> = {};
+		const bySection: Record<string, number> = {};
 		for (const t of open) {
 			if (t.project_id !== null) byProject[t.project_id] = (byProject[t.project_id] ?? 0) + 1;
-			if (t.category_id !== null) byCategory[t.category_id] = (byCategory[t.category_id] ?? 0) + 1;
+			if (t.section_id !== null) bySection[t.section_id] = (bySection[t.section_id] ?? 0) + 1;
 		}
 		const byFilter: Record<string, number> = {};
 		for (const f of filters) byFilter[f.id] = open.filter(compileFilter(f.criteria, groupCtx)).length;
@@ -203,12 +205,12 @@
 			today: dated.filter((t) => t.due_date! <= today).length,
 			upcoming: dated.filter((t) => t.due_date! > today && t.due_date! <= lastUpcoming).length,
 			projects: byProject,
-			categories: byCategory,
+			sections: bySection,
 		};
 	});
-	/** The project's open tasks with no category, subtasks included, for the board's "No category" head. */
-	let uncategorisedCount = $derived(open.filter((t) => t.project_id === projectId && t.category_id === null).length);
-	/** Minutes of open work rolled up to each project and category (subtasks included). */
+	/** The project's open tasks with no section, subtasks included, for the board's "No section" head. */
+	let unsectionedCount = $derived(open.filter((t) => t.project_id === projectId && t.section_id === null).length);
+	/** Minutes of open work rolled up to each project and section (subtasks included). */
 	let minutes = $derived(durationTotals(open, subtasksOf));
 
 	let inboxTasks = $derived(topLevel.filter((t) => t.project_id === null).sort(byPosition));
@@ -243,9 +245,9 @@
 	let filterFields = $derived(filter ? new Set(filter.fields) : null);
 	let filterBase = $derived<AddDefaults>(filter ? filterDefaults(filter.criteria, groupCtx) : {});
 
-	let projectCategories = $derived(categories.filter((c) => c.project_id === projectId).sort((a, b) => a.position - b.position || a.id.localeCompare(b.id)));
-	let uncategorised = $derived(topLevel.filter((t) => t.project_id === projectId && t.category_id === null).sort(byPosition));
-	const inCategory = (id: string) => topLevel.filter((t) => t.category_id === id).sort(byPosition);
+	let projectSections = $derived(sections.filter((c) => c.project_id === projectId).sort((a, b) => a.position - b.position || a.id.localeCompare(b.id)));
+	let unsectioned = $derived(topLevel.filter((t) => t.project_id === projectId && t.section_id === null).sort(byPosition));
+	const inSection = (id: string) => topLevel.filter((t) => t.section_id === id).sort(byPosition);
 
 	let drawerTask = $derived(
 		taskId === null ? null
@@ -265,7 +267,7 @@
 
 	function placeOf(task: Task) {
 		const p = projects.find((x) => x.id === task.project_id);
-		return { name: placeName(task, projects, categories), color: p ? projectColor(p.color) : null };
+		return { name: placeName(task, projects, sections), color: p ? projectColor(p.color) : null };
 	}
 
 	// ── Layout: list, board or calendar ────────────────────────────────────────
@@ -278,14 +280,14 @@
 		return l && layoutOptions.includes(l) ? l : 'list';
 	});
 
-	/** Board: some category here has a description, so every column leaves a line for one. */
-	let boardDescribed = $derived(layout === 'board' && view === 'project' && projectCategories.some((c) => c.description));
+	/** Board: some section here has a description, so every column leaves a line for one. */
+	let boardDescribed = $derived(layout === 'board' && view === 'project' && projectSections.some((c) => c.description));
 
 	function setLayout(l: TaskLayout) {
 		layouts = { ...layouts, [layoutKey]: l };
 		saveLayouts(layouts);
 		addingAt = null;
-		addingCategory = false;
+		addingSection = null;
 	}
 
 	// ── Grouping: Today, Upcoming and filters ──────────────────────────────────
@@ -345,13 +347,13 @@
 		color?: string | null;
 		tasks: Task[];
 		overdue?: boolean;
-		category?: TaskCategory;
+		section?: TaskSection;
 		/** What dropping a task here changes; null when nothing can be dropped here. */
 		drop: TaskPatch | null;
 		add: { key: string; defaults: AddDefaults } | null;
 	};
 
-	/** The board's columns: priorities in the Inbox, days in Today and Upcoming, categories in a project. */
+	/** The board's columns: priorities in the Inbox, days in Today and Upcoming, sections in a project. */
 	let columns = $derived.by((): Column[] => {
 		if (buckets) {
 			return buckets.map((b) => ({
@@ -395,19 +397,19 @@
 			return cols;
 		}
 		if (!project) return [];
-		// "No category" only when it has tasks, or is the project's only column, or its quick add is open (q).
-		const showNone = uncategorised.length > 0 || projectCategories.length === 0 || addingAt === 'main';
+		// "No section" only when it has tasks, or is the project's only column, or its quick add is open (q).
+		const showNone = unsectioned.length > 0 || projectSections.length === 0 || addingAt === 'main';
 		return [
 			...(showNone
-				? [{ key: 'cat:none', title: 'No category', tasks: uncategorised, drop: { category_id: null }, add: { key: 'main', defaults: { project_id: project.id } } }]
+				? [{ key: 'cat:none', title: 'No section', tasks: unsectioned, drop: { section_id: null }, add: { key: 'main', defaults: { project_id: project.id } } }]
 				: []),
-			...projectCategories.map((c) => ({
+			...projectSections.map((c) => ({
 				key: `cat:${c.id}`,
 				title: c.name,
-				category: c,
-				tasks: inCategory(c.id),
-				drop: { category_id: c.id },
-				add: { key: `cat:${c.id}`, defaults: { project_id: project!.id, category_id: c.id } },
+				section: c,
+				tasks: inSection(c.id),
+				drop: { section_id: c.id },
+				add: { key: `cat:${c.id}`, defaults: { project_id: project!.id, section_id: c.id } },
 			})),
 		];
 	});
@@ -419,7 +421,7 @@
 	let boardPages = $derived([
 		...columns.map((c) => c.title),
 		...(buckets && !columns.some((c) => c.add) ? ['New task'] : []),
-		...(view === 'project' ? ['Add category'] : []),
+		...(view === 'project' ? ['Add section'] : []),
 	]);
 
 	function boardScrolled() {
@@ -517,10 +519,10 @@
 		return last ? { id: last.dataset.cardId!, after: true } : null;
 	}
 
-	/** A subtask follows its parent, so it can't be dropped on a project or category. */
+	/** A subtask follows its parent, so it can't be dropped on a project or section. */
 	function canDrop(task: Task, col: Column): boolean {
 		if (!col.drop) return false;
-		return task.parent_id === null || !('project_id' in col.drop || 'category_id' in col.drop);
+		return task.parent_id === null || !('project_id' in col.drop || 'section_id' in col.drop);
 	}
 
 	function colDragOver(e: DragEvent, col: Column) {
@@ -588,23 +590,23 @@
 			if (Object.keys(patch).length) patchTask(task, patch);
 			return;
 		}
-		// The column's other change (a priority, say) first; then dropTask sets the category and the place.
-		const { category_id: _, ...rest } = patch;
+		// The column's other change (a priority, say) first; then dropTask sets the section and the place.
+		const { section_id: _, ...rest } = patch;
 		if (Object.keys(rest).length) await patchTask(task, rest);
-		const categoryId = col.drop && 'category_id' in col.drop ? col.drop.category_id ?? null : task.category_id;
+		const sectionId = col.drop && 'section_id' in col.drop ? col.drop.section_id ?? null : task.section_id;
 		await dropTask({
 			id: task.id, kind: 'top', targetId: at?.id ?? null, after: at?.after ?? true, into: false,
-			zone: at ? null : categoryId ?? 'none', scope: col.key,
+			zone: at ? null : sectionId ?? 'none', scope: col.key,
 		});
 	}
 
 	// ── Rearranging by the grip ────────────────────────────────────────────────
 
-	const topSiblings = (projectId: string | null, categoryId: string | null) =>
-		topLevel.filter((t) => t.project_id === projectId && t.category_id === categoryId).sort(byPosition);
+	const topSiblings = (projectId: string | null, sectionId: string | null) =>
+		topLevel.filter((t) => t.project_id === projectId && t.section_id === sectionId).sort(byPosition);
 
 	/**
-	 * Puts a task where it was dropped. A task dropped in another category joins it, and
+	 * Puts a task where it was dropped. A task dropped in another section joins it, and
 	 * a subtask dropped under another task moves to it. Shown at once, put back on failure.
 	 */
 	async function dropTask(d: SortDrop) {
@@ -620,13 +622,13 @@
 			const parent = tasks.find((t) => t.id === parentId);
 			if (!parent) return;
 			if (parent.id !== task.parent_id) patch = { parent_id: parent.id };
-			moved = { ...task, parent_id: parent.id, project_id: parent.project_id, category_id: parent.category_id };
+			moved = { ...task, parent_id: parent.id, project_id: parent.project_id, section_id: parent.section_id };
 			list = subtasksOf(parent.id);
 		} else {
-			const categoryId = d.zone !== null ? (d.zone === 'none' ? null : d.zone) : target?.category_id ?? null;
-			if (categoryId !== task.category_id) patch = { category_id: categoryId };
-			moved = { ...task, category_id: categoryId };
-			list = topSiblings(task.project_id, categoryId);
+			const sectionId = d.zone !== null ? (d.zone === 'none' ? null : d.zone) : target?.section_id ?? null;
+			if (sectionId !== task.section_id) patch = { section_id: sectionId };
+			moved = { ...task, section_id: sectionId };
+			list = topSiblings(task.project_id, sectionId);
 		}
 
 		const others = list.filter((t) => t.id !== task.id);
@@ -649,7 +651,7 @@
 			if (patch) await api.tasks.update(task.id, patch);
 			const saved = new Map((await api.tasks.reorder(ids)).map((t) => [t.id, t]));
 			tasks = tasks.map((t) => saved.get(t.id) ?? t);
-			// A task's subtasks follow it to another category.
+			// A task's subtasks follow it to another section.
 			if (patch) await reloadTasks();
 			// A subtask with a duration takes it from one task's total to the other's.
 			if (patch?.parent_id && task.duration_minutes) {
@@ -669,7 +671,7 @@
 		if (!task) return;
 		const list = kind === 'sub'
 			? subtasksOf(task.parent_id!).filter((s) => !!s.completed_at === !!task.completed_at)
-			: topSiblings(task.project_id, task.category_id);
+			: topSiblings(task.project_id, task.section_id);
 		const other = list[list.findIndex((t) => t.id === id) + by];
 		if (other) withFlip(() => dropTask({ id, kind, targetId: other.id, after: by === 1, into: false, zone: null, scope: null }));
 	}
@@ -703,7 +705,7 @@
 		else if (view === 'inbox') list = withSubtasks(inboxTasks);
 		else if (view === 'today') list = withSubtasks([...overdueRows, ...todayRows]);
 		else if (view === 'upcoming') list = [...upcomingDays.flatMap((d) => d.tasks), ...later];
-		else list = withSubtasks([...uncategorised, ...projectCategories.flatMap((c) => inCategory(c.id))]);
+		else list = withSubtasks([...unsectioned, ...projectSections.flatMap((c) => inSection(c.id))]);
 		return completedShown && layout !== 'calendar' ? [...list, ...completed] : list;
 	});
 
@@ -823,8 +825,8 @@
 
 	async function loadAll() {
 		try {
-			[projects, categories, tasks, filters] = await Promise.all([
-				api.tasks.projects.list(), api.tasks.categories.list(), api.tasks.list(), api.tasks.filters.list(),
+			[projects, sections, tasks, filters] = await Promise.all([
+				api.tasks.projects.list(), api.tasks.sections.list(), api.tasks.list(), api.tasks.filters.list(),
 			]);
 			error = '';
 		} catch (e) {
@@ -868,12 +870,12 @@
 	$effect(() => {
 		void view; void projectId; void filterId;
 		addingAt = null;
-		addingCategory = false;
-		renamingCategory = null;
+		addingSection = null;
+		renamingSection = null;
 		inlineEditId = null;
 	});
 
-	// A category picked in the pane (#task-cat-<id>) is scrolled into view once it is on screen.
+	// A section picked in the pane (#task-cat-<id>) is scrolled into view once it is on screen.
 	$effect(() => {
 		const hash = page.url.hash;
 		void layout; void projectId;
@@ -917,14 +919,14 @@
 			const created = await api.tasks.create(data);
 			tasks = [...tasks, created];
 			if (created.remind_at) askReminderPermission();
-			if (!shownHere(created)) toast.success(`Added to ${placeName(created, projects, categories)}${created.due_date ? `, ${dayLabel(created.due_date, now)}` : ''}`);
+			if (!shownHere(created)) toast.success(`Added to ${placeName(created, projects, sections)}${created.due_date ? `, ${dayLabel(created.due_date, now)}` : ''}`);
 		} catch (e) {
 			toast.error(errorDetail(e));
 			throw e;
 		}
 	}
 
-	async function addSubtask(parent: Task, data: Omit<TaskIn, 'parent_id' | 'project_id' | 'category_id'>) {
+	async function addSubtask(parent: Task, data: Omit<TaskIn, 'parent_id' | 'project_id' | 'section_id'>) {
 		try {
 			const created = await api.tasks.create({ ...data, parent_id: parent.id });
 			tasks = [...tasks, created];
@@ -959,7 +961,7 @@
 			replace(updated);
 			if (patch.remind_at) askReminderPermission();
 			// A move carries the subtasks along on the server.
-			if (('project_id' in patch || 'category_id' in patch) && task.parent_id === null) await reloadTasks();
+			if (('project_id' in patch || 'section_id' in patch) && task.parent_id === null) await reloadTasks();
 			if (task.parent_id !== null && ('duration_minutes' in patch || 'parent_id' in patch)) {
 				const had = !!task.duration_minutes;
 				const moved = updated.parent_id !== task.parent_id;
@@ -1012,25 +1014,25 @@
 	}
 
 	/**
-	 * Moves tasks to a project or category; their subtasks go with them. A subtask follows
+	 * Moves tasks to a project or section; their subtasks go with them. A subtask follows
 	 * its task, so a picked subtask stays where it is.
 	 */
-	async function moveTasks(list: Task[], projectId: string | null, categoryId: string | null) {
+	async function moveTasks(list: Task[], projectId: string | null, sectionId: string | null) {
 		movingTasks = null;
 		const top = list.filter((t) => t.parent_id === null);
 		const skipped = list.length - top.length;
-		const changing = top.filter((t) => t.project_id !== projectId || t.category_id !== categoryId);
-		const to = placeName({ project_id: projectId, category_id: categoryId }, projects, categories);
+		const changing = top.filter((t) => t.project_id !== projectId || t.section_id !== sectionId);
+		const to = placeName({ project_id: projectId, section_id: sectionId }, projects, sections);
 		if (list.length === 1) {
 			if (!changing.length) return;
-			await patchTask(changing[0], { project_id: projectId, category_id: categoryId });
+			await patchTask(changing[0], { project_id: projectId, section_id: sectionId });
 			toast.success(`Moved to ${to}`);
 			return;
 		}
 		let moved = 0;
 		try {
 			for (const t of changing) {
-				replace(await api.tasks.update(t.id, { project_id: projectId, category_id: categoryId }));
+				replace(await api.tasks.update(t.id, { project_id: projectId, section_id: sectionId }));
 				moved++;
 			}
 		} catch (e) {
@@ -1084,6 +1086,53 @@
 		selectedIds = [];
 		selectAnchor = null;
 	}
+
+	function selectAll() {
+		const ids = shownIds();
+		selectedIds = ids;
+		selectAnchor = ids.at(-1) ?? null;
+	}
+
+	/** The right-click menu over the task list: where it opened, or null. */
+	let listMenu = $state<{ x: number; y: number } | null>(null);
+	let listMenuEl = $state<HTMLDivElement | null>(null);
+
+	function openListMenu(e: MouseEvent) {
+		if (e.defaultPrevented || (typeof matchMedia !== 'undefined' && matchMedia('(hover: none)').matches)) return;
+		const el = e.target as HTMLElement | null;
+		// Text boxes and links keep the browser's own menu.
+		if (el?.closest('input, textarea, select, a, [contenteditable="true"]')) return;
+		if (!shownIds().length) return;
+		e.preventDefault();
+		listMenu = { x: Math.min(e.clientX, innerWidth - 200), y: Math.min(e.clientY, innerHeight - 96) };
+	}
+
+	function chooseListMenu(id: 'all' | 'none') {
+		listMenu = null;
+		if (id === 'all') selectAll();
+		else clearSelection();
+	}
+
+	$effect(() => {
+		if (!listMenu) return;
+		listMenuEl?.querySelector<HTMLButtonElement>('button')?.focus();
+		const close = (e: Event) => {
+			if (e instanceof KeyboardEvent ? e.key === 'Escape' : !listMenuEl?.contains(e.target as Node)) listMenu = null;
+		};
+		const shut = () => (listMenu = null);
+		addEventListener('pointerdown', close, true);
+		addEventListener('keydown', close, true);
+		addEventListener('blur', shut);
+		addEventListener('resize', shut);
+		addEventListener('scroll', shut, true);
+		return () => {
+			removeEventListener('pointerdown', close, true);
+			removeEventListener('keydown', close, true);
+			removeEventListener('blur', shut);
+			removeEventListener('resize', shut);
+			removeEventListener('scroll', shut, true);
+		};
+	});
 
 	// Another view starts with nothing picked.
 	$effect(() => {
@@ -1167,8 +1216,8 @@
 		for (const parent of parents) await syncParentMinutes(parent, true);
 	}
 
-	/** Tasks dropped on the side pane: on a project, a category or the Inbox moves them; on Today dates them. */
-	function dropOnPane(to: { project_id: string | null; category_id: string | null } | { due_date: string }) {
+	/** Tasks dropped on the side pane: on a project, a section or the Inbox moves them; on Today dates them. */
+	function dropOnPane(to: { project_id: string | null; section_id: string | null } | { due_date: string }) {
 		const list = dragSet.length ? dragSet : dragging ? [dragging] : [];
 		cardDragEnd();
 		if (!list.length) return;
@@ -1179,19 +1228,19 @@
 				toast.success(`${countOf(list.length)} due ${dayLabel(date, now)}`);
 			})();
 		} else {
-			moveTasks(list, to.project_id, to.category_id);
+			moveTasks(list, to.project_id, to.section_id);
 		}
 	}
 
 	/** An open copy just under it, with copies of its subtasks. */
 	async function duplicateTask(task: Task) {
 		const copy = (t: Task, parentId: string | null): TaskIn => ({
-			title: t.title, description: t.description, project_id: t.project_id, category_id: t.category_id, parent_id: parentId,
+			title: t.title, description: t.description, project_id: t.project_id, section_id: t.section_id, parent_id: parentId,
 			priority: t.priority, due_date: t.due_date, due_time: t.due_time, duration_minutes: t.duration_minutes,
 			location: t.location, remind_at: t.remind_at, recurrence: t.recurrence,
 		});
 		try {
-			const siblings = task.parent_id ? [...subtasksOf(task.parent_id)].sort(byPosition) : topSiblings(task.project_id, task.category_id);
+			const siblings = task.parent_id ? [...subtasksOf(task.parent_id)].sort(byPosition) : topSiblings(task.project_id, task.section_id);
 			const created = await api.tasks.create(copy(task, task.parent_id));
 			if (task.parent_id === null) {
 				for (const sub of [...subtasksOf(task.id)].sort(byPosition)) await api.tasks.create(copy(sub, created.id));
@@ -1209,11 +1258,11 @@
 	}
 
 	/** Works whether or not the Completed section is shown, so it asks the DB for this page's done tasks. */
-	async function clearCompleted(category?: TaskCategory) {
+	async function clearCompleted(section?: TaskSection) {
 		let ids: string[];
 		try {
-			const done = category
-				? (await api.tasks.list({ completed: true, project_id: category.project_id })).filter((t) => t.category_id === category.id)
+			const done = section
+				? (await api.tasks.list({ completed: true, project_id: section.project_id })).filter((t) => t.section_id === section.id)
 				: projectId
 					? await api.tasks.list({ completed: true, project_id: projectId })
 					: await api.tasks.list({ completed: true, inbox: true });
@@ -1226,7 +1275,7 @@
 			toast.success('No completed tasks here');
 			return;
 		}
-		if (!(await confirmDialog(`Delete all ${ids.length} completed task${ids.length > 1 ? 's' : ''} ${category ? `in "${category.name}"` : 'here'}? This can't be undone.`))) return;
+		if (!(await confirmDialog(`Delete all ${ids.length} completed task${ids.length > 1 ? 's' : ''} ${section ? `in "${section.name}"` : 'here'}? This can't be undone.`))) return;
 		try {
 			await api.tasks.deleteCompleted(ids);
 			const gone = new Set(ids);
@@ -1240,7 +1289,7 @@
 		}
 	}
 
-	// ── Projects and categories ────────────────────────────────────────────────
+	// ── Projects and sections ────────────────────────────────────────────────
 
 	function newProject() {
 		projectDialog = { id: null, name: '', color: PROJECT_COLORS[(projects.length + 6) % PROJECT_COLORS.length].key };
@@ -1283,7 +1332,7 @@
 		try {
 			await api.tasks.projects.delete(p.id);
 			projects = projects.filter((x) => x.id !== p.id);
-			categories = categories.filter((c) => c.project_id !== p.id);
+			sections = sections.filter((c) => c.project_id !== p.id);
 			if (projectId === p.id) go({ view: 'inbox' });
 			await reloadTasks();
 			toast.success(`Deleted "${p.name}"`);
@@ -1305,51 +1354,79 @@
 		}
 	}
 
-	async function addCategory() {
-		const name = newCategory.trim();
-		if (!name || !projectId) return;
+	function startSection(at: number) {
+		addingSection = at;
+		newSection = '';
+		newSectionDesc = '';
+	}
+
+	/** Adds the form's section where it was opened: at the end, or between two sections. */
+	async function addSection() {
+		const name = newSection.trim();
+		const at = addingSection ?? projectSections.length;
+		const pid = projectId;
+		if (!name || !pid) return;
+		const order = projectSections.map((c) => c.id);
 		try {
-			const created = await api.tasks.categories.create({ project_id: projectId, name });
-			categories = [...categories, created];
-			newCategory = '';
-			addingCategory = false;
+			const created = await api.tasks.sections.create({ project_id: pid, name, description: newSectionDesc.trim() || null });
+			sections = [...sections, created];
+			newSection = '';
+			newSectionDesc = '';
+			addingSection = null;
+			if (at < order.length) {
+				const ids = [...order.slice(0, at), created.id, ...order.slice(at)];
+				const saved = new Map((await api.tasks.sections.reorder(pid, ids)).map((c) => [c.id, c]));
+				sections = sections.map((c) => saved.get(c.id) ?? c);
+			}
 		} catch (e) {
 			toast.error(errorDetail(e));
 		}
 	}
 
-	/** Opens a category's edit form: its name and description in one box, as in Todoist. */
-	function editCategory(c: TaskCategory, focus: 'name' | 'desc' = 'name') {
-		renamingCategory = c.id;
-		categoryName = c.name;
-		categoryDesc = c.description ?? '';
-		categoryFocus = focus;
+	function newSectionDescKey(e: KeyboardEvent) {
+		if (e.key !== 'Enter') return;
+		e.preventDefault();
+		if (e.shiftKey || e.altKey) {
+			const box = e.currentTarget as HTMLTextAreaElement;
+			box.setRangeText('\n', box.selectionStart, box.selectionEnd, 'end');
+			newSectionDesc = box.value;
+		} else {
+			addSection();
+		}
 	}
 
-	async function saveCategory(c: TaskCategory) {
-		const name = categoryName.trim();
+	/** Opens a section's edit form: its name and description in one box, as in Todoist. */
+	function editSection(c: TaskSection, focus: 'name' | 'desc' = 'name') {
+		renamingSection = c.id;
+		sectionName = c.name;
+		sectionDesc = c.description ?? '';
+		sectionFocus = focus;
+	}
+
+	async function saveSection(c: TaskSection) {
+		const name = sectionName.trim();
 		if (!name) return;
-		const description = categoryDesc.trim() || null;
-		renamingCategory = null;
+		const description = sectionDesc.trim() || null;
+		renamingSection = null;
 		if (name === c.name && description === (c.description ?? null)) return;
 		try {
-			const updated = await api.tasks.categories.update(c.id, { project_id: c.project_id, name, description });
-			categories = categories.map((x) => (x.id === updated.id ? updated : x));
+			const updated = await api.tasks.sections.update(c.id, { project_id: c.project_id, name, description });
+			sections = sections.map((x) => (x.id === updated.id ? updated : x));
 		} catch (e) {
 			toast.error(errorDetail(e));
 		}
 	}
 
 	/** In the description box: Enter saves; Shift+Enter or Alt+Enter starts a new line. */
-	function categoryDescKey(e: KeyboardEvent, c: TaskCategory) {
+	function sectionDescKey(e: KeyboardEvent, c: TaskSection) {
 		if (e.key !== 'Enter') return;
 		e.preventDefault();
 		if (e.shiftKey || e.altKey) {
 			const box = e.currentTarget as HTMLTextAreaElement;
 			box.setRangeText('\n', box.selectionStart, box.selectionEnd, 'end');
-			categoryDesc = box.value;
+			sectionDesc = box.value;
 		} else {
-			saveCategory(c);
+			saveSection(c);
 		}
 	}
 
@@ -1366,11 +1443,11 @@
 		}
 	}
 
-	async function deleteCategory(c: TaskCategory) {
-		if (!(await confirmDialog(`Delete category "${c.name}"? Its tasks stay in the project.`))) return;
+	async function deleteSection(c: TaskSection) {
+		if (!(await confirmDialog(`Delete section "${c.name}"? Its tasks stay in the project.`))) return;
 		try {
-			await api.tasks.categories.delete(c.id);
-			categories = categories.filter((x) => x.id !== c.id);
+			await api.tasks.sections.delete(c.id);
+			sections = sections.filter((x) => x.id !== c.id);
 			await reloadTasks();
 		} catch (e) {
 			toast.error(errorDetail(e));
@@ -1378,11 +1455,11 @@
 	}
 
 	/** Its tasks and their subtasks go with it. */
-	async function moveCategory(c: TaskCategory, target: TaskProject) {
-		movingCategory = null;
+	async function moveSection(c: TaskSection, target: TaskProject) {
+		movingSection = null;
 		try {
-			await api.tasks.categories.update(c.id, { project_id: target.id, name: c.name });
-			categories = await api.tasks.categories.list();
+			await api.tasks.sections.update(c.id, { project_id: target.id, name: c.name });
+			sections = await api.tasks.sections.list();
 			await reloadTasks();
 			toast.success(`Moved "${c.name}" to ${target.name}`);
 		} catch (e) {
@@ -1390,9 +1467,9 @@
 		}
 	}
 
-	/** Puts a category before or after another of the project's, and saves the order. Shown at once, put back on failure. */
-	async function dropCategory(id: string, targetId: string, after: boolean) {
-		const list = projectCategories;
+	/** Puts a section before or after another of the project's, and saves the order. Shown at once, put back on failure. */
+	async function dropSection(id: string, targetId: string, after: boolean) {
+		const list = projectSections;
 		const moving = list.find((c) => c.id === id);
 		const others = list.filter((c) => c.id !== id);
 		const at = others.findIndex((c) => c.id === targetId);
@@ -1400,40 +1477,40 @@
 		const ids = [...others.slice(0, at + (after ? 1 : 0)), moving, ...others.slice(at + (after ? 1 : 0))].map((c) => c.id);
 		if (ids.every((x, i) => x === list[i].id)) return;
 
-		const before = categories;
+		const before = sections;
 		const place = new Map(ids.map((x, i) => [x, i + 1]));
-		categories = categories.map((c) => (place.has(c.id) ? { ...c, position: place.get(c.id)! } : c));
+		sections = sections.map((c) => (place.has(c.id) ? { ...c, position: place.get(c.id)! } : c));
 		try {
-			const saved = new Map((await api.tasks.categories.reorder(projectId, ids)).map((c) => [c.id, c]));
-			categories = categories.map((c) => saved.get(c.id) ?? c);
+			const saved = new Map((await api.tasks.sections.reorder(projectId, ids)).map((c) => [c.id, c]));
+			sections = sections.map((c) => saved.get(c.id) ?? c);
 		} catch (e) {
-			categories = before;
+			sections = before;
 			toast.error(errorDetail(e));
 		}
 	}
 
 	/** The menu's Move up / Move down (left / right on the board). */
-	function stepCategory(c: TaskCategory, by: -1 | 1) {
-		const i = projectCategories.findIndex((x) => x.id === c.id);
-		const other = projectCategories[i + by];
-		if (other) withFlip(() => dropCategory(c.id, other.id, by === 1));
+	function stepSection(c: TaskSection, by: -1 | 1) {
+		const i = projectSections.findIndex((x) => x.id === c.id);
+		const other = projectSections[i + by];
+		if (other) withFlip(() => dropSection(c.id, other.id, by === 1));
 	}
 
-	function onCategoryMenu(c: TaskCategory, id: string) {
+	function onSectionMenu(c: TaskSection, id: string) {
 		if (id === 'up' || id === 'down') {
-			stepCategory(c, id === 'up' ? -1 : 1);
+			stepSection(c, id === 'up' ? -1 : 1);
 		} else if (id === 'rename') {
-			editCategory(c, 'name');
+			editSection(c, 'name');
 		} else if (id === 'describe') {
-			editCategory(c, 'desc');
+			editSection(c, 'desc');
 		} else if (id === 'move') {
-			movingCategory = c;
+			movingSection = c;
 		} else if (id === 'pin') {
-			pin({ kind: 'category', id: c.id });
+			pin({ kind: 'section', id: c.id });
 		} else if (id === 'clear') {
 			clearCompleted(c);
 		} else {
-			deleteCategory(c);
+			deleteSection(c);
 		}
 	}
 
@@ -1480,32 +1557,32 @@
 
 	interface MoveOption {
 		key: string;
-		kind: 'inbox' | 'project' | 'category';
+		kind: 'inbox' | 'project' | 'section';
 		name: string;
-		/** A category's project, shown beside it while searching. */
+		/** A section's project, shown beside it while searching. */
 		parent?: string;
 		color: string | null;
 		projectId: string | null;
-		categoryId: string | null;
+		sectionId: string | null;
 	}
 
 	/**
 	 * Where "Move to…" can send tasks, narrowed by `query`: a project that matches keeps
-	 * all its categories; a category that matches brings its project along.
+	 * all its sections; a section that matches brings its project along.
 	 */
 	function moveOptions(query: string): MoveOption[] {
 		const q = query.trim().toLowerCase();
 		const hit = (name: string) => !q || name.toLowerCase().includes(q);
 		const out: MoveOption[] = [];
-		if (hit('Inbox')) out.push({ key: 'inbox', kind: 'inbox', name: 'Inbox', color: null, projectId: null, categoryId: null });
+		if (hit('Inbox')) out.push({ key: 'inbox', kind: 'inbox', name: 'Inbox', color: null, projectId: null, sectionId: null });
 		for (const p of projects) {
 			const color = projectColor(p.color);
-			const cats = categories.filter((c) => c.project_id === p.id).sort((a, b) => a.position - b.position);
+			const cats = sections.filter((c) => c.project_id === p.id).sort((a, b) => a.position - b.position);
 			const shown = hit(p.name) ? cats : cats.filter((c) => hit(c.name));
 			if (!hit(p.name) && !shown.length) continue;
-			out.push({ key: `p:${p.id}`, kind: 'project', name: p.name, color, projectId: p.id, categoryId: null });
+			out.push({ key: `p:${p.id}`, kind: 'project', name: p.name, color, projectId: p.id, sectionId: null });
 			for (const c of shown) {
-				out.push({ key: `c:${c.id}`, kind: 'category', name: c.name, parent: p.name, color, projectId: p.id, categoryId: c.id });
+				out.push({ key: `c:${c.id}`, kind: 'section', name: c.name, parent: p.name, color, projectId: p.id, sectionId: c.id });
 			}
 		}
 		// While searching, the best match leads: one whose name starts with what's typed.
@@ -1520,7 +1597,7 @@
 	function moveListKeys(e: KeyboardEvent) {
 		if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
 		const panel = (e.currentTarget as HTMLElement).closest('.modal-panel');
-		const buttons = [...(panel?.querySelectorAll<HTMLElement>('.category-move-option') ?? [])];
+		const buttons = [...(panel?.querySelectorAll<HTMLElement>('.section-move-option') ?? [])];
 		const i = buttons.indexOf(document.activeElement as HTMLElement);
 		if (i < 0) return;
 		e.preventDefault();
@@ -1546,14 +1623,14 @@
 			goPending = 0;
 			const to = GO_VIEWS[key];
 			if (!to) return false;
-			if (projectDialog || filterDialog || movingCategory || movingTasks) return true;
+			if (projectDialog || filterDialog || movingSection || movingTasks) return true;
 			e.preventDefault();
 			go({ view: to });
 			return true;
 		}
 		goPending = 0;
 		if (key !== 'g' || e.shiftKey || e.repeat) return false;
-		if (projectDialog || filterDialog || movingCategory || movingTasks) return false;
+		if (projectDialog || filterDialog || movingSection || movingTasks) return false;
 		goPending = Date.now();
 		e.preventDefault();
 		return true;
@@ -1561,7 +1638,7 @@
 
 	function onKeydown(e: KeyboardEvent) {
 		if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') {
-			if (projectDialog || filterDialog || movingCategory || movingTasks) return;
+			if (projectDialog || filterDialog || movingSection || movingTasks) return;
 			e.preventDefault();
 			if (taskId) closeTask();
 			// The search box is in the pane, so a hidden pane comes back first.
@@ -1577,8 +1654,8 @@
 			projectDialog = null;
 			return;
 		}
-		if (e.key === 'Escape' && movingCategory) {
-			movingCategory = null;
+		if (e.key === 'Escape' && movingSection) {
+			movingSection = null;
 			return;
 		}
 		if (e.key === 'Escape' && movingTasks) {
@@ -1594,7 +1671,7 @@
 		if (el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName))) return;
 		if (goKey(e)) return;
 		if (e.key !== 'q') return;
-		if (projectDialog || filterDialog || movingCategory || movingTasks || taskId || view === 'karma' || view === 'search') return;
+		if (projectDialog || filterDialog || movingSection || movingTasks || taskId || view === 'karma' || view === 'search') return;
 		e.preventDefault();
 		addingAt = mainAddKey();
 	}
@@ -1605,8 +1682,8 @@
 		if (browsing) return {};
 		if (view === 'project' && projectId) {
 			const m = /^#task-cat-([\w-]+)$/.exec(page.url.hash);
-			const cat = m ? categories.find((c) => c.id === m[1] && c.project_id === projectId) : null;
-			return { project_id: projectId, category_id: cat?.id ?? null };
+			const cat = m ? sections.find((c) => c.id === m[1] && c.project_id === projectId) : null;
+			return { project_id: projectId, section_id: cat?.id ?? null };
 		}
 		if (view === 'filter') return filterBase;
 		return view === 'today' ? { due_date: today } : view === 'upcoming' ? { due_date: tomorrow } : {};
@@ -1671,12 +1748,12 @@
 {/snippet}
 
 {#snippet editor(task: Task)}
-	<TaskInlineEdit {task} {projects} {categories} onpatch={patchTask} ondone={() => (inlineEditId = null)} />
+	<TaskInlineEdit {task} {projects} {sections} onpatch={patchTask} ondone={() => (inlineEditId = null)} />
 {/snippet}
 
 {#snippet adder(key: string, defaults: AddDefaults)}
 	{#if addingAt === key}
-		<QuickAdd {projects} {categories} {defaults} onadd={addTask} oncancel={() => (addingAt = null)} />
+		<QuickAdd {projects} {sections} {defaults} onadd={addTask} oncancel={() => (addingAt = null)} />
 	{:else}
 		<button type="button" class="task-add" onclick={() => (addingAt = key)}>
 			<svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14m7-7H5" /></svg>
@@ -1705,7 +1782,7 @@
 
 {#snippet bucketHead(b: { key?: string; title: string; sub?: string; color?: string | null; overdue?: boolean }, count: number)}
 	<h2 class="task-group-head" class:task-group-head-overdue={b.overdue}>
-		{#if b.color && (b.key?.startsWith('proj:') || b.key?.startsWith('cat:'))}<PlaceMark kind={b.key.startsWith('cat:') && !b.key.endsWith(':none') ? 'category' : 'project'} color={b.color} />
+		{#if b.color && (b.key?.startsWith('proj:') || b.key?.startsWith('cat:'))}<PlaceMark kind={b.key.startsWith('cat:') && !b.key.endsWith(':none') ? 'section' : 'project'} color={b.color} />
 		{:else if b.color}<span class="tasks-dot task-group-dot" style="background-color: {b.color}"></span>{/if}
 		{b.title}
 		{#if b.sub}<span class="task-group-sub">{b.sub}</span>{/if}
@@ -1713,71 +1790,71 @@
 	</h2>
 {/snippet}
 
-{#snippet categoryHead(c: TaskCategory, count: number)}
-	{@const index = projectCategories.findIndex((x) => x.id === c.id)}
-	{#if renamingCategory === c.id}
+{#snippet sectionHead(c: TaskSection, count: number)}
+	{@const index = projectSections.findIndex((x) => x.id === c.id)}
+	{#if renamingSection === c.id}
 		<!-- The edit form: name and description, then Save and Cancel. Escape in either box cancels. -->
 		<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 		<form
-			class="task-category-edit"
-			onsubmit={(e) => { e.preventDefault(); saveCategory(c); }}
-			onkeydown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); renamingCategory = null; } }}
+			class="task-section-edit"
+			onsubmit={(e) => { e.preventDefault(); saveSection(c); }}
+			onkeydown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); renamingSection = null; } }}
 		>
 			<input
-				class="task-category-edit-name"
-				bind:value={categoryName}
-				aria-label="Category name"
-				placeholder="Category name"
-				use:focusWhen={categoryFocus === 'name'}
+				class="task-section-edit-name"
+				bind:value={sectionName}
+				aria-label="Section name"
+				placeholder="Section name"
+				use:focusWhen={sectionFocus === 'name'}
 			/>
 			<textarea
-				class="task-category-edit-desc"
-				bind:value={categoryDesc}
+				class="task-section-edit-desc"
+				bind:value={sectionDesc}
 				aria-label="Description of {c.name}"
 				placeholder="Description"
 				rows="2"
-				use:focusWhen={categoryFocus === 'desc'}
-				onkeydown={(e) => categoryDescKey(e, c)}
+				use:focusWhen={sectionFocus === 'desc'}
+				onkeydown={(e) => sectionDescKey(e, c)}
 			></textarea>
-			<div class="task-category-edit-actions">
-				<button type="submit" class="btn btn-primary" disabled={!categoryName.trim()}>Save</button>
-				<button type="button" class="btn btn-ghost" onclick={() => (renamingCategory = null)}>Cancel</button>
+			<div class="task-section-edit-actions">
+				<button type="submit" class="btn btn-primary" disabled={!sectionName.trim()}>Save</button>
+				<button type="button" class="btn btn-ghost" onclick={() => (renamingSection = null)}>Cancel</button>
 			</div>
 		</form>
 	{:else}
 	<!-- Alt+click on the heading opens the edit form (the menu's Rename does the same from the keyboard). -->
 	<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 	<div
-		class="task-group-head task-category-head"
-		use:sortCategory={{ id: c.id, ondrop: dropCategory }}
+		class="task-group-head task-section-head"
+		use:sortSection={{ id: c.id, ondrop: dropSection }}
 		onclick={(e) => {
-			if (e.altKey && !(e.target as Element).closest('button, a')) { e.preventDefault(); editCategory(c); }
+			if (e.altKey && !(e.target as Element).closest('button, a')) { e.preventDefault(); editSection(c); }
 		}}
 	>
-			<h2 class="task-category-name">{c.name}</h2>
+			<h2 class="task-section-name">{c.name}</h2>
 			<span class="task-group-count">{count}</span>
-			{#if minutes.categories[c.id]}
-				<span class="task-group-count task-group-time" title="Open work in {c.name}">{formatDuration(minutes.categories[c.id])}</span>
+			{#if minutes.sections[c.id]}
+				<span class="task-group-count task-group-time" title="Open work in {c.name}">{formatDuration(minutes.sections[c.id])}</span>
 			{/if}
 			<DropdownMenu
-				class="task-category-menu"
+				class="task-section-menu"
 				triggerClass="tasks-icon-btn"
-				ariaLabel="Category actions for {c.name}"
+				ariaLabel="Section actions for {c.name}"
 				items={[
 					{ id: 'rename', label: 'Rename' },
 					{ id: 'describe', label: c.description ? 'Edit description' : 'Add description' },
-					...(projectCategories.length > 1
+					...(projectSections.length > 1
 						? [
 								{ id: 'up', label: layout === 'board' ? 'Move left' : 'Move up', icon: layout === 'board' ? 'left' : 'up', disabled: index <= 0 },
-								{ id: 'down', label: layout === 'board' ? 'Move right' : 'Move down', icon: layout === 'board' ? 'right' : 'down', disabled: index === projectCategories.length - 1 },
+								{ id: 'down', label: layout === 'board' ? 'Move right' : 'Move down', icon: layout === 'board' ? 'right' : 'down', disabled: index === projectSections.length - 1 },
 							]
 						: []),
 					...(projects.length > 1 ? [{ id: 'move', label: 'Move to project…' }] : []),
 					...(isDesktop ? [{ id: 'pin', label: 'Pin to desktop' }] : []),
 					{ id: 'clear', label: 'Delete completed tasks', danger: true },
-					{ id: 'delete', label: 'Delete category', danger: true },
+					{ id: 'delete', label: 'Delete section', danger: true },
 				]}
-				onselect={(id) => onCategoryMenu(c, id)}
+				onselect={(id) => onSectionMenu(c, id)}
 			>
 				{#snippet icon()}
 					<svg aria-hidden="true" class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path d="M6 10a2 2 0 11-4 0 2 2 0 014 0zm6 0a2 2 0 11-4 0 2 2 0 014 0zm6 0a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
@@ -1788,9 +1865,9 @@
 		<!-- One line, its line breaks as spaces; a click away from a link opens the edit form. -->
 		<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 		<div
-			class="task-category-desc"
+			class="task-section-desc"
 			title={plainText(c.description)}
-			onclick={(e) => { if (!(e.target as Element).closest('a')) editCategory(c, 'desc'); }}
+			onclick={(e) => { if (!(e.target as Element).closest('a')) editSection(c, 'desc'); }}
 		>
 			<LinkedText text={c.description.replace(/\s*\n\s*/g, ' ')} />
 		</div>
@@ -1798,26 +1875,56 @@
 	{/if}
 {/snippet}
 
-{#snippet categoryAdder()}
-	{#if addingCategory}
-		<div class="task-category-new">
-			<input
-				class="input"
-				bind:value={newCategory}
-				placeholder="Category name"
-				aria-label="New category name"
-				use:focusOnMount
-				onkeydown={(e) => {
-					if (e.key === 'Enter') { e.preventDefault(); addCategory(); }
-					if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); addingCategory = false; }
-				}}
-			/>
-			<button type="button" class="btn btn-primary" onclick={addCategory} disabled={!newCategory.trim()}>Add</button>
-			<button type="button" class="btn btn-ghost" onclick={() => (addingCategory = false)}>Cancel</button>
+{#snippet sectionForm()}
+	<!-- Name and description, like the edit form. Enter adds; Shift+Enter is a new line in the description; Escape cancels. -->
+	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+	<form
+		class="task-section-edit task-section-new"
+		onsubmit={(e) => { e.preventDefault(); addSection(); }}
+		onkeydown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); addingSection = null; } }}
+	>
+		<input
+			class="task-section-edit-name"
+			bind:value={newSection}
+			placeholder="Name this section"
+			aria-label="New section name"
+			use:focusOnMount
+		/>
+		<textarea
+			class="task-section-edit-desc"
+			bind:value={newSectionDesc}
+			placeholder="Add a description"
+			aria-label="Description of the new section"
+			rows="2"
+			onkeydown={newSectionDescKey}
+		></textarea>
+		<div class="task-section-edit-actions">
+			<button type="submit" class="btn btn-primary" disabled={!newSection.trim()}>Add section</button>
+			<button type="button" class="btn btn-ghost" onclick={() => (addingSection = null)}>Cancel</button>
 		</div>
+	</form>
+{/snippet}
+
+<!-- Between two sections: a strip that shows "Add section" on hover (a gap between columns on the board). -->
+{#snippet sectionInsert(at: number, board: boolean)}
+	{#if addingSection === at}
+		{#if board}<div class="task-col task-col-new">{@render sectionForm()}</div>{:else}{@render sectionForm()}{/if}
 	{:else}
-		<button type="button" class="task-category-add" onclick={() => { addingCategory = true; newCategory = ''; }}>
-			<span>+ Add category</span>
+		<div class:task-section-insert-col={board} class:task-section-insert-row={!board}>
+			<button type="button" class="task-section-insert" onclick={() => startSection(at)}>
+				<span>Add section</span>
+			</button>
+		</div>
+	{/if}
+{/snippet}
+
+{#snippet sectionAdder()}
+	{#if addingSection === projectSections.length}
+		{@render sectionForm()}
+	{:else}
+		<button type="button" class="task-section-add" onclick={() => startSection(projectSections.length)}>
+			<svg aria-hidden="true" class="task-section-add-icon" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M4 4.5h16" /><rect x="4" y="8" width="16" height="12" rx="1.5" /><path d="M12 11v6M9 14h6" /></svg>
+			<span>Add section</span>
 		</button>
 	{/if}
 {/snippet}
@@ -1828,7 +1935,7 @@
 		query={searchQuery}
 		onsearch={runSearch}
 		{projects}
-		{categories}
+		{sections}
 		{filters}
 		{counts}
 		{minutes}
@@ -1850,7 +1957,8 @@
 		ondroptasks={dropOnPane}
 	/>
 
-	<div class="tasks-main" class:tasks-main-board={layout === 'board'}>
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="tasks-main" class:tasks-main-board={layout === 'board'} oncontextmenu={openListMenu}>
 		{#if $paneCollapsed}
 			<div class="tasks-topbar">
 				<PaneToggle />
@@ -1967,28 +2075,29 @@
 				<p class="tasks-empty">This filter doesn't exist any more.</p>
 			{:else if layout === 'board'}
 				<div class="task-board" data-sort-board data-cat-list bind:this={boardEl} onscroll={boardScrolled}>
-					{#each columns as col (col.key)}
+					{#each columns as col, i (col.key)}
+						{#if view === 'project' && i > 0 && col.section}{@render sectionInsert(projectSections.findIndex((c) => c.id === col.section?.id), true)}{/if}
 						<section
-							id={col.category ? `task-cat-${col.category.id}` : undefined}
-							data-cat-id={col.category?.id}
+							id={col.section ? `task-cat-${col.section.id}` : undefined}
+							data-cat-id={col.section?.id}
 							data-flip="col:{col.key}"
 							class="task-col"
 							class:task-col-over={dropOver === col.key}
 							aria-label={col.title}
 							data-sort-scope={col.key}
-							data-sort-zone={view === 'project' ? col.category?.id ?? 'none' : undefined}
+							data-sort-zone={view === 'project' ? col.section?.id ?? 'none' : undefined}
 							ondragover={(e) => colDragOver(e, col)}
 							ondragleave={(e) => colDragLeave(e, col)}
 							ondrop={(e) => colDrop(e, col)}
 						>
-							{#if col.category}
-								{@render categoryHead(col.category, counts.categories[col.category.id] ?? 0)}
+							{#if col.section}
+								{@render sectionHead(col.section, counts.sections[col.section.id] ?? 0)}
 							{:else}
-								{@render bucketHead(col, col.key === 'cat:none' ? uncategorisedCount : col.tasks.length)}
+								{@render bucketHead(col, col.key === 'cat:none' ? unsectionedCount : col.tasks.length)}
 							{/if}
 							<!-- Once any column has a description, the others keep its line free, so every column's tasks start level. -->
-							{#if boardDescribed && !col.category?.description && !(col.category && renamingCategory === col.category.id)}
-								<div class="task-category-desc task-category-desc-blank" aria-hidden="true"></div>
+							{#if boardDescribed && !col.section?.description && !(col.section && renamingSection === col.section.id)}
+								<div class="task-section-desc task-section-desc-blank" aria-hidden="true"></div>
 							{/if}
 							<div class="task-col-body">
 								{#each col.tasks as task (task.id)}
@@ -2021,7 +2130,7 @@
 						</section>
 					{/if}
 					{#if view === 'project'}
-						<div class="task-col task-col-new">{@render categoryAdder()}</div>
+						<div class="task-col task-col-new">{@render sectionAdder()}</div>
 					{/if}
 				</div>
 				{#if boardPages.length > 1}
@@ -2044,7 +2153,7 @@
 					<div class="tcal-adding">
 						<p class="tcal-adding-label">{date ? `New task on ${dayLabel(date, now)}` : 'New task'}</p>
 						{#key addingAt}
-							<QuickAdd {projects} {categories} defaults={{ ...calendarDefaults, due_date: date }} onadd={addTask} oncancel={() => (addingAt = null)} />
+							<QuickAdd {projects} {sections} defaults={{ ...calendarDefaults, due_date: date }} onadd={addTask} oncancel={() => (addingAt = null)} />
 						{/key}
 					</div>
 				{/if}
@@ -2136,26 +2245,27 @@
 				{/if}
 			{:else if project}
 				<div data-sort-zone="none">
-					{#each uncategorised as task (task.id)}
+					{#each unsectioned as task (task.id)}
 						{@render row(task, true, false, true)}
 					{/each}
 					{@render adder('main', { project_id: project.id })}
 				</div>
 
 				<div data-cat-list>
-					{#each projectCategories as c (c.id)}
-						{@const list = inCategory(c.id)}
+					{#each projectSections as c, i (c.id)}
+						{@const list = inSection(c.id)}
+						{@render sectionInsert(i, false)}
 						<section class="task-group" id="task-cat-{c.id}" data-sort-zone={c.id} data-cat-id={c.id} data-flip="cat:{c.id}">
-							{@render categoryHead(c, counts.categories[c.id] ?? 0)}
+							{@render sectionHead(c, counts.sections[c.id] ?? 0)}
 							{#each list as task (task.id)}
 								{@render row(task, true, false, true)}
 							{/each}
-							{@render adder(`cat:${c.id}`, { project_id: project.id, category_id: c.id })}
+							{@render adder(`cat:${c.id}`, { project_id: project.id, section_id: c.id })}
 						</section>
 					{/each}
 				</div>
 
-				{@render categoryAdder()}
+				{@render sectionAdder()}
 			{/if}
 
 			{#if completedShown && (view === 'project' || view === 'inbox') && layout !== 'calendar'}
@@ -2200,7 +2310,7 @@
 		subtasks={subtasksOf(drawerTask.id)}
 		showDoneSubtasks={settings.showCompleted}
 		{projects}
-		{categories}
+		{sections}
 		onprev={neighbours.prev ? () => openTask(neighbours.prev!) : null}
 		onnext={neighbours.next ? () => openTask(neighbours.next!) : null}
 		sort={drawerTask.completed_at ? null : sortApi}
@@ -2219,7 +2329,7 @@
 	<FilterDialog
 		filter={filterDialog === 'new' ? null : filterDialog}
 		{projects}
-		{categories}
+		{sections}
 		{tasks}
 		{today}
 		onsave={saveFilter}
@@ -2227,22 +2337,22 @@
 	/>
 {/if}
 
-{#if movingCategory}
-	{@const moving = movingCategory}
-	<div class="modal-backdrop" onclick={() => (movingCategory = null)} aria-hidden="true"></div>
+{#if movingSection}
+	{@const moving = movingSection}
+	<div class="modal-backdrop" onclick={() => (movingSection = null)} aria-hidden="true"></div>
 	<div class="modal-overlay">
-		<div class="modal-panel max-w-sm" role="dialog" aria-modal="true" aria-labelledby="move-category-title">
+		<div class="modal-panel max-w-sm" role="dialog" aria-modal="true" aria-labelledby="move-section-title">
 			<div class="modal-header">
-				<h2 id="move-category-title" class="modal-title">Move "{moving.name}" to</h2>
-				<button onclick={() => (movingCategory = null)} class="modal-close" aria-label="Close">
+				<h2 id="move-section-title" class="modal-title">Move "{moving.name}" to</h2>
+				<button onclick={() => (movingSection = null)} class="modal-close" aria-label="Close">
 					<svg aria-hidden="true" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
 				</button>
 			</div>
 			<div class="modal-body">
-				<ul class="category-move-list" use:focusFirstButton>
+				<ul class="section-move-list" use:focusFirstButton>
 					{#each projects.filter((p) => p.id !== moving.project_id) as p (p.id)}
 						<li>
-							<button type="button" class="category-move-option" onclick={() => moveCategory(moving, p)}>
+							<button type="button" class="section-move-option" onclick={() => moveSection(moving, p)}>
 								<PlaceMark color={projectColor(p.color)} />
 								<span class="truncate">{p.name}</span>
 							</button>
@@ -2257,7 +2367,7 @@
 {#if movingTasks}
 	{@const moving = movingTasks}
 	{@const one = moving.length === 1 ? moving[0] : null}
-	{@const here = (projectId: string | null, categoryId: string | null) => !!one && one.project_id === projectId && one.category_id === categoryId}
+	{@const here = (projectId: string | null, sectionId: string | null) => !!one && one.project_id === projectId && one.section_id === sectionId}
 	{@const options = moveOptions(moveQuery)}
 	<div class="modal-backdrop" onclick={() => (movingTasks = null)} aria-hidden="true"></div>
 	<div class="modal-overlay">
@@ -2273,8 +2383,8 @@
 				<input
 					class="move-search-input"
 					type="search"
-					placeholder="Type a project or category"
-					aria-label="Filter projects and categories"
+					placeholder="Type a project or section"
+					aria-label="Filter projects and sections"
 					aria-controls="move-task-list"
 					autocomplete="off"
 					spellcheck="false"
@@ -2283,34 +2393,34 @@
 					onkeydown={(e) => {
 						if (e.key === 'Enter' && options[0]) {
 							e.preventDefault();
-							moveTasks(moving, options[0].projectId, options[0].categoryId);
+							moveTasks(moving, options[0].projectId, options[0].sectionId);
 						} else if (e.key === 'ArrowDown') {
 							e.preventDefault();
-							(e.currentTarget.closest('.modal-panel')?.querySelector('.category-move-option') as HTMLElement | null)?.focus();
+							(e.currentTarget.closest('.modal-panel')?.querySelector('.section-move-option') as HTMLElement | null)?.focus();
 						}
 					}}
 				/>
 			</div>
 			<div class="modal-body">
 				<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-				<ul id="move-task-list" class="category-move-list" onkeydown={moveListKeys}>
+				<ul id="move-task-list" class="section-move-list" onkeydown={moveListKeys}>
 					{#each options as o, i (o.key)}
 						<li>
 							<button
 								type="button"
-								class="category-move-option"
-								class:category-move-sub={o.kind === 'category'}
-								class:category-move-first={i === 0 && moveQuery.trim() !== ''}
-								aria-current={here(o.projectId, o.categoryId) || undefined}
-								onclick={() => moveTasks(moving, o.projectId, o.categoryId)}
+								class="section-move-option"
+								class:section-move-sub={o.kind === 'section'}
+								class:section-move-first={i === 0 && moveQuery.trim() !== ''}
+								aria-current={here(o.projectId, o.sectionId) || undefined}
+								onclick={() => moveTasks(moving, o.projectId, o.sectionId)}
 							>
-								<PlaceMark kind={o.kind === 'category' ? 'category' : undefined} color={o.color} />
+								<PlaceMark kind={o.kind === 'section' ? 'section' : undefined} color={o.color} />
 								<span class="truncate">{o.name}</span>
-								{#if o.kind === 'category' && moveQuery.trim() && o.parent}<span class="category-move-parent truncate">{o.parent}</span>{/if}
+								{#if o.kind === 'section' && moveQuery.trim() && o.parent}<span class="section-move-parent truncate">{o.parent}</span>{/if}
 							</button>
 						</li>
 					{:else}
-						<li class="category-move-empty">Nothing matches "{moveQuery.trim()}"</li>
+						<li class="section-move-empty">Nothing matches "{moveQuery.trim()}"</li>
 					{/each}
 				</ul>
 			</div>
@@ -2417,5 +2527,14 @@
 				</div>
 			</form>
 		</div>
+	</div>
+{/if}
+
+{#if listMenu}
+	<div bind:this={listMenuEl} role="menu" tabindex="-1" class="dd-panel" style="left: {listMenu.x}px; top: {listMenu.y}px">
+		<button type="button" role="menuitem" class="dd-item" onclick={() => chooseListMenu('all')}>Select all</button>
+		{#if selectedIds.length}
+			<button type="button" role="menuitem" class="dd-item" onclick={() => chooseListMenu('none')}>Clear selection</button>
+		{/if}
 	</div>
 {/if}

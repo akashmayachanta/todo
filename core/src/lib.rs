@@ -1,4 +1,4 @@
-//! Tasks: projects, their categories (sections), tasks, saved filters and the
+//! Tasks: projects, their sections, tasks, saved filters and the
 //! Karma log. The rules live here once, so the server (REST API for the web
 //! page) and the apps (Tauri commands on a local DB) can't drift apart.
 //!

@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { listen } from '@tauri-apps/api/event';
 	import { api, errorDetail } from '$lib/api';
-	import type { TaskCategory, TaskIn, TaskProject } from '$lib/api';
+	import type { TaskSection, TaskIn, TaskProject } from '$lib/api';
 	import QuickAdd from '$lib/components/tasks/QuickAdd.svelte';
 	import SmartTips from '$lib/components/tasks/SmartTips.svelte';
 	import { placeName } from '$lib/components/tasks/shared';
@@ -22,7 +22,7 @@
 	const ADDED_FOR_MS = 1000;
 
 	let projects = $state<TaskProject[]>([]);
-	let categories = $state<TaskCategory[]>([]);
+	let sections = $state<TaskSection[]>([]);
 	/** Bumped each time it opens, for an empty line with the focus in it. */
 	let session = $state(0);
 	let added = $state('');
@@ -30,7 +30,7 @@
 
 	async function loadPlaces() {
 		try {
-			[projects, categories] = await Promise.all([api.tasks.projects.list(), api.tasks.categories.list()]);
+			[projects, sections] = await Promise.all([api.tasks.projects.list(), api.tasks.sections.list()]);
 		} catch (e) {
 			toast.error(errorDetail(e));
 		}
@@ -40,7 +40,7 @@
 		try {
 			const created = await api.tasks.create(data);
 			if (created.remind_at) askReminderPermission();
-			added = `Added to ${placeName(created, projects, categories)}${created.due_date ? `, ${dayLabel(created.due_date, new Date())}` : ''}`;
+			added = `Added to ${placeName(created, projects, sections)}${created.due_date ? `, ${dayLabel(created.due_date, new Date())}` : ''}`;
 			addedTimer = setTimeout(() => {
 				added = '';
 				hideQuickAdd();
@@ -85,7 +85,7 @@
 		{:else}
 			<div class="widget-quick-row">
 				{#key session}
-					<QuickAdd {projects} {categories} onadd={add} oncancel={hideQuickAdd} />
+					<QuickAdd {projects} {sections} onadd={add} oncancel={hideQuickAdd} />
 				{/key}
 				<SmartTips />
 			</div>

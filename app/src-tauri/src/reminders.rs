@@ -229,7 +229,10 @@ fn xml_escape(text: &str) -> String {
     text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&apos;")
 }
 
-/// The toast's XML.
+/// The toast's XML. A short toast: it leaves the screen after a few seconds (how
+/// many is Windows' "Dismiss notifications after" setting) and waits in the
+/// notification centre, buttons and all. `scenario="reminder"` would keep it on
+/// screen until it was clicked.
 #[cfg(windows)]
 fn toast_xml(id: &str, title: &str, remind_at: &str, hour12: bool) -> Option<String> {
     let line = toast_time(remind_at, hour12)?;
@@ -238,7 +241,7 @@ fn toast_xml(id: &str, title: &str, remind_at: &str, hour12: bool) -> Option<Str
     let snooze = xml_escape(&format!("{TOAST_LINK}snooze/{id}/{remind_at}"));
     let complete = xml_escape(&format!("{TOAST_LINK}complete/{id}/{remind_at}"));
     Some(format!(
-        r#"<toast scenario="reminder" launch="{open}" activationType="protocol">
+        r#"<toast duration="short" launch="{open}" activationType="protocol">
   <visual><binding template="ToastGeneric"><text>{title}</text><text>{line}</text></binding></visual>
   <actions>
     <action content="Snooze" arguments="{snooze}" activationType="protocol"/>

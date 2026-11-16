@@ -1,7 +1,7 @@
 import { formatInstant } from '$lib/datePrefs.svelte';
 import type { Task, TaskSection, TaskPatch, TaskProject } from '$lib/api';
 import { askReminderPermission } from '$lib/stores/taskReminders';
-import { addDays, dayLabel, formatDuration, formatTime, localInstant, parseEdit, ymd, type QuickAdd } from '$lib/taskParse';
+import { dayLabel, formatDuration, formatTime, localInstant, nextDayFor, parseEdit, ymd, type QuickAdd } from '$lib/taskParse';
 import { defaultReminder, projectColor } from './shared';
 
 /**
@@ -97,13 +97,14 @@ export function finishPatch(task: Task, patch: TaskPatch): TaskPatch {
 
 /** finishPatch without asking for permission, for showing what a save will do. */
 export function settlePatch(task: Task, patch: TaskPatch): TaskPatch {
-	// Giving yesterday's task a time, without picking another day, means today.
-	// Older and future dates keep their day.
-	if (patch.due_time && task.due_date) {
-		const today = ymd(new Date());
-		const yesterday = addDays(today, -1);
-		if (task.due_date === yesterday && (patch.due_date ?? yesterday) === yesterday) {
-			patch = { ...patch, due_date: today };
+	// A new time for a task due today or earlier, without picking another day, moves
+	// it to when that time next comes: today if still ahead, else tomorrow. Due today
+	// at 18:00, set to 10:00 at 19:00: tomorrow 10:00. Future dates keep their day.
+	if (patch.due_time && patch.due_time !== task.due_time && task.due_date && (patch.due_date ?? task.due_date) === task.due_date) {
+		const now = new Date();
+		if (task.due_date <= ymd(now)) {
+			const day = nextDayFor(patch.due_time, now);
+			if (day !== task.due_date) patch = { ...patch, due_date: day };
 		}
 	}
 	// Taking the date off ("no date") takes the reminder off too, as tasks-core does.

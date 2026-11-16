@@ -2,7 +2,8 @@
 //
 // The home screen widgets and the app icon's shortcuts:
 // - TasksWidget lists one list's open tasks: Today unless another was picked
-//   (TasksWidgetConfig: Inbox, Upcoming, a project or a section). The lists come
+//   (TasksWidgetConfig: Inbox, Upcoming, a project or one of its sections, and the
+//   widget's colour, text and opacity). The lists come
 //   from Rust (Native.widgetList, app/src-tauri/src/home_widget.rs). Its title opens
 //   the list in the app, + adds a task to it, the list icon picks another list, a
 //   task's circle ticks it and the task itself opens it.
@@ -29,13 +30,25 @@ import android.content.res.Configuration
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.text.Editable
+import android.text.TextUtils
+import android.text.TextWatcher
+import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
+import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.RadioButton
+import android.widget.RadioGroup
 import android.widget.RemoteViews
 import android.widget.RemoteViewsService
+import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 import androidx.core.content.pm.ShortcutInfoCompat
@@ -46,7 +59,7 @@ import org.json.JSONObject
 import java.util.Calendar
 
 /** A list a TasksWidget shows. `open` is its Tasks page query string; `add` the quick add's defaults (JSON). */
-data class WidgetSource(val kind: String, val id: String, val name: String, val open: String, val add: String) {
+data class WidgetSource(val kind: String, val id: String, val name: String, val open: String, val add: String, val color: String? = null) {
   fun toJson(): String =
     JSONObject().put("kind", kind).put("id", id).put("name", name).put("open", open).put("add", add).toString()
 
@@ -60,20 +73,35 @@ data class WidgetSource(val kind: String, val id: String, val name: String, val 
       o.optString("name", "Today"),
       o.optString("open", "view=today"),
       o.optJSONObject("add")?.toString() ?: "{}",
+      if (o.isNull("color")) null else o.optString("color"),
     )
   }
 }
 
 /**
  * A widget's look, like a desktop pin's: a sticky-note colour (null: the app's own
- * white or black, following the phone's dark mode) and how opaque its background is.
+ * white or black, following the phone's dark mode), how opaque its background is,
+ * and its text: "auto", "black" or "white". White suits a faded widget on a dark
+ * wallpaper, whatever the phone's mode.
  */
-data class WidgetStyle(val color: String?, val opacity: Int) {
+data class WidgetStyle(val color: String?, val opacity: Int, val text: String = TEXT_AUTO) {
   /** The note colour, or null for the app's own. */
   val tint: Int? get() = PALETTE.firstOrNull { it.first == color }?.second
 
+  /** The ink to draw with, or null for the app's own (the layout's colours, following dark mode). */
+  val ink: WidgetInk?
+    get() = when (text) {
+      TEXT_BLACK -> WidgetInk.ON_LIGHT
+      TEXT_WHITE -> WidgetInk.ON_DARK
+      // A pastel note is light in either mode.
+      else -> if (tint != null) WidgetInk.ON_LIGHT else null
+    }
+
   companion object {
     const val DEFAULT_OPACITY = 96
+    const val TEXT_AUTO = "auto"
+    const val TEXT_BLACK = "black"
+    const val TEXT_WHITE = "white"
 
     /** The desktop pins' pastels (PIN_COLORS in app/src/lib/components/tasks/pins.ts). */
     val PALETTE = listOf(
@@ -89,16 +117,67 @@ data class WidgetStyle(val color: String?, val opacity: Int) {
   }
 }
 
-/** Dark ink for a coloured widget, in either mode: the light theme's colours. */
-object WidgetInk {
-  const val TEXT = 0xFF1F2937.toInt()
-  const val MUTED = 0xFF4B5563.toInt()
-  const val DUE = 0xFF15803D.toInt()
-  const val OVERDUE = 0xFFDC2626.toInt()
-  const val P1 = 0xFFDC2626.toInt()
-  const val P2 = 0xFFEA580C.toInt()
-  const val P3 = 0xFF2563EB.toInt()
-  const val P4 = 0xFF6B7280.toInt()
+/**
+ * A fixed set of colours, for a widget whose text doesn't follow the phone's mode:
+ * the light theme's (dark text) or the dark theme's (light text). They match
+ * tasks_widget_colors.xml (values and values-night), which the app's own look uses.
+ */
+class WidgetInk(
+  val text: Int,
+  val muted: Int,
+  private val later: Int,
+  private val today: Int,
+  private val tomorrow: Int,
+  private val week: Int,
+  private val overdue: Int,
+  private val progress: Int,
+  private val p1: Int,
+  private val p2: Int,
+  private val p3: Int,
+  private val p4: Int,
+) {
+  /** A due label's colour by its tone (home_widget.rs's due_tone). */
+  fun due(tone: String) = when (tone) {
+    "overdue" -> overdue
+    "progress" -> progress
+    "today" -> today
+    "tomorrow" -> tomorrow
+    "week" -> week
+    else -> later
+  }
+
+  fun priority(p: Int) = when (p) {
+    1 -> p1
+    2 -> p2
+    3 -> p3
+    else -> p4
+  }
+
+  companion object {
+    private fun c(v: Long) = v.toInt()
+
+    /** Dark text, for a light or pastel background. */
+    val ON_LIGHT = WidgetInk(
+      c(0xFF1F2937), c(0xFF4B5563), c(0xFF464E55), c(0xFF1B683E), c(0xFF8A5600), c(0xFF6C44A4), c(0xFFB02B27), c(0xFF125A98),
+      c(0xFFDC2626), c(0xFFEA580C), c(0xFF2563EB), c(0xFF6B7280),
+    )
+
+    /** Light text, for a dark background or a faded widget on a dark wallpaper. */
+    val ON_DARK = WidgetInk(
+      c(0xFFF3F4F6), c(0xFFC2C7CE), c(0xFFB4BAC1), c(0xFF6DC88F), c(0xFFE6B55D), c(0xFFBD9FF2), c(0xFFF07F77), c(0xFF76B5E9),
+      c(0xFFF87171), c(0xFFFB923C), c(0xFF60A5FA), c(0xFFB4BAC1),
+    )
+  }
+}
+
+/** The app's project colours (PROJECT_COLORS in app/src/lib/components/tasks/shared.ts); grey when unknown. */
+object ProjectColors {
+  private val MAP = mapOf(
+    "grey" to 0xFF80878D, "red" to 0xFFE24947, "orange" to 0xFFE87F25, "yellow" to 0xFFDDB227, "green" to 0xFF36A558,
+    "teal" to 0xFF289F9F, "blue" to 0xFF2784D5, "violet" to 0xFF8460D2, "pink" to 0xFFDB5FA1,
+  )
+
+  fun of(key: String?): Int = (MAP[key] ?: MAP.getValue("grey")).toInt()
 }
 
 /** The app icon's long-press shortcuts. */
@@ -140,16 +219,20 @@ object HomeWidgets {
 
   fun style(c: Context, widgetId: Int): WidgetStyle {
     val p = prefs(c)
-    return WidgetStyle(p.getString("c$widgetId", null), p.getInt("o$widgetId", WidgetStyle.DEFAULT_OPACITY).coerceIn(0, 100))
+    return WidgetStyle(
+      p.getString("c$widgetId", null),
+      p.getInt("o$widgetId", WidgetStyle.DEFAULT_OPACITY).coerceIn(0, 100),
+      p.getString("k$widgetId", null) ?: WidgetStyle.TEXT_AUTO,
+    )
   }
 
   fun saveStyle(c: Context, widgetId: Int, s: WidgetStyle) {
-    prefs(c).edit().putString("c$widgetId", s.color).putInt("o$widgetId", s.opacity).apply()
+    prefs(c).edit().putString("c$widgetId", s.color).putInt("o$widgetId", s.opacity).putString("k$widgetId", s.text).apply()
   }
 
   fun forget(c: Context, widgetIds: IntArray) {
     val edit = prefs(c).edit()
-    for (id in widgetIds) edit.remove("w$id").remove("c$id").remove("o$id")
+    for (id in widgetIds) edit.remove("w$id").remove("c$id").remove("o$id").remove("k$id")
     edit.apply()
   }
 
@@ -190,11 +273,11 @@ object HomeWidgets {
     // The app's own colours come from the layout, so they follow dark mode as it changes.
     val style = style(c, widgetId)
     views.setInt(R.id.tasks_widget_bg, "setImageAlpha", style.opacity * 255 / 100)
-    style.tint?.let {
-      views.setInt(R.id.tasks_widget_bg, "setColorFilter", it)
-      views.setTextColor(R.id.tasks_widget_title, WidgetInk.TEXT)
-      views.setTextColor(R.id.tasks_widget_empty, WidgetInk.MUTED)
-      views.setInt(R.id.tasks_widget_pick, "setColorFilter", WidgetInk.MUTED)
+    style.tint?.let { views.setInt(R.id.tasks_widget_bg, "setColorFilter", it) }
+    style.ink?.let {
+      views.setTextColor(R.id.tasks_widget_title, it.text)
+      views.setTextColor(R.id.tasks_widget_empty, it.muted)
+      views.setInt(R.id.tasks_widget_pick, "setColorFilter", it.muted)
     }
     val service = Intent(c, TasksWidgetService::class.java).putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
     // Each widget its own adapter: intents that differ only in extras count as one.
@@ -292,18 +375,18 @@ class TasksWidgetService : RemoteViewsService() {
 
 /** One list widget's rows, loaded from Rust on a binder thread. */
 class TasksWidgetFactory(private val c: Context, private val widgetId: Int) : RemoteViewsService.RemoteViewsFactory {
-  private data class Row(val id: String, val title: String, val due: String, val overdue: Boolean, val priority: Int)
+  private data class Row(val id: String, val title: String, val due: String, val tone: String, val priority: Int)
 
   private var rows: List<Row> = emptyList()
-  /** Dark ink on a coloured widget; false keeps the app's own colours. */
-  private var inked = false
+  /** The widget's chosen ink; null keeps the app's own colours. */
+  private var ink: WidgetInk? = null
 
   override fun onCreate() {}
 
   override fun onDestroy() {}
 
   override fun onDataSetChanged() {
-    inked = HomeWidgets.style(c, widgetId).tint != null
+    ink = HomeWidgets.style(c, widgetId).ink
     val dir = Reminders.dataDir(c)
     if (dir == null) {
       rows = emptyList()
@@ -321,7 +404,8 @@ class TasksWidgetFactory(private val c: Context, private val widgetId: Int) : Re
       val arr = o.getJSONArray("tasks")
       rows = (0 until arr.length()).map {
         val t = arr.getJSONObject(it)
-        Row(t.getString("id"), t.optString("title"), t.optString("due"), t.optBoolean("overdue"), t.optInt("priority", 4))
+        val tone = t.optString("tone").ifEmpty { if (t.optBoolean("overdue")) "overdue" else "later" }
+        Row(t.getString("id"), t.optString("title"), t.optString("due"), tone, t.optInt("priority", 4))
       }
       // A renamed (or deleted) project or section: the title follows.
       val name = o.optString("name")
@@ -340,25 +424,29 @@ class TasksWidgetFactory(private val c: Context, private val widgetId: Int) : Re
     val views = RemoteViews(c.packageName, R.layout.tasks_widget_item)
     val row = rows.getOrNull(position) ?: return views
     views.setTextViewText(R.id.tasks_widget_item_title, row.title)
-    if (inked) views.setTextColor(R.id.tasks_widget_item_title, WidgetInk.TEXT)
+    val ink = ink
+    ink?.let { views.setTextColor(R.id.tasks_widget_item_title, it.text) }
     if (row.due.isEmpty()) {
       views.setViewVisibility(R.id.tasks_widget_item_due, View.GONE)
     } else {
       views.setViewVisibility(R.id.tasks_widget_item_due, View.VISIBLE)
       views.setTextViewText(R.id.tasks_widget_item_due, row.due)
-      val due = when {
-        inked -> if (row.overdue) WidgetInk.OVERDUE else WidgetInk.DUE
-        else -> c.getColor(if (row.overdue) R.color.tasks_widget_overdue else R.color.tasks_widget_due)
-      }
+      // As the app's due labels: red once past, blue while under way, green today,
+      // amber tomorrow, violet later this week, grey after.
+      val due = ink?.due(row.tone) ?: c.getColor(
+        when (row.tone) {
+          "overdue" -> R.color.tasks_widget_overdue
+          "progress" -> R.color.tasks_widget_progress
+          "today" -> R.color.tasks_widget_today
+          "tomorrow" -> R.color.tasks_widget_tomorrow
+          "week" -> R.color.tasks_widget_week
+          else -> R.color.tasks_widget_due
+        },
+      )
       views.setTextColor(R.id.tasks_widget_item_due, due)
     }
-    val ring = if (inked) {
-      when (row.priority) {
-        1 -> WidgetInk.P1
-        2 -> WidgetInk.P2
-        3 -> WidgetInk.P3
-        else -> WidgetInk.P4
-      }
+    val ring = if (ink != null) {
+      ink.priority(row.priority)
     } else {
       c.getColor(
         when (row.priority) {
@@ -435,26 +523,213 @@ class TasksWidgetConfig : Activity() {
     return out.ifEmpty { fallback }
   }
 
+  /** A project and its sections, in the picker. */
+  private class Group(val project: WidgetSource, val sections: MutableList<WidgetSource> = mutableListOf())
+
+  /**
+   * The picker, kept short: Today, Inbox, Upcoming and the projects; a project
+   * with sections opens onto them ("All of it" or one section). Typing finds a
+   * project or section by name.
+   */
   private fun choose(sources: List<WidgetSource>) {
     val current = HomeWidgets.source(this, widgetId)
-    val labels = sources.map {
-      when (it.kind) {
-        "project" -> "#  ${it.name}"
-        "section" -> "        /  ${it.name}"
-        else -> it.name
+    val lists = sources.filter { it.kind != "project" && it.kind != "section" }
+    // Rust lists each project's sections right after it.
+    val groups = mutableListOf<Group>()
+    for (s in sources) when (s.kind) {
+      "project" -> groups.add(Group(s))
+      "section" -> groups.lastOrNull()?.sections?.add(s)
+    }
+    val ink = if (night) WidgetInk.ON_DARK else WidgetInk.ON_LIGHT
+    val accent = if (night) 0xFF6DC88F.toInt() else 0xFF1B683E.toInt()
+    fun isCurrent(s: WidgetSource) = s.kind == current.kind && s.id == current.id
+
+    lateinit var dialog: AlertDialog
+    var open: Group? = null
+    var query = ""
+
+    val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+    val search = EditText(this).apply {
+      hint = "Find a project or section"
+      isSingleLine = true
+      textSize = 15f
+      setTextColor(ink.text)
+      setHintTextColor(ink.muted)
+      background = GradientDrawable().apply {
+        cornerRadius = dp(12).toFloat()
+        setColor(if (night) 0x1AFFFFFF else 0x0F000000)
       }
-    }.toTypedArray()
-    val checked = sources.indexOfFirst { it.kind == current.kind && it.id == current.id }
-    AlertDialog.Builder(this, theme())
+      setPadding(dp(14), dp(10), dp(14), dp(10))
+    }
+    val searchBox = FrameLayout(this).apply {
+      setPadding(dp(20), dp(4), dp(20), dp(8))
+      addView(search)
+    }
+
+    fun header(text: String) = TextView(this).apply {
+      this.text = text.uppercase()
+      setTextColor(ink.muted)
+      textSize = 12f
+      letterSpacing = 0.08f
+      setTypeface(typeface, Typeface.BOLD)
+      setPadding(dp(24), dp(14), dp(24), dp(6))
+    }
+
+    /** A row: a colour dot (projects and sections), the name, an optional note under it, and a check or a count. */
+    fun row(name: String, note: String?, dot: Int?, trailing: String?, picked: Boolean, onTap: () -> Unit): View {
+      val line = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        minimumHeight = dp(52)
+        setPadding(dp(24), dp(6), dp(20), dp(6))
+        isClickable = true
+        isFocusable = true
+        val a = obtainStyledAttributes(intArrayOf(android.R.attr.selectableItemBackground))
+        background = a.getDrawable(0)
+        a.recycle()
+        setOnClickListener { onTap() }
+      }
+      val mark = View(this).apply {
+        background = GradientDrawable().apply {
+          shape = GradientDrawable.OVAL
+          setColor(dot ?: 0)
+        }
+        visibility = if (dot == null) View.GONE else View.VISIBLE
+      }
+      line.addView(mark, LinearLayout.LayoutParams(dp(10), dp(10)).apply { marginEnd = dp(14) })
+      val texts = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+      texts.addView(TextView(this).apply {
+        text = name
+        textSize = 16f
+        setTextColor(if (picked) accent else ink.text)
+        if (picked) setTypeface(typeface, Typeface.BOLD)
+        maxLines = 1
+        ellipsize = TextUtils.TruncateAt.END
+      })
+      note?.let {
+        texts.addView(TextView(this).apply {
+          text = it
+          textSize = 12f
+          setTextColor(ink.muted)
+          maxLines = 1
+          ellipsize = TextUtils.TruncateAt.END
+        })
+      }
+      line.addView(texts, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+      trailing?.let {
+        line.addView(TextView(this).apply {
+          text = it
+          textSize = 14f
+          setTextColor(if (picked) accent else ink.muted)
+          setPadding(dp(12), 0, 0, 0)
+        })
+      }
+      return line
+    }
+
+    fun choosePick(s: WidgetSource) {
+      dialog.dismiss()
+      pick(s)
+    }
+
+    fun render() {
+      body.removeAllViews()
+      val g = open
+      val q = query.trim()
+      searchBox.visibility = if (g == null && groups.size + lists.size > 6) View.VISIBLE else View.GONE
+      when {
+        g != null -> {
+          dialog.setTitle(g.project.name)
+          body.addView(row("‹  All projects", null, null, null, false) {
+            open = null
+            render()
+          })
+          body.addView(row("All of ${g.project.name}", "Every section", ProjectColors.of(g.project.color), if (isCurrent(g.project)) "✓" else null, isCurrent(g.project)) {
+            choosePick(g.project)
+          })
+          body.addView(header("Sections"))
+          for (s in g.sections) {
+            body.addView(row(s.name, null, ProjectColors.of(s.color), if (isCurrent(s)) "✓" else null, isCurrent(s)) { choosePick(s) })
+          }
+        }
+        q.isNotEmpty() -> {
+          dialog.setTitle("Show in the widget")
+          val hits = mutableListOf<View>()
+          for (gr in groups) {
+            if (gr.project.name.contains(q, ignoreCase = true)) {
+              hits += row(gr.project.name, "Project", ProjectColors.of(gr.project.color), if (isCurrent(gr.project)) "✓" else null, isCurrent(gr.project)) {
+                choosePick(gr.project)
+              }
+            }
+            for (s in gr.sections.filter { it.name.contains(q, ignoreCase = true) }) {
+              hits += row(s.name, gr.project.name, ProjectColors.of(s.color), if (isCurrent(s)) "✓" else null, isCurrent(s)) { choosePick(s) }
+            }
+          }
+          if (hits.isEmpty()) body.addView(header("Nothing matches")) else hits.forEach { body.addView(it) }
+        }
+        else -> {
+          dialog.setTitle("Show in the widget")
+          for (s in lists) body.addView(row(s.name, null, null, if (isCurrent(s)) "✓" else null, isCurrent(s)) { choosePick(s) })
+          if (groups.isNotEmpty()) body.addView(header("Projects"))
+          for (gr in groups) {
+            // A project shown as a whole, or one of its sections: both mark it.
+            val here = isCurrent(gr.project) || gr.sections.any { isCurrent(it) }
+            val inside = gr.sections.firstOrNull { isCurrent(it) }?.name
+            val trailing = when {
+              gr.sections.isNotEmpty() -> "${gr.sections.size}  ›"
+              here -> "✓"
+              else -> null
+            }
+            body.addView(row(gr.project.name, inside, ProjectColors.of(gr.project.color), trailing, here) {
+              if (gr.sections.isEmpty()) {
+                choosePick(gr.project)
+              } else {
+                open = gr
+                render()
+              }
+            })
+          }
+        }
+      }
+    }
+
+    search.addTextChangedListener(object : TextWatcher {
+      override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+      override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+      override fun afterTextChanged(s: Editable?) {
+        query = s?.toString() ?: ""
+        render()
+      }
+    })
+
+    val root = LinearLayout(this).apply {
+      orientation = LinearLayout.VERTICAL
+      // Holds the focus at first, so the keyboard waits for a tap on the search.
+      isFocusableInTouchMode = true
+      addView(searchBox)
+      addView(ScrollView(this@TasksWidgetConfig).apply { addView(body) })
+    }
+    dialog = AlertDialog.Builder(this, theme())
       .setTitle("Show in the widget")
-      .setSingleChoiceItems(labels, checked) { dialog, i ->
-        dialog.dismiss()
-        pick(sources[i])
-      }
+      .setView(root)
       // A button press dismisses rather than cancels, so this doesn't finish().
-      .setNeutralButton("Colour & opacity") { _, _ -> chooseStyle() }
+      .setNeutralButton("Colour & text") { _, _ -> chooseStyle() }
       .setOnCancelListener { finish() }
-      .show()
+      .create()
+    // Back inside a project returns to the projects.
+    dialog.setOnKeyListener { _, key, event ->
+      if (key == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP && open != null) {
+        open = null
+        render()
+        true
+      } else {
+        key == KeyEvent.KEYCODE_BACK && open != null
+      }
+    }
+    // Start inside the project the widget shows, if it shows one of its sections.
+    open = groups.firstOrNull { gr -> gr.sections.any { isCurrent(it) } }
+    dialog.show()
+    render()
   }
 
   private val night get() = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
@@ -463,10 +738,10 @@ class TasksWidgetConfig : Activity() {
 
   private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
-  /** The widget's colour and opacity, like a desktop pin's. Each change shows on the widget at once. */
+  /** The widget's colour, text and opacity, like a desktop pin's. Each change shows on the widget at once. */
   private fun chooseStyle() {
     var style = HomeWidgets.style(this, widgetId)
-    val ink = if (night) 0xFFF3F4F6.toInt() else WidgetInk.TEXT
+    val ink = (if (night) WidgetInk.ON_DARK else WidgetInk.ON_LIGHT).text
     fun save(s: WidgetStyle) {
       style = s
       HomeWidgets.saveStyle(this, widgetId, s)
@@ -505,6 +780,24 @@ class TasksWidgetConfig : Activity() {
       root.addView(line)
     }
 
+    root.addView(label("Text"))
+    // Auto: dark on the app's white or a pastel, light on the app's black. White
+    // for a faded widget over a dark wallpaper.
+    val texts = listOf(WidgetStyle.TEXT_AUTO to "Auto", WidgetStyle.TEXT_BLACK to "Black", WidgetStyle.TEXT_WHITE to "White")
+    root.addView(RadioGroup(this).apply {
+      orientation = RadioGroup.HORIZONTAL
+      texts.forEachIndexed { i, (key, name) ->
+        addView(RadioButton(this@TasksWidgetConfig).apply {
+          id = View.generateViewId()
+          text = name
+          setTextColor(ink)
+          isChecked = key == style.text
+          setPadding(paddingLeft, 0, dp(16), 0)
+          setOnCheckedChangeListener { _, on -> if (on) save(style.copy(text = texts[i].first)) }
+        })
+      }
+    })
+
     val opacityLabel = label("Opacity  ${style.opacity}%")
     root.addView(opacityLabel)
     root.addView(SeekBar(this).apply {
@@ -525,7 +818,7 @@ class TasksWidgetConfig : Activity() {
       .setView(root)
       .setPositiveButton("Done") { _, _ -> done() }
       .setNegativeButton("Reset") { _, _ ->
-        save(WidgetStyle(null, WidgetStyle.DEFAULT_OPACITY))
+        save(WidgetStyle(null, WidgetStyle.DEFAULT_OPACITY, WidgetStyle.TEXT_AUTO))
         done()
       }
       .setOnCancelListener { done() }

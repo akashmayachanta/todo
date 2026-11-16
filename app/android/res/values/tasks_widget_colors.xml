@@ -5,8 +5,13 @@
     <color name="tasks_widget_bg">#FFFFFFFF</color>
     <color name="tasks_widget_text">#FF1F2937</color>
     <color name="tasks_widget_muted">#FF6B7280</color>
-    <color name="tasks_widget_due">#FF15803D</color>
-    <color name="tasks_widget_overdue">#FFDC2626</color>
+    <!-- Due labels, as the app's .task-due-* (layout.css's --color-*). -->
+    <color name="tasks_widget_due">#FF464E55</color>
+    <color name="tasks_widget_today">#FF1B683E</color>
+    <color name="tasks_widget_tomorrow">#FF8A5600</color>
+    <color name="tasks_widget_week">#FF6C44A4</color>
+    <color name="tasks_widget_overdue">#FFB02B27</color>
+    <color name="tasks_widget_progress">#FF125A98</color>
     <color name="tasks_widget_p1">#FFDC2626</color>
     <color name="tasks_widget_p2">#FFEA580C</color>
     <color name="tasks_widget_p3">#FF2563EB</color>

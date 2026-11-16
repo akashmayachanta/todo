@@ -10,7 +10,7 @@
 	import { toast } from '$lib/stores/toast';
 	import { linkParts, plainText } from '$lib/links';
 	import type { SortApi } from '$lib/sortable';
-	import { firstOccurrence, formatDuration, normalizeRecurrence, parseQuickAdd, pastedLines, ymd, type QuickAdd } from '$lib/taskParse';
+	import { firstOccurrence, formatDuration, nextDayFor, normalizeRecurrence, parseQuickAdd, pastedLines, type QuickAdd } from '$lib/taskParse';
 	import LinkedText from './LinkedText.svelte';
 	import SmartTaskInput from './SmartTaskInput.svelte';
 	import SmartTips from './SmartTips.svelte';
@@ -221,7 +221,7 @@
 		save(value ? { due_date: value } : { due_date: null, due_time: null });
 	}
 
-	/** A time on a task with no date puts it on today. */
+	/** A time on a task with no date puts it on the next day that time comes: today, or tomorrow once it has gone by. */
 	function saveTime(value: string) {
 		if (!value) {
 			if (task.due_time) save({ due_time: null });
@@ -231,7 +231,7 @@
 			if (value !== task.due_time) save({ due_time: value });
 			return;
 		}
-		save({ due_date: ymd(new Date()), due_time: value });
+		save({ due_date: nextDayFor(value), due_time: value });
 	}
 
 	function saveRecurrence() {

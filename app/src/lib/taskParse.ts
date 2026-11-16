@@ -318,6 +318,15 @@ const NO_DATE_RE = /(^|\s)(no\s+(?:due\s+)?date)(?=\s|$|[.,;])/i;
 
 const timeOf = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
+/**
+ * The next day `time` ("HH:MM") comes round: today while it is still ahead (or
+ * this minute), else tomorrow. For a time given to a task that is past or has no date.
+ */
+export function nextDayFor(time: string, now = new Date()): string {
+	const today = ymd(now);
+	return time >= timeOf(now) ? today : addDays(today, 1);
+}
+
 function hasDay(c: chrono.ParsedComponents): boolean {
 	return c.isCertain('day') || c.isCertain('weekday');
 }

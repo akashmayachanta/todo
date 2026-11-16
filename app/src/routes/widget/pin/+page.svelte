@@ -10,10 +10,10 @@
 		PIN_COLORS, loadPinColor, pinBackground, pinFromLabel, pinNewTask, pinView, savePinColor,
 		type PinColorChoice, type PinView,
 	} from '$lib/components/tasks/pins';
-	import { byPosition, completionPatch, parentFinder, parentMinutes } from '$lib/components/tasks/shared';
+	import { byPosition, completionPatch, parentFinder, parentMinutes, subtaskMinutes } from '$lib/components/tasks/shared';
 	import { toast } from '$lib/stores/toast';
 	import { askReminderPermission } from '$lib/stores/taskReminders';
-	import { ymd } from '$lib/taskParse';
+	import { formatDuration, ymd } from '$lib/taskParse';
 	import { onTasksChanged } from '$lib/tasks/client';
 	import { closePin, showTask } from '$shell/widgets';
 	import '../../tasks/tasks.css';
@@ -47,6 +47,19 @@
 	// Unset, a pin takes a pale shade of its project's (or filter's) colour.
 	let background = $derived(pinBackground(colorChoice, view?.color ?? null));
 	let openCount = $derived(view?.count ?? view?.tasks.filter((t) => !t.completed_at).length ?? 0);
+
+	// Open work listed here. A nested view lists parents whose duration already is their
+	// subtasks' total; a flat one lists subtasks itself, so a rolled-up parent is skipped.
+	let totalMinutes = $derived.by(() => {
+		if (!view) return 0;
+		let sum = 0;
+		for (const t of view.tasks) {
+			if (t.completed_at || !t.duration_minutes) continue;
+			if (!view.nested && t.parent_id === null && subtaskMinutes(subtasksOf(t.id)) !== null) continue;
+			sum += t.duration_minutes;
+		}
+		return sum;
+	});
 
 	let subtaskMap = $derived.by(() => {
 		const map = new Map<string, Task[]>();
@@ -138,6 +151,7 @@
 		{#if view?.color && view.mark}<PlaceMark kind={view.mark} color={view.color} />
 		{:else if view?.color}<span class="tasks-dot" style="background-color: {view.color}"></span>{/if}
 		<span class="widget-pin-title" title={view?.title}>{view?.title ?? 'Tasks'}</span>
+		{#if totalMinutes}<span class="widget-pin-count" title="Time of the open tasks here">{formatDuration(totalMinutes)}</span>{/if}
 		{#if openCount}<span class="widget-pin-count">{openCount}</span>{/if}
 		<button type="button" class="tasks-icon-btn" onclick={() => (picking = !picking)} title="Colour" aria-label="Colour" aria-expanded={picking}>
 			<svg aria-hidden="true" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 21a9 9 0 1 1 9-9c0 1.66-1.34 3-3 3h-1.5a1.5 1.5 0 0 0-1.06 2.56A1.5 1.5 0 0 1 14.38 21H12z" /><circle cx="7.5" cy="11" r="1" fill="currentColor" /><circle cx="10.5" cy="7.5" r="1" fill="currentColor" /><circle cx="15" cy="7.5" r="1" fill="currentColor" /></svg>

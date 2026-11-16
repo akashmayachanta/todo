@@ -89,3 +89,86 @@ html.widget-transparent body {
   font-size: var(--text-sm);
   color: var(--text-muted);
 }
+
+/* ── A pin's colour ───────────────────────────────────────────────────────── */
+
+/* A coloured pin is a paper note: pastel paper and dark ink in either mode. */
+.widget-pin-tinted {
+  color-scheme: light;
+  --bg-base: var(--pin-bg);
+  --bg-surface: var(--pin-bg);
+  --bg-card: var(--pin-bg);
+  --bg-input: oklch(100% 0 0 / 0.55);
+  --bg-raised: oklch(18% 0.020 245 / 0.06);
+  --bg-hover: oklch(18% 0.020 245 / 0.07);
+
+  --clr-border: oklch(18% 0.020 245 / 0.12);
+  --clr-border-light: oklch(18% 0.020 245 / 0.22);
+  --clr-field: oklch(18% 0.020 245 / 0.45);
+  --clr-rule-firm: oklch(28% 0.018 240);
+
+  --text-primary: oklch(18% 0.020 245);
+  --text-secondary: oklch(30% 0.018 245);
+  --text-muted: oklch(40% 0.016 245);
+  --text-faint: oklch(45% 0.014 245);
+
+  --color-danger: oklch(48% 0.170 27);
+  --color-success: oklch(42% 0.100 155);
+  --color-warning: oklch(46% 0.110 70);
+  --color-info: oklch(44% 0.120 250);
+  --color-week: oklch(45% 0.150 300);
+  --color-status-ink: oklch(97% 0.006 245);
+
+  color: var(--text-primary);
+}
+
+/* Dark mode's light accents would fade on the paper. */
+[data-theme^="dark-"] .widget-pin-tinted {
+  --color-brand: oklch(22% 0.020 245);
+  --color-brand-dim: oklch(14% 0.020 245);
+  --color-brand-text: oklch(96.5% 0.006 245);
+  --color-accent-2: oklch(22% 0.020 245);
+}
+
+.widget-pin-tinted .widget-pin-bar {
+  background-color: oklch(18% 0.020 245 / 0.05);
+}
+
+.widget-pin-colors {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+  padding: var(--space-xs) var(--space-sm);
+  border-bottom: var(--rule-hair) solid var(--clr-border);
+}
+
+.widget-pin-colors-gap {
+  width: var(--rule-hair);
+  height: 1rem;
+  margin: 0 0.125rem;
+  background-color: var(--clr-border-light);
+}
+
+.widget-pin-swatch {
+  width: 1.25rem;
+  height: 1.25rem;
+  border: var(--rule-hair) solid oklch(18% 0.020 245 / 0.2);
+  border-radius: 50%;
+  transition: transform var(--dur-micro) var(--ease-out);
+}
+
+.widget-pin-swatch:hover {
+  transform: scale(1.12);
+}
+
+.widget-pin-swatch[aria-pressed="true"] {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 1px;
+}
+
+/* The app's own: half white, half black. */
+.widget-pin-swatch-none {
+  background: linear-gradient(135deg, #ffffff 50%, oklch(21.5% 0.018 245) 50%);
+}

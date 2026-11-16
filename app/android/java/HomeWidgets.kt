@@ -26,12 +26,18 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.RectF
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.View
+import android.widget.LinearLayout
 import android.widget.RemoteViews
 import android.widget.RemoteViewsService
+import android.widget.SeekBar
+import android.widget.TextView
 import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
@@ -56,6 +62,43 @@ data class WidgetSource(val kind: String, val id: String, val name: String, val 
       o.optJSONObject("add")?.toString() ?: "{}",
     )
   }
+}
+
+/**
+ * A widget's look, like a desktop pin's: a sticky-note colour (null: the app's own
+ * white or black, following the phone's dark mode) and how opaque its background is.
+ */
+data class WidgetStyle(val color: String?, val opacity: Int) {
+  /** The note colour, or null for the app's own. */
+  val tint: Int? get() = PALETTE.firstOrNull { it.first == color }?.second
+
+  companion object {
+    const val DEFAULT_OPACITY = 96
+
+    /** The desktop pins' pastels (PIN_COLORS in app/src/lib/components/tasks/pins.ts). */
+    val PALETTE = listOf(
+      "yellow" to 0xFFFDF3B4.toInt(),
+      "peach" to 0xFFFDE0C8.toInt(),
+      "pink" to 0xFFFBD8E4.toInt(),
+      "lavender" to 0xFFE6DCF8.toInt(),
+      "blue" to 0xFFD6E8FB.toInt(),
+      "mint" to 0xFFD4F1E0.toInt(),
+      "lime" to 0xFFE8F2C8.toInt(),
+      "sand" to 0xFFECE6DC.toInt(),
+    )
+  }
+}
+
+/** Dark ink for a coloured widget, in either mode: the light theme's colours. */
+object WidgetInk {
+  const val TEXT = 0xFF1F2937.toInt()
+  const val MUTED = 0xFF4B5563.toInt()
+  const val DUE = 0xFF15803D.toInt()
+  const val OVERDUE = 0xFFDC2626.toInt()
+  const val P1 = 0xFFDC2626.toInt()
+  const val P2 = 0xFFEA580C.toInt()
+  const val P3 = 0xFF2563EB.toInt()
+  const val P4 = 0xFF6B7280.toInt()
 }
 
 /** The app icon's long-press shortcuts. */
@@ -95,9 +138,18 @@ object HomeWidgets {
     prefs(c).edit().putString("w$widgetId", s.toJson()).apply()
   }
 
+  fun style(c: Context, widgetId: Int): WidgetStyle {
+    val p = prefs(c)
+    return WidgetStyle(p.getString("c$widgetId", null), p.getInt("o$widgetId", WidgetStyle.DEFAULT_OPACITY).coerceIn(0, 100))
+  }
+
+  fun saveStyle(c: Context, widgetId: Int, s: WidgetStyle) {
+    prefs(c).edit().putString("c$widgetId", s.color).putInt("o$widgetId", s.opacity).apply()
+  }
+
   fun forget(c: Context, widgetIds: IntArray) {
     val edit = prefs(c).edit()
-    for (id in widgetIds) edit.remove("w$id")
+    for (id in widgetIds) edit.remove("w$id").remove("c$id").remove("o$id")
     edit.apply()
   }
 
@@ -135,6 +187,15 @@ object HomeWidgets {
       R.id.tasks_widget_empty,
       if (Reminders.dataDir(c) == null) "Open Tasks once to see your tasks here" else "Nothing to do",
     )
+    // The app's own colours come from the layout, so they follow dark mode as it changes.
+    val style = style(c, widgetId)
+    views.setInt(R.id.tasks_widget_bg, "setImageAlpha", style.opacity * 255 / 100)
+    style.tint?.let {
+      views.setInt(R.id.tasks_widget_bg, "setColorFilter", it)
+      views.setTextColor(R.id.tasks_widget_title, WidgetInk.TEXT)
+      views.setTextColor(R.id.tasks_widget_empty, WidgetInk.MUTED)
+      views.setInt(R.id.tasks_widget_pick, "setColorFilter", WidgetInk.MUTED)
+    }
     val service = Intent(c, TasksWidgetService::class.java).putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
     // Each widget its own adapter: intents that differ only in extras count as one.
     service.data = Uri.parse(service.toUri(Intent.URI_INTENT_SCHEME))
@@ -234,12 +295,15 @@ class TasksWidgetFactory(private val c: Context, private val widgetId: Int) : Re
   private data class Row(val id: String, val title: String, val due: String, val overdue: Boolean, val priority: Int)
 
   private var rows: List<Row> = emptyList()
+  /** Dark ink on a coloured widget; false keeps the app's own colours. */
+  private var inked = false
 
   override fun onCreate() {}
 
   override fun onDestroy() {}
 
   override fun onDataSetChanged() {
+    inked = HomeWidgets.style(c, widgetId).tint != null
     val dir = Reminders.dataDir(c)
     if (dir == null) {
       rows = emptyList()
@@ -276,20 +340,36 @@ class TasksWidgetFactory(private val c: Context, private val widgetId: Int) : Re
     val views = RemoteViews(c.packageName, R.layout.tasks_widget_item)
     val row = rows.getOrNull(position) ?: return views
     views.setTextViewText(R.id.tasks_widget_item_title, row.title)
+    if (inked) views.setTextColor(R.id.tasks_widget_item_title, WidgetInk.TEXT)
     if (row.due.isEmpty()) {
       views.setViewVisibility(R.id.tasks_widget_item_due, View.GONE)
     } else {
       views.setViewVisibility(R.id.tasks_widget_item_due, View.VISIBLE)
       views.setTextViewText(R.id.tasks_widget_item_due, row.due)
-      views.setTextColor(R.id.tasks_widget_item_due, c.getColor(if (row.overdue) R.color.tasks_widget_overdue else R.color.tasks_widget_due))
+      val due = when {
+        inked -> if (row.overdue) WidgetInk.OVERDUE else WidgetInk.DUE
+        else -> c.getColor(if (row.overdue) R.color.tasks_widget_overdue else R.color.tasks_widget_due)
+      }
+      views.setTextColor(R.id.tasks_widget_item_due, due)
     }
-    val ring = when (row.priority) {
-      1 -> R.color.tasks_widget_p1
-      2 -> R.color.tasks_widget_p2
-      3 -> R.color.tasks_widget_p3
-      else -> R.color.tasks_widget_p4
+    val ring = if (inked) {
+      when (row.priority) {
+        1 -> WidgetInk.P1
+        2 -> WidgetInk.P2
+        3 -> WidgetInk.P3
+        else -> WidgetInk.P4
+      }
+    } else {
+      c.getColor(
+        when (row.priority) {
+          1 -> R.color.tasks_widget_p1
+          2 -> R.color.tasks_widget_p2
+          3 -> R.color.tasks_widget_p3
+          else -> R.color.tasks_widget_p4
+        },
+      )
     }
-    views.setInt(R.id.tasks_widget_check, "setColorFilter", c.getColor(ring))
+    views.setInt(R.id.tasks_widget_check, "setColorFilter", ring)
     views.setOnClickFillInIntent(
       R.id.tasks_widget_row,
       Intent().putExtra(HomeWidgets.EXTRA_TAP, "open").putExtra(Reminders.EXTRA_TASK, row.id),
@@ -365,16 +445,104 @@ class TasksWidgetConfig : Activity() {
       }
     }.toTypedArray()
     val checked = sources.indexOfFirst { it.kind == current.kind && it.id == current.id }
-    val night = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-    val theme = if (night) android.R.style.Theme_DeviceDefault_Dialog_Alert else android.R.style.Theme_DeviceDefault_Light_Dialog_Alert
-    AlertDialog.Builder(this, theme)
+    AlertDialog.Builder(this, theme())
       .setTitle("Show in the widget")
       .setSingleChoiceItems(labels, checked) { dialog, i ->
         dialog.dismiss()
         pick(sources[i])
       }
+      // A button press dismisses rather than cancels, so this doesn't finish().
+      .setNeutralButton("Colour & opacity") { _, _ -> chooseStyle() }
       .setOnCancelListener { finish() }
       .show()
+  }
+
+  private val night get() = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+
+  private fun theme() = if (night) android.R.style.Theme_DeviceDefault_Dialog_Alert else android.R.style.Theme_DeviceDefault_Light_Dialog_Alert
+
+  private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+  /** The widget's colour and opacity, like a desktop pin's. Each change shows on the widget at once. */
+  private fun chooseStyle() {
+    var style = HomeWidgets.style(this, widgetId)
+    val ink = if (night) 0xFFF3F4F6.toInt() else WidgetInk.TEXT
+    fun save(s: WidgetStyle) {
+      style = s
+      HomeWidgets.saveStyle(this, widgetId, s)
+      redraw()
+    }
+
+    val root = LinearLayout(this).apply {
+      orientation = LinearLayout.VERTICAL
+      setPadding(dp(24), dp(12), dp(24), dp(4))
+    }
+    fun label(text: String) = TextView(this).apply {
+      this.text = text
+      setTextColor(ink)
+      textSize = 14f
+      setPadding(0, dp(12), 0, dp(8))
+    }
+
+    root.addView(label("Colour"))
+    // The app's own white or black first, then the pastels: two rows of five.
+    val keys = listOf<String?>(null) + WidgetStyle.PALETTE.map { it.first }
+    val swatches = keys.map { key ->
+      Swatch(this, WidgetStyle.PALETTE.firstOrNull { it.first == key }?.second, ink).apply {
+        contentDescription = key?.replaceFirstChar { it.uppercase() } ?: "The app's own white or black"
+        picked = key == style.color
+      }
+    }
+    swatches.forEachIndexed { i, sw ->
+      sw.setOnClickListener {
+        swatches.forEach { it.picked = it === sw }
+        save(style.copy(color = keys[i]))
+      }
+    }
+    swatches.chunked(5).forEach { row ->
+      val line = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+      row.forEach { line.addView(it, LinearLayout.LayoutParams(dp(40), dp(40)).apply { marginEnd = dp(8); bottomMargin = dp(8) }) }
+      root.addView(line)
+    }
+
+    val opacityLabel = label("Opacity  ${style.opacity}%")
+    root.addView(opacityLabel)
+    root.addView(SeekBar(this).apply {
+      max = 100
+      progress = style.opacity
+      setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+        override fun onProgressChanged(bar: SeekBar, value: Int, fromUser: Boolean) {
+          opacityLabel.text = "Opacity  $value%"
+        }
+        override fun onStartTrackingTouch(bar: SeekBar) {}
+        // Once on letting go: redrawing the widget on every step would stutter.
+        override fun onStopTrackingTouch(bar: SeekBar) = save(style.copy(opacity = bar.progress))
+      })
+    })
+
+    AlertDialog.Builder(this, theme())
+      .setTitle("Widget look")
+      .setView(root)
+      .setPositiveButton("Done") { _, _ -> done() }
+      .setNegativeButton("Reset") { _, _ ->
+        save(WidgetStyle(null, WidgetStyle.DEFAULT_OPACITY))
+        done()
+      }
+      .setOnCancelListener { done() }
+      .show()
+  }
+
+  private fun redraw() {
+    val mgr = AppWidgetManager.getInstance(this)
+    HomeWidgets.update(this, mgr, widgetId)
+    mgr.notifyAppWidgetViewDataChanged(intArrayOf(widgetId), R.id.tasks_widget_list)
+  }
+
+  /** The widget keeps its list (Today when new). */
+  private fun done() {
+    HomeWidgets.scheduleMidnight(this)
+    setResult(RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId))
+    finish()
   }
 
   private fun pick(s: WidgetSource) {
@@ -385,6 +553,47 @@ class TasksWidgetConfig : Activity() {
     HomeWidgets.scheduleMidnight(this)
     setResult(RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId))
     finish()
+  }
+}
+
+/** A colour dot in the widget's look dialog; no colour is the app's own, half white and half black. */
+class Swatch(c: Context, private val color: Int?, private val ring: Int) : View(c) {
+  var picked = false
+    set(v) {
+      field = v
+      invalidate()
+    }
+  private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+  private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+  private val box = RectF()
+
+  init {
+    isClickable = true
+    isFocusable = true
+  }
+
+  override fun onDraw(canvas: Canvas) {
+    val d = resources.displayMetrics.density
+    val inset = 5 * d
+    box.set(inset, inset, width - inset, height - inset)
+    if (color != null) {
+      fill.color = color
+      canvas.drawOval(box, fill)
+    } else {
+      fill.color = 0xFFFFFFFF.toInt()
+      canvas.drawArc(box, 135f, 180f, true, fill)
+      fill.color = 0xFF1F2023.toInt()
+      canvas.drawArc(box, -45f, 180f, true, fill)
+    }
+    edge.color = 0x33000000
+    edge.strokeWidth = d
+    canvas.drawOval(box, edge)
+    if (picked) {
+      edge.color = ring
+      edge.strokeWidth = 2 * d
+      box.inset(-3 * d, -3 * d)
+      canvas.drawOval(box, edge)
+    }
   }
 }
 

@@ -41,7 +41,7 @@
 	} from '$lib/components/tasks/taskFilters';
 	import {
 		PROJECT_COLORS, byDue, byPosition, completionPatch, durationTotals, loadLayouts, parentFinder, placeName, projectColor, saveLayouts, shownWhenDue, parentMinutes, subtaskMinutes, taskRoots,
-		shiftInstant, type TaskLayout, type TaskSettings, type TaskView,
+		defaultReminder, shiftInstant, type TaskLayout, type TaskSettings, type TaskView,
 	} from '$lib/components/tasks/shared';
 	import type { PinTarget } from '$lib/components/tasks/pins';
 	import { setTaskbarCount } from '$shell/taskbar';
@@ -424,15 +424,18 @@
 		...(view === 'project' ? ['Add section'] : []),
 	]);
 
+	/** The board's pages, one a dot. Not the "Add section" gaps between a project's columns. */
+	const boardPageEls = () => [...(boardEl?.querySelectorAll<HTMLElement>(':scope > [data-board-page]') ?? [])];
+
 	function boardScrolled() {
 		if (!boardEl || !boardEl.clientWidth) return;
 		const left = boardEl.getBoundingClientRect().left;
-		const away = [...boardEl.children].map((c) => Math.abs(c.getBoundingClientRect().left - left));
-		boardPage = away.indexOf(Math.min(...away));
+		const away = boardPageEls().map((c) => Math.abs(c.getBoundingClientRect().left - left));
+		if (away.length) boardPage = away.indexOf(Math.min(...away));
 	}
 
 	function showBoardPage(i: number) {
-		const col = boardEl?.children[i];
+		const col = boardPageEls()[i];
 		if (!boardEl || !col) return;
 		const left = boardEl.scrollLeft + col.getBoundingClientRect().left - boardEl.getBoundingClientRect().left;
 		boardEl.scrollTo({ left, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
@@ -949,6 +952,11 @@
 		// Moving a task to another day (board, calendar) moves its reminder by as many days.
 		if (patch.due_date && task.due_date && task.remind_at && !('remind_at' in patch) && patch.due_date !== task.due_date) {
 			patch = { ...patch, remind_at: shiftInstant(task.remind_at, daysBetween(task.due_date, patch.due_date)) };
+		}
+		// A task given a date with no reminder yet is reminded at its due time (10:00 for a date alone).
+		if (patch.due_date && !task.remind_at && !('remind_at' in patch)) {
+			const remind_at = defaultReminder(patch.due_date, 'due_time' in patch ? patch.due_time : task.due_time);
+			if (remind_at) patch = { ...patch, remind_at };
 		}
 		// A task with timed subtasks takes their total; its own can't be set apart from them.
 		if ('duration_minutes' in patch && task.parent_id === null && subtaskMinutes(subtasksOf(task.id)) !== null) {
@@ -1923,7 +1931,7 @@
 		{@render sectionForm()}
 	{:else}
 		<button type="button" class="task-section-add" onclick={() => startSection(projectSections.length)}>
-			<svg aria-hidden="true" class="task-section-add-icon" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M4 4.5h16" /><rect x="4" y="8" width="16" height="12" rx="1.5" /><path d="M12 11v6M9 14h6" /></svg>
+			<svg aria-hidden="true" class="task-section-add-icon" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M4 3.5h16M4 20.5h16" /><rect x="4" y="7" width="16" height="10" rx="1.5" /><path d="M12 9.5v5M9.5 12h5" /></svg>
 			<span>Add section</span>
 		</button>
 	{/if}
@@ -2081,6 +2089,7 @@
 							id={col.section ? `task-cat-${col.section.id}` : undefined}
 							data-cat-id={col.section?.id}
 							data-flip="col:{col.key}"
+							data-board-page
 							class="task-col"
 							class:task-col-over={dropOver === col.key}
 							aria-label={col.title}
@@ -2124,13 +2133,13 @@
 					{/each}
 					{#if buckets && !columns.some((c) => c.add)}
 						<!-- No column takes new tasks (an empty view, or only Overdue / Next 7 days / Later). -->
-						<section class="task-col" aria-label="New task">
+						<section class="task-col" data-board-page aria-label="New task">
 							<h2 class="task-group-head">{buckets.length ? 'New task' : 'No tasks'}</h2>
 							<div class="task-col-body">{@render adder('main', baseDefaults)}</div>
 						</section>
 					{/if}
 					{#if view === 'project'}
-						<div class="task-col task-col-new">{@render sectionAdder()}</div>
+						<div class="task-col task-col-new" data-board-page>{@render sectionAdder()}</div>
 					{/if}
 				</div>
 				{#if boardPages.length > 1}

@@ -103,12 +103,12 @@ export function saveTaskSettings(settings: TaskSettings) {
 }
 
 /**
- * The reminder a task gets by default: at its due time, when it has one that is
- * still ahead. A date with no time gets none.
+ * The reminder a task gets by default: at its due time, when that is still ahead.
+ * A date with no time is reminded at 10:00 that day (`localInstant`).
  */
 export function defaultReminder(due_date: string | null | undefined, due_time: string | null | undefined, now = new Date()): string | null {
-	if (!due_date || !due_time) return null;
-	const at = localInstant(due_date, due_time);
+	if (!due_date) return null;
+	const at = localInstant(due_date, due_time ?? null);
 	return new Date(at).getTime() > now.getTime() ? at : null;
 }
 

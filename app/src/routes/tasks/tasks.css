@@ -2202,7 +2202,7 @@ button.task-modal-crumb:hover {
   justify-content: flex-start;
   padding: var(--space-xs) var(--space-sm);
   border-radius: var(--task-radius);
-  background-color: var(--bg-raised);
+  background-color: color-mix(in oklch, var(--bg-raised) 50%, transparent);
   color: var(--text-muted);
   opacity: 1;
   transition: color var(--dur-micro) var(--ease-out), background-color var(--dur-micro) var(--ease-out);
@@ -2217,7 +2217,6 @@ button.task-modal-crumb:hover {
   background-color: var(--bg-hover);
   color: var(--color-brand);
 }
-
 .task-col-new .task-section-add,
 .task-col-new .task-section-new {
   margin-top: 0;

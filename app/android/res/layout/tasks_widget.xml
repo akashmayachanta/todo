@@ -1,10 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- The list widget (HomeWidgets.kt). Copied in by scripts/android-native.mjs. -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- The background is its own layer, so a widget's colour and opacity (TasksWidgetStyle) can change it. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/tasks_widget_root"
     android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <ImageView
+        android:id="@+id/tasks_widget_bg"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:importantForAccessibility="no"
+        android:scaleType="fitXY"
+        android:src="@drawable/tasks_widget_bg" />
+
+<LinearLayout
+    android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/tasks_widget_bg"
     android:orientation="vertical"
     android:padding="4dp">
 
@@ -69,3 +81,4 @@
             android:textSize="14sp" />
     </FrameLayout>
 </LinearLayout>
+</FrameLayout>

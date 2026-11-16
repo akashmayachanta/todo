@@ -130,6 +130,8 @@
 		{/if}
 		{#if next.duration_minutes}
 			<span class="task-chip" data-kind="duration">for {formatDuration(next.duration_minutes)}</span>
+		{:else if task.duration_minutes}
+			<span class="task-chip" data-kind="duration">No duration</span>
 		{/if}
 		{#if next.recurrence}
 			<span class="task-chip" data-kind="recurrence">↻ {next.recurrence}</span>

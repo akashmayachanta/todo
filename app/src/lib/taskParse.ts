@@ -26,7 +26,7 @@ export interface QuickAdd {
 	title: string;
 	due_date: string | null;
 	due_time: string | null;
-	/** How long it takes, from "for 45m" / "for 1h30m". */
+	/** How long it takes, from "for 45m" / "for 1h30m"; null with a duration token is "no duration" / "for 0m". */
 	duration_minutes: number | null;
 	remind_at: string | null;
 	priority: TaskPriority | null;
@@ -73,10 +73,13 @@ function addMonths(s: string, months: number): string {
 	return ymd(target);
 }
 
-/** The instant a local date and time stand for, as ISO (UTC). */
+/** The time a date with no time counts from: its reminder, and "30m before" it. */
+export const DATE_ONLY_TIME = '10:00';
+
+/** The instant a local date and time stand for, as ISO (UTC); a date alone is at 10:00. */
 export function localInstant(date: string, time: string | null): string {
 	const d = fromYmd(date);
-	const [h, m] = (time ?? '09:00').split(':').map(Number);
+	const [h, m] = (time ?? DATE_ONLY_TIME).split(':').map(Number);
 	d.setHours(h, m, 0, 0);
 	return d.toISOString();
 }
@@ -203,6 +206,8 @@ export function nextOccurrence(recurrence: string, due_date: string | null, now 
 const PRIORITY_RE = /(^|\s)(p[1-4])(?=\s|$)/gi;
 // "for 45m", "for 1h", "for 1h30m", "for 1.5 hours", "for 90 min"
 const DURATION_RE = /(^|\s)(for\s+(?:\d+(?:\.\d+)?\s*(?:h|hrs?|hours?)(?:\s*\d+\s*(?:m|mins?|minutes?))?|\d+\s*(?:m|mins?|minutes?)))(?=\s|$|[.,;])/gi;
+// "no duration", "for 0m": takes the duration off.
+const NO_DURATION_RE = /(^|\s)(no\s+duration|for\s+0+\s*(?:m|mins?|minutes?|h|hrs?|hours?))(?=\s|$|[.,;])/i;
 const RELATIVE_REMINDER_RE = /(^|\s)(!(\d+)\s*(m|min|mins|h|hr|hrs|d)\b)/gi;
 
 /** Minutes in "for 1h30m", "1.5 hours", "90 min"; null when there are none. */
@@ -329,7 +334,9 @@ function hasDay(c: chrono.ParsedComponents): boolean {
  * is the day a time alone ("5pm") falls on, e.g. the Upcoming group or calendar
  * day being added to; without one a time alone is today (or tomorrow once it has
  * passed). With no date in the line, a lone `!` reminds at `contextDate` and
- * `contextTime` (9:00 without a time, as `localInstant` counts it).
+ * `contextTime` (10:00 without a time, as `localInstant` counts it).
+ * When the line names more than one date, the last one typed is the due date;
+ * the earlier ones stay in the title as words.
  */
 export function parseQuickAdd(
 	line: string,
@@ -421,6 +428,13 @@ export function parseQuickAdd(
 		add('duration', start, start + m[2].length);
 		break;
 	}
+	if (out.duration_minutes === null) {
+		const none = NO_DURATION_RE.exec(mask(text, tokens));
+		if (none) {
+			const start = none.index + none[1].length;
+			add('duration', start, start + none[2].length);
+		}
+	}
 
 	// !30m, !1h: before the due time
 	let reminderOffset: number | null = null;
@@ -476,22 +490,45 @@ export function parseQuickAdd(
 		add('date', start, start + weekWord[2].length);
 	}
 
-	// Any other date phrase is the due date.
-	let timeOnly = false;
-	for (const hit of noDate || !smart ? [] : datesNow().parse(mask(text, tokens), now, { forwardDate: true })) {
-		const c = hit.start;
-		const day = hasDay(c);
+	// Any other date phrase is the due date. With more than one, the last typed wins:
+	// "issue from today 10am, now nov 16 6p" is due nov 16 at 18:00.
+	const hits = noDate || !smart ? [] : datesNow().parse(mask(text, tokens), now, { forwardDate: true })
 		// A lone month name ("may", "march") is far more often a word of the title.
-		if (!day && !c.isCertain('hour') && !c.isCertain('year')) continue;
-		if (out.due_date === null) {
-			const date = c.date();
-			// A time alone lands on the day being added to, when there is one.
-			out.due_date = !day && contextDate ? contextDate : ymd(date);
-			out.due_time = c.isCertain('hour') ? timeOf(date) : null;
-			timeOnly = !day;
-			add('date', hit.index, hit.index + hit.text.length);
-		} else if (out.due_time === null && c.isCertain('hour') && !day) {
-			out.due_time = timeOf(c.date());
+		.filter((h) => hasDay(h.start) || h.start.isCertain('hour') || h.start.isCertain('year'));
+	// A day, or a month and year ("nov 2027"); anything else is a time alone.
+	const dated = (c: chrono.ParsedComponents) => hasDay(c) || c.isCertain('month') || c.isCertain('year');
+	let dateAt = -1;
+	hits.forEach((h, i) => { if (dated(h.start)) dateAt = i; });
+	// A "next week" / "weekend" after the last date beats it.
+	if (dateAt >= 0 && weekWord && weekWord.index > hits[dateAt].index) dateAt = -1;
+	if (dateAt >= 0 && weekWord) tokens.splice(tokens.findIndex((t) => t.kind === 'date' && t.start === weekWord.index + weekWord[1].length), 1);
+	let timeOnly = false;
+	if (dateAt >= 0) {
+		const hit = hits[dateAt];
+		const date = hit.start.date();
+		out.due_date = ymd(date);
+		out.due_time = hit.start.isCertain('hour') ? timeOf(date) : null;
+		add('date', hit.index, hit.index + hit.text.length);
+	}
+	if (out.due_time === null) {
+		// The time for that date: the last time alone after it, else one between it and
+		// the date before it ("5pm tomorrow"); with no date, the last time alone.
+		let from = -1;
+		for (let i = 0; i < dateAt; i++) if (dated(hits[i].start)) from = i;
+		let pick = -1;
+		for (let i = from + 1; i < hits.length; i++) {
+			if (i === dateAt || dated(hits[i].start) || !hits[i].start.isCertain('hour')) continue;
+			pick = i;
+		}
+		if (pick >= 0) {
+			const hit = hits[pick];
+			const date = hit.start.date();
+			if (out.due_date === null) {
+				// A time alone lands on the day being added to, when there is one.
+				out.due_date = contextDate ?? ymd(date);
+				timeOnly = true;
+			}
+			out.due_time = timeOf(date);
 			add('date', hit.index, hit.index + hit.text.length);
 		}
 	}

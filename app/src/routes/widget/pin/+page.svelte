@@ -6,7 +6,10 @@
 	import PlaceMark from '$lib/components/tasks/PlaceMark.svelte';
 	import QuickAdd from '$lib/components/tasks/QuickAdd.svelte';
 	import TaskRow from '$lib/components/tasks/TaskRow.svelte';
-	import { pinFromLabel, pinNewTask, pinView, type PinView } from '$lib/components/tasks/pins';
+	import {
+		PIN_COLORS, loadPinColor, pinBackground, pinFromLabel, pinNewTask, pinView, savePinColor,
+		type PinColorChoice, type PinView,
+	} from '$lib/components/tasks/pins';
 	import { byPosition, completionPatch, parentFinder, parentMinutes } from '$lib/components/tasks/shared';
 	import { toast } from '$lib/stores/toast';
 	import { askReminderPermission } from '$lib/stores/taskReminders';
@@ -23,7 +26,8 @@
 	 */
 	const ROW_FIELDS = new Set(['due', 'duration'] as const);
 
-	const target = pinFromLabel(getCurrentWindow().label);
+	const label = getCurrentWindow().label;
+	const target = pinFromLabel(label);
 
 	let tasks = $state<Task[]>([]);
 	let pinnedTask = $state<Task | null>(null);
@@ -33,11 +37,15 @@
 	let loaded = $state(false);
 	let adding = $state(false);
 	let now = $state(new Date());
+	let colorChoice = $state<PinColorChoice>(loadPinColor(label));
+	let picking = $state(false);
 
 	let today = $derived(ymd(now));
 	let view = $derived<PinView | null>(
 		target && loaded ? pinView(target, { tasks, pinnedTask, projects, sections, filters, today }) : null,
 	);
+	// Unset, a pin takes a pale shade of its project's (or filter's) colour.
+	let background = $derived(pinBackground(colorChoice, view?.color ?? null));
 	let openCount = $derived(view?.count ?? view?.tasks.filter((t) => !t.completed_at).length ?? 0);
 
 	let subtaskMap = $derived.by(() => {
@@ -95,6 +103,17 @@
 		}
 	}
 
+	function pickColor(choice: PinColorChoice) {
+		colorChoice = choice;
+		savePinColor(label, choice);
+		picking = false;
+	}
+
+	function unpin() {
+		savePinColor(label, null);
+		closePin();
+	}
+
 	function open(task: Task) {
 		showTask(task.id).catch((e) => toast.error(errorDetail(e)));
 	}
@@ -111,24 +130,52 @@
 	});
 </script>
 
-<div class="widget-pin">
+<svelte:window onkeydown={(e) => { if (picking && e.key === 'Escape') picking = false; }} />
+
+<div class="widget-pin" class:widget-pin-tinted={background} style:--pin-bg={background}>
 	<!-- The bar moves the window. -->
 	<div class="widget-pin-bar" data-tauri-drag-region>
 		{#if view?.color && view.mark}<PlaceMark kind={view.mark} color={view.color} />
 		{:else if view?.color}<span class="tasks-dot" style="background-color: {view.color}"></span>{/if}
 		<span class="widget-pin-title" title={view?.title}>{view?.title ?? 'Tasks'}</span>
 		{#if openCount}<span class="widget-pin-count">{openCount}</span>{/if}
-		<button type="button" class="tasks-icon-btn" onclick={closePin} title="Close and unpin" aria-label="Close and unpin">
+		<button type="button" class="tasks-icon-btn" onclick={() => (picking = !picking)} title="Colour" aria-label="Colour" aria-expanded={picking}>
+			<svg aria-hidden="true" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 21a9 9 0 1 1 9-9c0 1.66-1.34 3-3 3h-1.5a1.5 1.5 0 0 0-1.06 2.56A1.5 1.5 0 0 1 14.38 21H12z" /><circle cx="7.5" cy="11" r="1" fill="currentColor" /><circle cx="10.5" cy="7.5" r="1" fill="currentColor" /><circle cx="15" cy="7.5" r="1" fill="currentColor" /></svg>
+		</button>
+		<button type="button" class="tasks-icon-btn" onclick={unpin} title="Close and unpin" aria-label="Close and unpin">
 			<svg aria-hidden="true" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
 		</button>
 	</div>
+
+	{#if picking}
+		<div class="widget-pin-colors" role="group" aria-label="Pin colour">
+			{#each PIN_COLORS as c (c.key)}
+				<button
+					type="button"
+					class="widget-pin-swatch"
+					style:background-color={c.value}
+					title={c.label}
+					aria-label={c.label}
+					aria-pressed={colorChoice === c.key}
+					onclick={() => pickColor(c.key)}
+				></button>
+			{/each}
+			<span class="widget-pin-colors-gap"></span>
+			{#if view?.color}
+				<button type="button" class="widget-pin-swatch" style:background-color={pinBackground(null, view.color)}
+					title="Project colour" aria-label="Project colour" aria-pressed={colorChoice === null} onclick={() => pickColor(null)}></button>
+			{/if}
+			<button type="button" class="widget-pin-swatch widget-pin-swatch-none" title="Reset to white or black" aria-label="Reset to white or black"
+				aria-pressed={!background} onclick={() => pickColor('none')}></button>
+		</div>
+	{/if}
 
 	<div class="widget-pin-list">
 		{#if !target}
 			<p class="widget-pin-empty">This pin can't be read.</p>
 		{:else if view?.missing}
 			<p class="widget-pin-empty">What was pinned here has been deleted.</p>
-			<button type="button" class="btn btn-secondary" onclick={closePin}>Close</button>
+			<button type="button" class="btn btn-secondary" onclick={unpin}>Close</button>
 		{:else if view}
 			{#each view.tasks as task (task.id)}
 				<TaskRow

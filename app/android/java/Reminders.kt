@@ -132,10 +132,17 @@ object Reminders {
     val now = System.currentTimeMillis()
     val exact = canExact(c)
     val upcoming = parse(json).filter { it.at > now }
+    // An alarm clock alarm is the one kind Android never defers: setExactAndAllowWhileIdle
+    // still came about a minute late with the screen off. Its "show" intent opens the app.
+    val show = PendingIntent.getActivity(
+      c, 0,
+      Intent(c, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
     for (r in upcoming) {
       val pi = alarmIntent(c, r)
       try {
-        if (exact) am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, r.at, pi)
+        if (exact) am.setAlarmClock(AlarmManager.AlarmClockInfo(r.at, show), pi)
         else am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, r.at, pi)
       } catch (_: SecurityException) {
         am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, r.at, pi)

@@ -65,6 +65,7 @@ export function patchChips(p: TaskPatch, projects: TaskProject[], sections: Task
 		chips.push({ kind: 'date', label: 'No date' });
 	}
 	if (p.duration_minutes) chips.push({ kind: 'duration', label: `for ${formatDuration(p.duration_minutes)}` });
+	else if ('duration_minutes' in p) chips.push({ kind: 'duration', label: 'No duration' });
 	if (p.recurrence) chips.push({ kind: 'recurrence', label: `↻ ${p.recurrence}` });
 	if (p.remind_at) {
 		chips.push({ kind: 'reminder', label: `Remind ${formatInstant(p.remind_at)}` });
@@ -78,14 +79,14 @@ export function patchChips(p: TaskPatch, projects: TaskProject[], sections: Task
 	return chips;
 }
 
-/** When the task is due, as a timestamp; a date with no time counts from 9:00 (as `localInstant` does). */
+/** When the task is due, as a timestamp; a date with no time counts from 10:00 (as `localInstant` does). */
 export function dueAtOf(task: Pick<Task, 'due_date' | 'due_time'>): number | null {
 	return task.due_date ? new Date(localInstant(task.due_date, task.due_time)).getTime() : null;
 }
 
 /**
- * A patch as it should be saved: a task getting its first due time, with no reminder
- * yet, gets one at that time; a change of date or time moves an existing reminder
+ * A patch as it should be saved: a task getting a date or time, with no reminder
+ * yet, gets one at the due time (10:00 for a date alone); a change of date or time moves an existing reminder
  * with it, the same time before; taking the date off takes the reminder off.
  */
 export function finishPatch(task: Task, patch: TaskPatch): TaskPatch {
@@ -109,8 +110,10 @@ export function settlePatch(task: Task, patch: TaskPatch): TaskPatch {
 	if ('due_date' in patch && !patch.due_date && task.remind_at && !patch.remind_at) {
 		return { ...patch, remind_at: null };
 	}
-	if (patch.due_time && !task.due_time && !task.remind_at && !('remind_at' in patch)) {
-		const remind_at = defaultReminder(patch.due_date ?? task.due_date, patch.due_time);
+	if ((patch.due_date || patch.due_time) && !task.remind_at && !('remind_at' in patch)) {
+		const date = patch.due_date ?? task.due_date;
+		const time = 'due_time' in patch ? patch.due_time : task.due_time;
+		const remind_at = defaultReminder(date, time);
 		return remind_at ? { ...patch, remind_at } : patch;
 	}
 	const dueAt = dueAtOf(task);

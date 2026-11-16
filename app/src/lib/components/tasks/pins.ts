@@ -140,3 +140,52 @@ export function pinView(target: PinTarget, data: PinData): PinView {
 export function pinNewTask(view: PinView, data: TaskIn): TaskIn {
 	return view.parentId ? { ...data, parent_id: view.parentId, project_id: null, section_id: null } : data;
 }
+
+// ── A pin's colour ───────────────────────────────────────────────────────────
+
+/** Sticky-note pastels a pin can be painted in. The key is what is saved. */
+export const PIN_COLORS = [
+	{ key: 'yellow',   label: 'Yellow',   value: '#fdf3b4' },
+	{ key: 'peach',    label: 'Peach',    value: '#fde0c8' },
+	{ key: 'pink',     label: 'Pink',     value: '#fbd8e4' },
+	{ key: 'lavender', label: 'Lavender', value: '#e6dcf8' },
+	{ key: 'blue',     label: 'Blue',     value: '#d6e8fb' },
+	{ key: 'mint',     label: 'Mint',     value: '#d4f1e0' },
+	{ key: 'lime',     label: 'Lime',     value: '#e8f2c8' },
+	{ key: 'sand',     label: 'Sand',     value: '#ece6dc' },
+] as const;
+
+/**
+ * What a pin was set to: a PIN_COLORS key, `none` for the app's own white or black,
+ * or null when never set, which paints it a pale shade of its list's colour.
+ */
+export type PinColorChoice = (typeof PIN_COLORS)[number]['key'] | 'none' | null;
+
+// Pins are this device's, so their colours are too: kept in the windows' shared localStorage.
+const colorKey = (label: string) => `tasks.pin-color.${label}`;
+
+export function loadPinColor(label: string): PinColorChoice {
+	try {
+		const v = localStorage.getItem(colorKey(label));
+		return v === 'none' || PIN_COLORS.some((c) => c.key === v) ? (v as PinColorChoice) : null;
+	} catch {
+		return null;
+	}
+}
+
+export function savePinColor(label: string, choice: PinColorChoice) {
+	try {
+		if (choice === null) localStorage.removeItem(colorKey(label));
+		else localStorage.setItem(colorKey(label), choice);
+	} catch {
+		// Not saved: the pin keeps it until it closes.
+	}
+}
+
+/** The pin's background, or null for the app's own. `listColor` is the view's colour. */
+export function pinBackground(choice: PinColorChoice, listColor: string | null): string | null {
+	if (choice === 'none') return null;
+	const picked = PIN_COLORS.find((c) => c.key === choice);
+	if (picked) return picked.value;
+	return listColor ? `color-mix(in oklch, ${listColor} 24%, white)` : null;
+}

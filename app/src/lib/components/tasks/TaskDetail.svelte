@@ -121,7 +121,7 @@
 	/** Its subtasks have durations, so its own is what's left of theirs, kept up to date for it. */
 	let durationFromSubtasks = $derived(subtaskMinutes(subtasks) !== null);
 	let durationOptions = $derived([
-		{ value: 'none', label: 'None' },
+		{ value: 'none', label: 'No duration' },
 		...[...new Set([...DURATION_MINUTES, ...(task.duration_minutes ? [task.duration_minutes] : [])])]
 			.sort((a, b) => a - b)
 			.map((m) => ({ value: String(m), label: formatDuration(m) })),
@@ -133,7 +133,7 @@
 	}
 
 	// ── Reminder: a set time before the due time ──────────────────────────────
-	// A task with a date but no time counts from 9:00 (as `localInstant` does).
+	// A task with a date but no time counts from 10:00 (as `localInstant` does).
 	const REMINDER_MINUTES = [0, 5, 10, 15, 30, 60, 120, 1440];
 	const reminderLabel = (m: number) =>
 		m === 0 ? 'At the due time'
@@ -143,13 +143,12 @@
 
 	let dueAt = $derived(dueAtOf(task));
 	let reminderValue = $derived.by(() => {
-		if (!task.remind_at) return 'none';
+		if (!task.remind_at) return undefined;
 		if (dueAt === null) return 'other';
 		const before = (dueAt - new Date(task.remind_at).getTime()) / 60_000;
 		return REMINDER_MINUTES.includes(before) ? String(before) : 'other';
 	});
 	let reminderOptions = $derived([
-		{ value: 'none', label: 'No reminder' },
 		...(dueAt === null ? [] : REMINDER_MINUTES.map((m) => ({ value: String(m), label: reminderLabel(m) }))),
 		// A reminder set another way (e.g. "!5pm" in the quick add) shows as its time.
 		...(reminderValue === 'other'
@@ -159,10 +158,7 @@
 
 	function saveReminder(value: string) {
 		if (value === 'other' || value === reminderValue) return;
-		if (value === 'none' || dueAt === null) {
-			save({ remind_at: null });
-			return;
-		}
+		if (dueAt === null) return;
 		askReminderPermission();
 		save({ remind_at: new Date(dueAt - Number(value) * 60_000).toISOString() });
 	}
@@ -645,12 +641,13 @@
 						value={reminderValue}
 						options={reminderOptions}
 						disabled={dueAt === null && !task.remind_at}
+						placeholder="Not set"
 						onchange={saveReminder}
 					/>
 					{#if dueAt === null}
 						<p class="task-side-hint">Set a date to add a reminder.</p>
 					{:else if !task.due_time}
-						<p class="task-side-hint">No time set, so it counts from 9:00 am.</p>
+						<p class="task-side-hint">No time set, so it counts from 10:00 am.</p>
 					{/if}
 				</div>
 

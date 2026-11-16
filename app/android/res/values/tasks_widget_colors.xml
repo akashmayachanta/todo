@@ -5,7 +5,7 @@
     <color name="tasks_widget_bg">#FFFFFFFF</color>
     <color name="tasks_widget_text">#FF1F2937</color>
     <color name="tasks_widget_muted">#FF6B7280</color>
-    <!-- Due labels, as the app's .task-due-* (layout.css's --color-*). -->
+    <!-- Due labels, as the app's .task-due-* (the color variables in layout.css). -->
     <color name="tasks_widget_due">#FF464E55</color>
     <color name="tasks_widget_today">#FF1B683E</color>
     <color name="tasks_widget_tomorrow">#FF8A5600</color>

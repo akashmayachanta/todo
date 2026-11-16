@@ -174,6 +174,21 @@ let props = readFileSync(propsPath, 'utf8');
 const SUPPRESS = 'android.sync.suppressAgpWarnings=UNSUPPORTED_PROJECT_OPTION_USE,DEPRECATED_DSL';
 props = props.replace(/\n*# tasks-native: quiet AGP[^\n]*\n[^\n]*/g, '').replace(/\n+$/, '\n');
 props += `\n# tasks-native: quiet AGP (scripts/android-native.mjs)\n${SUPPRESS}\n`;
+
+// Faster Gradle: modules built side by side, task outputs reused from the build
+// cache when their inputs haven't changed, and a bigger heap so the daemon isn't
+// collecting garbage. Each is set here, replacing whatever the template has.
+const SPEED = {
+	'org.gradle.parallel': 'true',
+	'org.gradle.caching': 'true',
+	'org.gradle.daemon': 'true',
+	'org.gradle.jvmargs': '-Xmx4g -XX:+UseParallelGC -Dfile.encoding=UTF-8',
+	'kotlin.incremental': 'true',
+};
+for (const [key, value] of Object.entries(SPEED)) {
+	const line = new RegExp(`^${key.replace(/\./g, '\\.')}=.*$`, 'm');
+	props = line.test(props) ? props.replace(line, `${key}=${value}`) : `${props.replace(/\n*$/, '\n')}${key}=${value}\n`;
+}
 writeFileSync(propsPath, props);
 
 console.log('Android native code, manifest entries and WorkManager are in place.');

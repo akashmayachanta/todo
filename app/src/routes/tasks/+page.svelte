@@ -2064,6 +2064,7 @@
 					{/if}
 					{#if !loading && !error && view !== 'karma' && view !== 'search'}
 						<LayoutToggle {layout} options={layoutOptions} onchange={setLayout} />
+							{#if view === 'projects'}<button type="button" class="btn btn-secondary" onclick={newProject}>Add project</button>{/if}
 					{/if}
 					{#if view !== 'karma' && view !== 'projects' && view !== 'search'}<SmartTips />{/if}
 					{#if pinTarget}
@@ -2126,7 +2127,6 @@
 					{minutes}
 					showCounts={settings.showCounts}
 					board={layout === 'board'}
-					onaddproject={newProject}
 					oneditproject={editProject}
 					ondeleteproject={deleteProject}
 					onreorderprojects={reorderProjects}

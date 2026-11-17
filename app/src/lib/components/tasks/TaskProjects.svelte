@@ -16,7 +16,7 @@
 	 */
 	let {
 		projects, sections, counts, minutes, showCounts, board = false,
-		onaddproject, oneditproject, ondeleteproject, onreorderprojects,
+		oneditproject, ondeleteproject, onreorderprojects,
 		onplacesection, onmovesection, onrenamesection, ondeletesection,
 	}: {
 		projects: TaskProject[];
@@ -26,7 +26,6 @@
 		showCounts: boolean;
 		/** Projects side by side as columns, rather than one under another. */
 		board?: boolean;
-		onaddproject: () => void;
 		oneditproject: (project: TaskProject) => void;
 		ondeleteproject: (project: TaskProject) => void;
 		onreorderprojects: (ids: string[]) => void;
@@ -244,5 +243,3 @@
 		<p class="tasks-empty">No projects yet.</p>
 	{/each}
 </div>
-
-<button type="button" class="btn btn-secondary projects-add" onclick={onaddproject}>Add project</button>

@@ -122,6 +122,15 @@
 		}
 	}
 
+	function setExpanded(ids: string[]) {
+		expanded = ids;
+		try {
+			localStorage.setItem(EXPANDED_KEY, JSON.stringify(ids));
+		} catch {
+			/* storage blocked: it is forgotten on reload */
+		}
+	}
+
 	let byProject = $derived.by(() => {
 		const map = new Map<string, TaskSection[]>();
 		for (const c of [...sections].sort((a, b) => a.position - b.position || a.id.localeCompare(b.id))) {
@@ -131,6 +140,10 @@
 		}
 		return map;
 	});
+
+	/** Projects that have sections to show, and whether any is showing them. */
+	let foldable = $derived(projects.filter((p) => byProject.has(p.id)));
+	let anyOpen = $derived(foldable.some((p) => expanded.includes(p.id)));
 
 	let hash = $derived(page.url.hash);
 	/** Favorite projects, in the projects' order, listed above Filters. */
@@ -431,9 +444,22 @@
 
 		<div class="tasks-pane-head">
 			<a href="?view=projects" class="tasks-pane-head-link" aria-current={view === 'projects' ? 'page' : undefined} title="All projects and sections">Projects</a>
+			<span class="tasks-pane-head-actions">
+			{#if foldable.length}
+				<button
+					type="button"
+					class="tasks-icon-btn"
+					onclick={() => setExpanded(anyOpen ? [] : foldable.map((p) => p.id))}
+					title={anyOpen ? 'Collapse all' : 'Expand all'}
+					aria-label={anyOpen ? 'Collapse all projects' : 'Expand all projects'}
+				>
+					<svg aria-hidden="true" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={anyOpen ? 'M7 8l5-5 5 5M7 16l5 5 5-5' : 'M7 5l5 5 5-5M7 19l5-5 5 5'} /></svg>
+				</button>
+			{/if}
 			<button type="button" class="tasks-icon-btn" onclick={onaddproject} title="Add project" aria-label="Add project">
 				<svg aria-hidden="true" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14m7-7H5" /></svg>
 			</button>
+			</span>
 		</div>
 
 		{#each projects as p, i (p.id)}

@@ -303,7 +303,8 @@
   transition: color var(--dur-micro) var(--ease-out), background-color var(--dur-micro) var(--ease-out);
 }
 
-.tasks-pane-link:hover {
+.tasks-pane-link:hover,
+.tasks-pane-project:hover > .tasks-pane-link {
   color: var(--text-primary);
   background-color: var(--bg-hover);
 }
@@ -359,6 +360,7 @@
 
 /* Rolled-up duration, beside the count. */
 .tasks-pane-time {
+  color: var(--color-info);
   white-space: nowrap;
 }
 
@@ -373,6 +375,12 @@
   font-size: var(--text-label);
   font-weight: 500;
   color: var(--text-muted);
+}
+
+.tasks-pane-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .tasks-pane-project {
@@ -3296,10 +3304,15 @@ button.tcal-day:hover {
   padding: var(--space-2xs) 0 var(--space-2xs) var(--space-xs);
   color: inherit;
   border-radius: var(--radius-control);
-  transition: color var(--dur-micro) var(--ease-out);
+  transition: color var(--dur-micro) var(--ease-out), background-color var(--dur-micro) var(--ease-out);
 }
 
-.tasks-pane-head-link:hover,
+/* Highlighted on hover like the pane's rows. */
+.tasks-pane-head-link:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-hover);
+}
+
 .tasks-pane-head-link[aria-current="page"] {
   color: var(--color-brand);
 }
@@ -3370,10 +3383,6 @@ button.tcal-day:hover {
   padding: var(--space-2xs) var(--space-xs) var(--space-xs) calc(var(--space-md) + var(--space-xs));
   font-size: var(--text-xs);
   color: var(--text-faint);
-}
-
-.projects-add {
-  margin-top: var(--space-md);
 }
 
 html.sort-active [data-move-id] {

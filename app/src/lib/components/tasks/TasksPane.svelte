@@ -18,12 +18,14 @@
 	 * (which hides the whole pane; the page then shows its own) at the top, the fixed views
 	 * (Karma, the progress charts, last), the saved filters, then the projects.
 	 * A project with sections has an expander that lists them; a section links to
-	 * its section of the project. Projects are reordered by dragging them, or with
-	 * Move up / Move down in their menu. On phones it is the Browse tab.
+	 * its section of the project, and has a menu to move it to another project. Projects are
+	 * reordered by dragging them, or with Move up / Move down in their menu. The "Projects"
+	 * heading opens the Projects screen. On phones it is the Browse tab.
 	 */
 	let {
 		projects, sections, filters, counts, minutes, view, projectId, filterId, settings, today, query = '', browsing = false,
 		onsearch, onaddproject, oneditproject, ondeleteproject, onreorderprojects, onfavoriteproject, onaddfilter, oneditfilter, ondeletefilter,
+		onplacesection, onmovesection, onrenamesection, ondeletesection,
 		taskDrag = false, ondroptasks = null,
 	}: {
 		projects: TaskProject[];
@@ -55,6 +57,12 @@
 		onaddfilter: () => void;
 		oneditfilter: (filter: TaskFilter) => void;
 		ondeletefilter: (filter: TaskFilter) => void;
+		/** Puts a section before or after another of its project's (Move up / Move down). */
+		onplacesection: (id: string, projectId: string, targetId: string | null, after: boolean) => void;
+		/** Opens "Move to" for a section. */
+		onmovesection: (section: TaskSection) => void;
+		onrenamesection: (section: TaskSection, name: string) => void;
+		ondeletesection: (section: TaskSection) => void;
 		/** Tasks are being dragged on the page: the Inbox, Today, projects and sections take them. */
 		taskDrag?: boolean;
 		/** Tasks dropped on a project, section or the Inbox (a move), or on Today (a date). */
@@ -150,6 +158,49 @@
 		if (target) withFlip(() => moveProject(p.id, target.id, by === 1));
 	}
 
+	// ── A section's menu ─────────────────────────────────────────────────────
+
+	/** The section whose name is being typed over. */
+	let renaming = $state<string | null>(null);
+	let sectionName = $state('');
+
+	function saveName(c: TaskSection) {
+		if (renaming !== c.id) return;
+		renaming = null;
+		onrenamesection(c, sectionName);
+	}
+
+	function nameKey(e: KeyboardEvent, c: TaskSection) {
+		if (e.key === 'Enter') {
+			e.preventDefault();
+			saveName(c);
+		} else if (e.key === 'Escape') {
+			e.preventDefault();
+			e.stopPropagation();
+			renaming = null;
+		}
+	}
+
+	function focusNow(node: HTMLInputElement) {
+		node.focus();
+		node.select();
+	}
+
+	function onSectionMenu(c: TaskSection, id: string) {
+		if (id === 'rename') {
+			sectionName = c.name;
+			renaming = c.id;
+		} else if (id === 'move') {
+			onmovesection(c);
+		} else if (id === 'up' || id === 'down') {
+			const list = byProject.get(c.project_id) ?? [];
+			const other = list[list.findIndex((x) => x.id === c.id) + (id === 'up' ? -1 : 1)];
+			if (other) withFlip(() => onplacesection(c.id, c.project_id, other.id, id === 'down'));
+		} else {
+			ondeletesection(c);
+		}
+	}
+
 	function projectDragStart(e: DragEvent, p: TaskProject) {
 		dragId = p.id;
 		if (e.dataTransfer) {
@@ -191,7 +242,55 @@
 		ondroptasks(to);
 	}
 
+	// ── Dragging a section: to another place in its project, or onto another project ──
+
+	let catDragId = $state<string | null>(null);
+	/** The project a dragged section would go into, last. */
+	let catDropProject = $state<string | null>(null);
+
+	function catDragStart(e: DragEvent, c: TaskSection) {
+		e.stopPropagation();
+		catDragId = c.id;
+		if (e.dataTransfer) {
+			e.dataTransfer.setData('text/plain', c.name);
+			e.dataTransfer.effectAllowed = 'move';
+		}
+	}
+
+	function catDragEnd() {
+		catDragId = null;
+		catDropProject = null;
+		dropAt = null;
+	}
+
+	function catDragOver(e: DragEvent, c: TaskSection) {
+		if (catDragId === null) return; // tasks: the link under it takes them
+		e.preventDefault();
+		e.stopPropagation();
+		if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+		const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+		catDropProject = null;
+		dropAt = catDragId === c.id ? null : { id: c.id, after: e.clientY > rect.top + rect.height / 2 };
+	}
+
+	function catDrop(e: DragEvent, c: TaskSection) {
+		if (catDragId === null) return;
+		e.preventDefault();
+		e.stopPropagation();
+		const id = catDragId;
+		const at = dropAt;
+		catDragEnd();
+		if (at) withFlip(() => onplacesection(id, c.project_id, at.id, at.after));
+	}
+
 	function projectDragOver(e: DragEvent, p: TaskProject) {
+		if (catDragId !== null) {
+			e.preventDefault();
+			if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+			dropAt = null;
+			catDropProject = p.id;
+			return;
+		}
 		if (dragId === null) return taskOver(e, `p:${p.id}`); // tasks, or something from outside
 		e.preventDefault();
 		if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
@@ -201,6 +300,13 @@
 	}
 
 	function projectDrop(e: DragEvent, p: TaskProject) {
+		if (catDragId !== null) {
+			e.preventDefault();
+			const id = catDragId;
+			catDragEnd();
+			withFlip(() => onplacesection(id, p.id, null, false));
+			return;
+		}
 		if (dragId === null) return taskDrop(e, { project_id: p.id, section_id: null });
 		e.preventDefault();
 		const at = dropAt;
@@ -324,7 +430,7 @@
 		{/each}
 
 		<div class="tasks-pane-head">
-			<span>Projects</span>
+			<a href="?view=projects" class="tasks-pane-head-link" aria-current={view === 'projects' ? 'page' : undefined} title="All projects and sections">Projects</a>
 			<button type="button" class="tasks-icon-btn" onclick={onaddproject} title="Add project" aria-label="Add project">
 				<svg aria-hidden="true" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14m7-7H5" /></svg>
 			</button>
@@ -346,9 +452,9 @@
 				draggable="true"
 				ondragstart={(e) => projectDragStart(e, p)}
 				ondragend={projectDragEnd}
-				class:tasks-pane-task-over={taskDropOn === `p:${p.id}`}
+				class:tasks-pane-task-over={taskDropOn === `p:${p.id}` || catDropProject === p.id}
 				ondragover={(e) => projectDragOver(e, p)}
-				ondragleave={(e) => taskLeave(e, `p:${p.id}`)}
+				ondragleave={(e) => { if (catDropProject === p.id) catDropProject = null; taskLeave(e, `p:${p.id}`); }}
 				ondrop={(e) => projectDrop(e, p)}
 			>
 				<a href="?project={p.id}" class="tasks-pane-link" aria-current={here && !hash.startsWith('#task-cat-') ? 'page' : undefined}>
@@ -400,10 +506,33 @@
 					data-flip="project-cats:{p.id}"
 					transition:slide={{ duration: motion(180) }}
 				>
-					{#each cats as c (c.id)}
-						<li data-flip="pane-cat:{c.id}">
+					{#each cats as c, j (c.id)}
+						<!-- Dragging is a mouse shortcut; the menu's Move to project and Move up / Move down do the same. -->
+						<li
+							class="tasks-pane-project"
+							data-flip="pane-cat:{c.id}"
+							class:tasks-pane-dragging={catDragId === c.id}
+							class:tasks-pane-drop-before={dropAt?.id === c.id && !dropAt.after}
+							class:tasks-pane-drop-after={dropAt?.id === c.id && dropAt.after}
+							draggable={renaming !== c.id}
+							ondragstart={(e) => catDragStart(e, c)}
+							ondragend={catDragEnd}
+							ondragover={(e) => catDragOver(e, c)}
+							ondrop={(e) => catDrop(e, c)}
+						>
+							{#if renaming === c.id}
+								<input
+									class="tasks-pane-rename"
+									bind:value={sectionName}
+									aria-label="Section name"
+									use:focusNow
+									onkeydown={(e) => nameKey(e, c)}
+									onblur={() => saveName(c)}
+								/>
+							{:else}
 							<a
 								href="?project={p.id}#task-cat-{c.id}"
+								draggable="false"
 								class="tasks-pane-link tasks-pane-cat"
 								class:tasks-pane-task-over={taskDropOn === `c:${c.id}`}
 								aria-current={here && hash === `#task-cat-${c.id}` ? 'page' : undefined}
@@ -416,6 +545,24 @@
 								{#if count(minutes.sections[c.id])}<span class="tasks-pane-count tasks-pane-time">{formatDuration(minutes.sections[c.id])}</span>{/if}
 								{#if count(counts.sections[c.id])}<span class="tasks-pane-count">{count(counts.sections[c.id])}</span>{/if}
 							</a>
+							<DropdownMenu
+								class="tasks-pane-menu"
+								triggerClass="tasks-icon-btn"
+								ariaLabel="Section actions for {c.name}"
+								items={[
+									{ id: 'move', label: 'Move to project', disabled: projects.length < 2 },
+									{ id: 'rename', label: 'Rename' },
+									{ id: 'up', label: 'Move up', disabled: j === 0 },
+									{ id: 'down', label: 'Move down', disabled: j === cats.length - 1 },
+									{ id: 'delete', label: 'Delete section', danger: true },
+								]}
+								onselect={(id) => onSectionMenu(c, id)}
+							>
+								{#snippet icon()}
+									<svg aria-hidden="true" class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path d="M6 10a2 2 0 11-4 0 2 2 0 014 0zm6 0a2 2 0 11-4 0 2 2 0 014 0zm6 0a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+								{/snippet}
+							</DropdownMenu>
+							{/if}
 						</li>
 					{/each}
 				</ul>

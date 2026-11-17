@@ -32,6 +32,7 @@
 	import LayoutToggle from '$lib/components/tasks/LayoutToggle.svelte';
 	import SmartTips from '$lib/components/tasks/SmartTips.svelte';
 	import GroupMenu from '$lib/components/tasks/GroupMenu.svelte';
+	import TaskProjects from '$lib/components/tasks/TaskProjects.svelte';
 	import FilterDialog from '$lib/components/tasks/FilterDialog.svelte';
 	import PaneToggle from '$lib/components/tasks/PaneToggle.svelte';
 	import { paneCollapsed } from '$lib/stores/paneCollapsed';
@@ -135,7 +136,7 @@
 		if (searchQuery) return 'search';
 		const v = params.get('view');
 		// With no view in the URL, the one picked in Settings ("Open on").
-		return v === 'inbox' || v === 'upcoming' || v === 'today' || v === 'karma' ? v : settings.startView;
+		return v === 'inbox' || v === 'upcoming' || v === 'today' || v === 'karma' || v === 'projects' ? v : settings.startView;
 	});
 	let taskId = $derived(params.get('task') || null);
 	/** Done tasks are listed in the Inbox and projects when Settings → General says so. */
@@ -274,7 +275,7 @@
 
 	let layoutKey = $derived(view === 'project' ? `project:${projectId}` : view === 'filter' ? `filter:${filterId}` : view);
 	/** Today has no calendar: it is one day (and the overdue ones). */
-	let layoutOptions = $derived<readonly TaskLayout[]>(view === 'search' ? ['list'] : view === 'today' ? ['list', 'board'] : ['list', 'board', 'calendar']);
+	let layoutOptions = $derived<readonly TaskLayout[]>(view === 'search' ? ['list'] : view === 'today' || view === 'projects' ? ['list', 'board'] : ['list', 'board', 'calendar']);
 	let layout = $derived.by((): TaskLayout => {
 		const l = layouts[layoutKey];
 		return l && layoutOptions.includes(l) ? l : 'list';
@@ -746,7 +747,7 @@
 	let heading = $derived(
 		view === 'project' ? project?.name ?? 'Project'
 			: view === 'filter' ? filter?.name ?? 'Filter'
-			: view === 'inbox' ? 'Inbox' : view === 'today' ? 'Today' : view === 'karma' ? 'Karma' : view === 'search' ? 'Search' : 'Upcoming',
+			: view === 'inbox' ? 'Inbox' : view === 'today' ? 'Today' : view === 'karma' ? 'Karma' : view === 'projects' ? 'Projects' : view === 'search' ? 'Search' : 'Upcoming',
 	);
 
 	// ── Search ─────────────────────────────────────────────────────────────────
@@ -1475,6 +1476,56 @@
 		}
 	}
 
+	/** A new name from the pane or the Projects screen; the description stays. */
+	async function renameSection(c: TaskSection, text: string) {
+		const name = text.trim();
+		if (!name || name === c.name) return;
+		try {
+			const updated = await api.tasks.sections.update(c.id, { project_id: c.project_id, name });
+			sections = sections.map((x) => (x.id === updated.id ? updated : x));
+		} catch (e) {
+			toast.error(errorDetail(e));
+		}
+	}
+
+	/**
+	 * Puts a section before or after another (`targetId`), or last, in a project: its own,
+	 * or another, where its tasks and their subtasks go with it. Shown at once; on failure
+	 * the sections are read again.
+	 */
+	async function placeSection(id: string, toProject: string, targetId: string | null, after: boolean) {
+		const moving = sections.find((c) => c.id === id);
+		const target = projects.find((p) => p.id === toProject);
+		if (!moving || !target || targetId === id) return;
+		const current = sections
+			.filter((c) => c.project_id === toProject)
+			.sort((a, b) => a.position - b.position || a.id.localeCompare(b.id));
+		const others = current.filter((c) => c.id !== id);
+		const found = targetId ? others.findIndex((c) => c.id === targetId) : -1;
+		const at = found < 0 ? others.length : found + (after ? 1 : 0);
+		const ids = [...others.slice(0, at), moving, ...others.slice(at)].map((c) => c.id);
+		const moved = moving.project_id !== toProject;
+		if (!moved && ids.every((x, i) => x === current[i].id)) return;
+
+		const before = sections;
+		const place = new Map(ids.map((x, i) => [x, i + 1]));
+		sections = sections.map((c) => (place.has(c.id) ? { ...c, project_id: toProject, position: place.get(c.id)! } : c));
+		try {
+			if (moved) await api.tasks.sections.update(id, { project_id: toProject, name: moving.name });
+			const saved = new Map((await api.tasks.sections.reorder(toProject, ids)).map((c) => [c.id, c]));
+			sections = sections.map((c) => saved.get(c.id) ?? c);
+			if (moved) {
+				await reloadTasks();
+				toast.success(`Moved "${moving.name}" to ${target.name}`);
+			}
+		} catch (e) {
+			toast.error(errorDetail(e));
+			// The move may have been saved before the order failed.
+			sections = await api.tasks.sections.list().catch(() => before);
+			if (moved) await reloadTasks().catch(() => {});
+		}
+	}
+
 	/** Puts a section before or after another of the project's, and saves the order. Shown at once, put back on failure. */
 	async function dropSection(id: string, targetId: string, after: boolean) {
 		const list = projectSections;
@@ -1679,7 +1730,7 @@
 		if (el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName))) return;
 		if (goKey(e)) return;
 		if (e.key !== 'q') return;
-		if (projectDialog || filterDialog || movingSection || movingTasks || taskId || view === 'karma' || view === 'search') return;
+		if (projectDialog || filterDialog || movingSection || movingTasks || taskId || view === 'karma' || view === 'projects' || view === 'search') return;
 		e.preventDefault();
 		addingAt = mainAddKey();
 	}
@@ -1961,6 +2012,10 @@
 		onaddfilter={() => (filterDialog = 'new')}
 		oneditfilter={(f) => (filterDialog = f)}
 		ondeletefilter={deleteFilter}
+		onplacesection={placeSection}
+		onmovesection={(c) => (movingSection = c)}
+		onrenamesection={renameSection}
+		ondeletesection={deleteSection}
 		taskDrag={dragging !== null}
 		ondroptasks={dropOnPane}
 	/>
@@ -1998,6 +2053,8 @@
 						<p class="page-subtitle">{fromYmd(today).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</p>
 					{:else if view === 'karma'}
 						<p class="page-subtitle">Your progress: tasks completed against your daily and weekly goals</p>
+					{:else if view === 'projects'}
+						<p class="page-subtitle">Drag a project to reorder it, or a section to move it within or between projects</p>
 					{:else if view === 'search'}
 						<p class="page-subtitle">{searchOpen.length} open, {searchDone.length} completed for "{searchQuery}"</p>
 					{/if}
@@ -2009,7 +2066,7 @@
 					{#if !loading && !error && view !== 'karma' && view !== 'search'}
 						<LayoutToggle {layout} options={layoutOptions} onchange={setLayout} />
 					{/if}
-					{#if view !== 'karma' && view !== 'search'}<SmartTips />{/if}
+					{#if view !== 'karma' && view !== 'projects' && view !== 'search'}<SmartTips />{/if}
 					{#if pinTarget}
 						<button type="button" class="tasks-icon-btn" onclick={() => pin(pinTarget!)} title="Pin to desktop" aria-label="Pin to desktop">
 							<svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M12 17v5M7 17h10l-1.5-4.5V6a2 2 0 00-2-2h-3a2 2 0 00-2 2v6.5L7 17z" /></svg>
@@ -2061,6 +2118,23 @@
 					dailyGoal={settings.dailyGoal}
 					weeklyGoal={settings.weeklyGoal}
 					ongoals={(dailyGoal, weeklyGoal) => changeSettings({ ...settings, dailyGoal, weeklyGoal })}
+				/>
+			{:else if view === 'projects'}
+				<TaskProjects
+					{projects}
+					{sections}
+					{counts}
+					{minutes}
+					showCounts={settings.showCounts}
+					board={layout === 'board'}
+					onaddproject={newProject}
+					oneditproject={editProject}
+					ondeleteproject={deleteProject}
+					onreorderprojects={reorderProjects}
+					onplacesection={placeSection}
+					onmovesection={(c) => (movingSection = c)}
+					onrenamesection={renameSection}
+					ondeletesection={deleteSection}
 				/>
 			{:else if view === 'search'}
 				{#each searchOpen as task (task.id)}
@@ -2298,7 +2372,7 @@
 	<!-- Phones: the views along the bottom, like the pane on wider screens. -->
 	<nav class="tasks-tabbar" aria-label="Views">
 		{#each TABS as t (t.key)}
-			{@const here = t.key === 'browse' ? browsing || view === 'project' || view === 'filter' || view === 'search' : !browsing && view === t.key}
+			{@const here = t.key === 'browse' ? browsing || view === 'project' || view === 'projects' || view === 'filter' || view === 'search' : !browsing && view === t.key}
 			<a href="?view={t.key}" class="tasks-tab" aria-current={here ? 'page' : undefined}>
 				{#if t.key === 'today'}
 					<TodayIcon date={today} strokeWidth={here ? 2.1 : 1.75} />

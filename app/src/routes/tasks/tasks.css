@@ -3261,3 +3261,162 @@ button.tcal-day:hover {
 .tasks-pane-task-over > .tasks-pane-link {
   outline: none;
 }
+
+/* ── Sections in the pane: a menu each, like the projects ──────────────── */
+.tasks-pane-project > .tasks-pane-cat {
+  padding-left: 2.25rem;
+}
+
+.tasks-pane-rename,
+.projects-rename {
+  flex: 1;
+  min-width: 0;
+  padding: 0.3125rem var(--space-xs);
+  border: 1px solid var(--color-brand);
+  border-radius: var(--radius-control);
+  background-color: var(--bg-card);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-sm);
+  outline: none;
+}
+
+.tasks-pane-rename {
+  margin: 2px 0 2px 2.25rem;
+}
+
+/* The "Projects" heading opens the Projects screen. */
+.tasks-pane-head-link {
+  /* The whole row beside the add button opens it, not only the word. */
+  flex: 1;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  margin: calc(-1 * var(--space-2xs)) 0 calc(-1 * var(--space-2xs)) calc(-1 * var(--space-xs));
+  padding: var(--space-2xs) 0 var(--space-2xs) var(--space-xs);
+  color: inherit;
+  border-radius: var(--radius-control);
+  transition: color var(--dur-micro) var(--ease-out);
+}
+
+.tasks-pane-head-link:hover,
+.tasks-pane-head-link[aria-current="page"] {
+  color: var(--color-brand);
+}
+
+/* ── The Projects screen: every project with its sections, all draggable ── */
+.projects-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.projects-card {
+  position: relative;
+  padding: var(--space-2xs);
+  border: var(--rule-hair) solid var(--clr-border);
+  border-radius: var(--task-radius);
+  background-color: var(--bg-card);
+}
+
+.projects-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-height: 2.5rem;
+  padding: 0 var(--space-2xs) 0 var(--space-xs);
+  border-radius: var(--radius-control);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  cursor: grab;
+  touch-action: pan-y;
+  -webkit-touch-callout: none;
+  user-select: none;
+  transition: background-color var(--dur-micro) var(--ease-out);
+}
+
+.projects-row:hover {
+  background-color: var(--bg-hover);
+}
+
+.projects-row-project {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.projects-sections {
+  margin: 0;
+  padding: 0 0 0 var(--space-md);
+  list-style: none;
+}
+
+.projects-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: inherit;
+  -webkit-user-drag: none;
+}
+
+.projects-name:hover {
+  color: var(--color-brand);
+}
+
+.projects-none {
+  margin: 0;
+  padding: var(--space-2xs) var(--space-xs) var(--space-xs) calc(var(--space-md) + var(--space-xs));
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+.projects-add {
+  margin-top: var(--space-md);
+}
+
+html.sort-active [data-move-id] {
+  transition: translate 180ms var(--ease-out), opacity var(--dur-micro) var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.sort-active [data-move-id] {
+    transition: none;
+  }
+}
+
+/* Collapse all / Expand all, over the projects. */
+.projects-tools {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--space-xs);
+}
+
+/* The expander sits in the row here, not over a gutter as in the pane. */
+.projects-expander {
+  position: static;
+  flex: none;
+  width: 1.125rem;
+  height: 1.125rem;
+}
+
+/* Board: the projects side by side, each a column of its sections. */
+.projects-board {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: var(--space-sm);
+}
+
+.projects-board .projects-card {
+  flex: 0 0 17.5rem;
+  min-width: 0;
+}
+
+.projects-board .projects-sections {
+  padding-left: 0;
+}
+
+.projects-board .projects-none {
+  padding-left: var(--space-xs);
+}

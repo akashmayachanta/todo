@@ -6,6 +6,7 @@
  * - `sortGrip`: a task's grip, which drags at once; arrow keys on it do the same.
  * - `sortHold`: touch and hold the task itself (a phone, which has no grip).
  * - `sortSection`: a section's head. The mouse drags it at once, a finger holds it first.
+ * The Projects screen has its own, `sortMove`, for projects and for sections between them.
  *
  * The rows say what they are through data attributes (TaskRow, TaskDetail, the page):
  * - `data-sort-id`, `data-sort-kind` ('top' or 'sub'): a task that can be dropped around.
@@ -159,7 +160,7 @@ function slotOf(el: HTMLElement): HTMLElement {
 	return wrap?.hasAttribute('data-sort-lift') ? wrap : el;
 }
 
-const SLOT = '[data-sort-id], [data-sort-lift], [data-cat-id]';
+const SLOT = '[data-sort-id], [data-sort-lift], [data-cat-id], [data-move-id]';
 
 /** The item next to it in its list, skipping the floating copy. */
 function neighbour(slot: HTMLElement, after: boolean): HTMLElement | null {
@@ -168,9 +169,9 @@ function neighbour(slot: HTMLElement, after: boolean): HTMLElement | null {
 	return at instanceof HTMLElement && at.matches(SLOT) ? at : null;
 }
 
-/** A section list laid out in a row (the board) goes by left and right. */
+/** A list laid out in a row (a board's sections, or the Projects screen's board) goes by left and right. */
 function inRow(slot: HTMLElement): boolean {
-	if (!slot.hasAttribute('data-cat-id') || !slot.parentElement) return false;
+	if (!(slot.hasAttribute('data-cat-id') || slot.dataset.moveKind === 'project') || !slot.parentElement) return false;
 	const s = getComputedStyle(slot.parentElement);
 	return s.display.includes('flex') && s.flexDirection.startsWith('row');
 }
@@ -287,7 +288,7 @@ function makeGhost(lift: HTMLElement): HTMLElement {
 	for (const el of [ghost, ...ghost.querySelectorAll<HTMLElement>('*')]) {
 		el.removeAttribute('id');
 		for (const name of [...el.getAttributeNames()]) {
-			if (/^data-(sort|cat|flip|card)/.test(name)) el.removeAttribute(name);
+			if (/^data-(sort|cat|flip|card|move)/.test(name)) el.removeAttribute(name);
 		}
 	}
 	ghost.classList.remove('sort-dragging', 'sort-drop-before', 'sort-drop-after', 'sort-drop-into', 'sort-drop-zone');
@@ -622,6 +623,94 @@ export function sortSection(node: HTMLElement, initial: SectionSortOptions | nul
 	);
 	return {
 		update(next: SectionSortOptions | null) {
+			opts = next;
+		},
+		destroy: teardown,
+	};
+}
+
+export type MoveKind = 'project' | 'section';
+
+export interface MoveDrop {
+	id: string;
+	kind: MoveKind;
+	/** The project or section it landed by; null for a section dropped on a project with none to land by. */
+	targetId: string | null;
+	after: boolean;
+	/** A section: the project (`data-move-zone`) it landed in. */
+	zone: string | null;
+}
+
+export interface MoveOptions {
+	id: string;
+	kind: MoveKind;
+	ondrop: (drop: MoveDrop) => void;
+}
+
+/**
+ * Where a project or section would land on the Projects screen. A project goes before or
+ * after another. A section goes by any section, in any project; over the rest of a
+ * project (its head, or one with no sections) it goes by the nearest of that project's.
+ */
+function findMoveHit(x: number, y: number, source: HTMLElement, kind: MoveKind): Hit | null {
+	const at = under(x, y, source);
+	if (!at) return null;
+	if (kind === 'project') {
+		const item = at.closest<HTMLElement>('[data-move-kind="project"]');
+		if (!item || item === source) return null;
+		// The Projects screen's board lays the projects out in a row.
+		if (!inRow(item)) return { el: item, mode: half(item, y) };
+		const r = item.getBoundingClientRect();
+		return { el: item, mode: x > r.left + r.width / 2 ? 'after' : 'before' };
+	}
+	const item = at.closest<HTMLElement>('[data-move-kind="section"]');
+	if (item) return { el: item, mode: half(item, y) };
+	const zone = at.closest<HTMLElement>('[data-move-zone]');
+	if (!zone) return null;
+	const items = [...zone.querySelectorAll<HTMLElement>('[data-move-kind="section"]')].filter((i) => i !== source);
+	for (const i of items) {
+		const r = i.getBoundingClientRect();
+		if (y < r.top + r.height / 2) return { el: i, mode: 'before' };
+	}
+	const last = items.at(-1);
+	if (last) return { el: last, mode: 'after' };
+	// Its own project, where it is the only section: nowhere else to go.
+	return zone.contains(source) ? null : { el: zone, mode: 'zone' };
+}
+
+/**
+ * The Projects screen: makes a row pick up the `[data-move-id]` around it (a project with
+ * its sections, or one section). The mouse drags it at once, a finger holds it first; its
+ * buttons and the rename box are left alone. Rows say what they are with `data-move-id`
+ * and `data-move-kind`; a project is also a `data-move-zone` for sections.
+ */
+export function sortMove(node: HTMLElement, initial: MoveOptions | null) {
+	let opts = initial;
+	const teardown = pressToDrag(node, () =>
+		opts && {
+			source: (e) => {
+				if ((e.target as Element | null)?.closest('button, input, textarea, [role="menu"]')) return null;
+				return node.closest<HTMLElement>('[data-move-id]');
+			},
+			mouse: 'drag',
+			touch: 'hold',
+			target: () => ({
+				find: (x, y, source) => (opts ? findMoveHit(x, y, source, opts.kind) : null),
+				land: (hit) => {
+					if (!opts) return;
+					opts.ondrop({
+						id: opts.id,
+						kind: opts.kind,
+						targetId: hit.mode === 'zone' ? null : hit.el.dataset.moveId ?? null,
+						after: hit.mode === 'after',
+						zone: hit.el.closest<HTMLElement>('[data-move-zone]')?.dataset.moveZone ?? null,
+					});
+				},
+			}),
+		},
+	);
+	return {
+		update(next: MoveOptions | null) {
 			opts = next;
 		},
 		destroy: teardown,

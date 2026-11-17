@@ -3,7 +3,7 @@ import { plainText } from '$lib/links';
 import { daysBetween, localInstant, nextOccurrence } from '$lib/taskParse';
 import { DEFAULT_DATE_PREFS, type DatePrefs } from '$lib/datePrefs.svelte';
 
-export type TaskView = 'inbox' | 'today' | 'upcoming' | 'karma' | 'project' | 'filter' | 'search';
+export type TaskView = 'inbox' | 'today' | 'upcoming' | 'karma' | 'projects' | 'project' | 'filter' | 'search';
 
 /** How a view is laid out, chosen per view (like Todoist's View menu). */
 export type TaskLayout = 'list' | 'board' | 'calendar';

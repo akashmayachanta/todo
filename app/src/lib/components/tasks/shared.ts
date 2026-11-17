@@ -1,6 +1,6 @@
-import type { Task, TaskSection, TaskPatch, TaskPriority, TaskProject } from '$lib/api';
+import type { Task, TaskSection, TaskPriority, TaskProject } from '$lib/api';
 import { plainText } from '$lib/links';
-import { daysBetween, localInstant, nextOccurrence } from '$lib/taskParse';
+import { localInstant } from '$lib/taskParse';
 import { DEFAULT_DATE_PREFS, type DatePrefs } from '$lib/datePrefs.svelte';
 
 export type TaskView = 'inbox' | 'today' | 'upcoming' | 'karma' | 'projects' | 'project' | 'filter' | 'search';
@@ -234,22 +234,6 @@ export function byDue(a: Task, b: Task): number {
 
 export function byPosition(a: Task, b: Task): number {
 	return a.position - b.position || a.id.localeCompare(b.id);
-}
-
-/**
- * What ticking or unticking a task changes: a repeating task moves to its next date,
- * and its reminder by as many days, with the tick logged for Karma.
- */
-export function completionPatch(task: Task, now: Date): TaskPatch {
-	if (task.completed_at) return { completed_at: null };
-	const next = task.recurrence && task.due_date ? nextOccurrence(task.recurrence, task.due_date, now) : null;
-	if (!next) return { completed_at: new Date().toISOString() };
-	const shift = daysBetween(task.due_date!, next);
-	return {
-		due_date: next,
-		remind_at: task.remind_at ? shiftInstant(task.remind_at, shift) : null,
-		completes_occurrence: true,
-	};
 }
 
 /** An ISO instant moved by whole local days (so 9:00 stays 9:00 across DST). */

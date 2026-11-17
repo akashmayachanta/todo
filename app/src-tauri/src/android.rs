@@ -242,7 +242,7 @@ fn complete(st: &AppState, id: &str) -> Result<bool, String> {
         if task.completed_at.is_some() {
             return Ok(false);
         }
-        tasks_core::ops::update_task(conn, ctx, id, crate::reminders::complete_patch(&task))?;
+        tasks_core::ops::complete_task(conn, ctx, id, chrono::Local::now().date_naive())?;
         Ok(true)
     })
 }

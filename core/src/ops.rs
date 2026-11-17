@@ -10,6 +10,9 @@
 //! - Moving a section moves its tasks; moving a task moves its subtasks.
 //! - A subtask can move to another task; it takes that task's project and section.
 //! - Completing a task completes its open subtasks (they aren't logged).
+//! - Ticking a task (complete_task) is decided here, not by the caller: a repeating
+//!   task moves to its next date with its reminder, and a subtask's duration
+//!   leaves its task's remaining total (reopen_task puts it back).
 //! - Karma: a tick adds a completion, an untick deletes the task's latest one,
 //!   and ticking one occurrence of a repeating task (completes_occurrence)
 //!   adds one too.
@@ -17,13 +20,15 @@
 //!   sections and tasks, a task its subtasks; a deleted section's tasks stay
 //!   in the project without a section.
 
+use chrono::NaiveDate;
 use rusqlite::types::Value as SqlValue;
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Row, ToSql};
 use serde_json::Value;
 
 use crate::model::*;
 use crate::sync::{live_ids, tombstone, touch};
-use crate::time::{ms_to_iso, now_iso};
+use crate::recurrence::next_occurrence;
+use crate::time::{ms_to_iso, now_iso, shift_days};
 use crate::{new_id, Ctx, Error, Result};
 
 // ── Reading rows ─────────────────────────────────────────────────────────────
@@ -845,6 +850,90 @@ pub fn update_task(conn: &Connection, ctx: &Ctx, id: &str, patch: TaskPatch) -> 
         set_columns(conn, ctx, "tasks", id, changes)?;
     }
     get_task(conn, id)
+}
+
+// ── Completing ───────────────────────────────────────────────────────────────
+
+/// What ticking a task changes. A repeating task with a date moves to its next
+/// date, and its reminder by as many days, and the tick is logged for Karma;
+/// any other task is done.
+fn completion_patch(task: &Task, today: NaiveDate) -> TaskPatch {
+    let due = task.due_date.as_deref().and_then(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok());
+    let next = match (task.recurrence.as_deref(), due) {
+        (Some(rule), Some(due)) => next_occurrence(rule, due, today).map(|next| (due, next)),
+        _ => None,
+    };
+    match next {
+        Some((due, next)) => TaskPatch {
+            due_date: Some(Some(next.to_string())),
+            remind_at: Some(task.remind_at.as_deref().and_then(|at| shift_days(at, (next - due).num_days()))),
+            completes_occurrence: Some(true),
+            ..Default::default()
+        },
+        None => TaskPatch { completed_at: Some(Some(now_iso())), ..Default::default() },
+    }
+}
+
+/// The longest a task's duration can be, in minutes (7 days).
+const MAX_MINUTES: i64 = 10080;
+
+/// What is left of the subtasks' durations: the open ones' total, capped at the
+/// limit, 0 when they are all done. None when no subtask has a duration, and the
+/// task keeps its own.
+fn subtask_minutes(subtasks: &[Task]) -> Option<i64> {
+    if !subtasks.iter().any(|s| s.duration_minutes.is_some_and(|m| m != 0)) {
+        return None;
+    }
+    let total: i64 = subtasks.iter().filter(|s| s.completed_at.is_none()).filter_map(|s| s.duration_minutes).sum();
+    Some(total.min(MAX_MINUTES))
+}
+
+/// A task whose subtasks have durations takes their remaining total as its own.
+fn sync_parent_minutes(conn: &Connection, ctx: &Ctx, parent_id: &str) -> Result<()> {
+    let parent = get_task(conn, parent_id)?;
+    let subtasks = query(
+        conn,
+        &format!("SELECT {TASK_COLS} FROM tasks t WHERE t.parent_id = ?1 AND t.deleted_at IS NULL"),
+        &[&parent_id],
+        task_row,
+    )?;
+    let Some(left) = subtask_minutes(&subtasks) else { return Ok(()) };
+    let next = (left != 0).then_some(left);
+    if next != parent.duration_minutes {
+        let patch = TaskPatch { duration_minutes: Some(next), ..Default::default() };
+        update_task(conn, ctx, parent_id, patch)?;
+    }
+    Ok(())
+}
+
+/// Ticks a task, whichever device does it. A repeating task stays open and moves
+/// to its next date after `today` (with its reminder), and a subtask's time leaves
+/// its task's remaining total. Returns the task as it is now; one already done
+/// is returned as it is.
+pub fn complete_task(conn: &Connection, ctx: &Ctx, id: &str, today: NaiveDate) -> Result<Task> {
+    let task = get_task(conn, id)?;
+    if task.completed_at.is_some() {
+        return Ok(task);
+    }
+    let done = update_task(conn, ctx, id, completion_patch(&task, today))?;
+    if let (Some(parent_id), Some(_)) = (&task.parent_id, task.duration_minutes) {
+        sync_parent_minutes(conn, ctx, parent_id)?;
+    }
+    Ok(done)
+}
+
+/// Unticks a done task: it is open again, its Karma tick is taken back, and a
+/// subtask's time returns to its task's remaining total. An open task is returned as it is.
+pub fn reopen_task(conn: &Connection, ctx: &Ctx, id: &str) -> Result<Task> {
+    let task = get_task(conn, id)?;
+    if task.completed_at.is_none() {
+        return Ok(task);
+    }
+    let open = update_task(conn, ctx, id, TaskPatch { completed_at: Some(None), ..Default::default() })?;
+    if let (Some(parent_id), Some(_)) = (&task.parent_id, task.duration_minutes) {
+        sync_parent_minutes(conn, ctx, parent_id)?;
+    }
+    Ok(open)
 }
 
 /// The Karma log since an instant, oldest first. task_id is null once the task is deleted.

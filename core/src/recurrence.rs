@@ -1,6 +1,6 @@
-//! The next date of a repeating task, for ticking one outside the page (a
-//! notification's Complete button). `nextOccurrence` in the app's taskParse.ts is
-//! the same rule for the page, so change the two together.
+//! The next date of a repeating task, for `ops::complete_task`. The page's
+//! taskParse.ts keeps its own copy of the rule only to parse and place a new
+//! recurrence (`firstOccurrence`); ticking goes through core.
 
 use chrono::{Datelike, Days, Months, NaiveDate};
 

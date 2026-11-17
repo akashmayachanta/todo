@@ -235,6 +235,8 @@ pub fn run() {
             commands::tasks_completions,
             commands::tasks_create,
             commands::tasks_update,
+            commands::tasks_complete,
+            commands::tasks_reopen,
             commands::tasks_delete,
             commands::tasks_delete_completed,
             commands::tasks_reorder,

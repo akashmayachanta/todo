@@ -166,6 +166,18 @@ pub fn tasks_update(st: St, id: String, patch: TaskPatch) -> Res<Task> {
     db(&st, true, |c, x| ops::update_task(c, x, &id, patch))
 }
 
+/// Ticks a task: core decides what that changes (ops::complete_task).
+#[tauri::command]
+pub fn tasks_complete(st: St, id: String) -> Res<Task> {
+    let today = chrono::Local::now().date_naive();
+    db(&st, true, |c, x| ops::complete_task(c, x, &id, today))
+}
+
+#[tauri::command]
+pub fn tasks_reopen(st: St, id: String) -> Res<Task> {
+    db(&st, true, |c, x| ops::reopen_task(c, x, &id))
+}
+
 #[tauri::command]
 pub fn tasks_delete(st: St, id: String) -> Res<Ok> {
     db(&st, true, |c, x| ops::delete_task(c, x, &id)).map(|_| OK)

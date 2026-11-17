@@ -305,8 +305,11 @@ pub(crate) fn run_button(st: &AppState, action: &str, id: &str, remind_at: &str)
         if task.completed_at.is_some() || task.remind_at.as_deref() != Some(remind_at) {
             return Ok(false);
         }
-        let patch = if action == "snooze" { snooze_patch() } else { complete_patch(&task) };
-        tasks_core::ops::update_task(conn, ctx, id, patch)?;
+        if action == "snooze" {
+            tasks_core::ops::update_task(conn, ctx, id, snooze_patch())?;
+        } else {
+            tasks_core::ops::complete_task(conn, ctx, id, chrono::Local::now().date_naive())?;
+        }
         Ok(true)
     })
 }
@@ -315,39 +318,6 @@ fn snooze_patch() -> tasks_core::TaskPatch {
     let at = chrono::Utc::now() + chrono::Duration::minutes(SNOOZE_MINUTES);
     tasks_core::TaskPatch { remind_at: Some(Some(tasks_core::time::iso(at))), ..Default::default() }
 }
-
-/// What the page's tick does: a repeating task moves to its next date and its
-/// reminder by as many days; any other task is done.
-pub(crate) fn complete_patch(task: &tasks_core::Task) -> tasks_core::TaskPatch {
-    use chrono::{Local, NaiveDate};
-
-    let today = Local::now().date_naive();
-    let due = task.due_date.as_deref().and_then(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok());
-    let next = match (task.recurrence.as_deref(), due) {
-        (Some(rule), Some(due)) => tasks_core::recurrence::next_occurrence(rule, due, today).map(|next| (due, next)),
-        _ => None,
-    };
-    match next {
-        Some((due, next)) => tasks_core::TaskPatch {
-            due_date: Some(Some(next.to_string())),
-            remind_at: Some(task.remind_at.as_deref().and_then(|at| shift_days(at, (next - due).num_days()))),
-            completes_occurrence: Some(true),
-            ..Default::default()
-        },
-        None => tasks_core::TaskPatch { completed_at: Some(Some(tasks_core::time::now_iso())), ..Default::default() },
-    }
-}
-
-/// Moves an instant by whole days, keeping its local time of day across a clock change.
-fn shift_days(at: &str, days: i64) -> Option<String> {
-    use chrono::{Duration, Local, TimeZone, Utc};
-
-    let local = Local.timestamp_millis_opt(tasks_core::time::instant_ms(at)?).single()?;
-    let same_time = (local.date_naive() + Duration::days(days)).and_time(local.time());
-    let moved = same_time.and_local_timezone(Local).earliest().unwrap_or(local + Duration::days(days));
-    Some(tasks_core::time::iso(moved.with_timezone(&Utc)))
-}
-
 
 /// Android keeps a limited number of alarms per app; the soonest are scheduled.
 #[cfg(mobile)]

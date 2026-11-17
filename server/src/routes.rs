@@ -97,6 +97,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(&p("/app/download"), get(download_release))
         .route(&p("/{id}"), get(get_task).post(update_task))
         .route(&p("/{id}/delete"), post(delete_task))
+        .route(&p("/{id}/complete"), post(complete_task))
+        .route(&p("/{id}/reopen"), post(reopen_task))
         .layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024))
         .with_state(state)
 }
@@ -204,6 +206,28 @@ async fn create_task(State(s): St, u: AuthUser, Body(input): Body<TaskIn>) -> Ap
 
 async fn update_task(State(s): St, u: AuthUser, Path(id): Path<String>, Body(patch): Body<TaskPatch>) -> ApiResult<Json<Task>> {
     Ok(Json(write(&s, &u, move |c| ops::update_task(c, &Ctx::server(), &id, patch)).await?))
+}
+
+#[derive(Deserialize)]
+struct CompleteIn {
+    /// The caller's local date, `2026-11-05`: a repeating task moves to its next
+    /// date after it. The server's own date when left out.
+    today: Option<String>,
+}
+
+/// Ticks a task: core decides what that changes (ops::complete_task). A repeating
+/// task's reminder moves by whole days in the server's time zone.
+async fn complete_task(State(s): St, u: AuthUser, Path(id): Path<String>, Body(input): Body<CompleteIn>) -> ApiResult<Json<Task>> {
+    let today = match input.today.as_deref() {
+        Some(day) => chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d")
+            .map_err(|_| ApiError::unprocessable("today must be a date like 2026-11-05".to_string()))?,
+        None => chrono::Local::now().date_naive(),
+    };
+    Ok(Json(write(&s, &u, move |c| ops::complete_task(c, &Ctx::server(), &id, today)).await?))
+}
+
+async fn reopen_task(State(s): St, u: AuthUser, Path(id): Path<String>) -> ApiResult<Json<Task>> {
+    Ok(Json(write(&s, &u, move |c| ops::reopen_task(c, &Ctx::server(), &id)).await?))
 }
 
 async fn delete_task(State(s): St, u: AuthUser, Path(id): Path<String>) -> ApiResult<Json<Value>> {

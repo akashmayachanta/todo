@@ -4,7 +4,7 @@ Guidance for agents working in the **Tab Group Exporter** repository.
 
 ## What this is
 
-A Chrome **Manifest V3** extension (v1.7.0) that exports your browser's **open and
+A Chrome **Manifest V3** extension (v1.7.1) that exports your browser's **open and
 closed tab groups** as a single list you can copy, save, or share. The extension
 has no build step, no dependencies to install, and no test suite.
 
@@ -163,10 +163,14 @@ and `liveSession` both match the group currently being written.
   the group's videos:
   - a video with no subtask is **added**;
   - a ticked-off subtask whose video is in the group is **reopened**
-    (`completed_at: null`), even if it was ticked in the app on purpose;
+    (`POST /{id}/reopen`), even if it was ticked in the app on purpose;
   - an open subtask that links a video no longer in the group is **ticked off**
-    (`completed_at: <now>`; the server has no other done flag). Closing a tab
-    means "watched."
+    (`POST /{id}/complete` with today's local date). Closing a tab means
+    "watched."
+
+  Ticking and reopening go through those two routes, never a `completed_at`
+  patch: the server applies the Tasks rules, so they need a Tasks server
+  that has the routes (a 404 otherwise).
   This applies to closed (archived) groups too: their last known tabs count as
   still to watch. Subtasks with no video link (typed in the app) are never
   touched, and nothing is ever deleted. A group with no videos left still
@@ -181,7 +185,8 @@ and `liveSession` both match the group currently being written.
   closed", or renamed) has its open video subtasks ticked off, and its task
   completed once no subtask is left open. Completing a parent on the server
   also ticks its open subtasks, so a task with a hand-typed subtask still
-  open stays open and only gets its time updated. Only titles in
+  open stays open; the server has already taken the ticked subtasks' time
+  off its total. Only titles in
   `tasksSynced` are touched, so another browser's groups in the same account
   are safe. The one exception is the one-time cleanup after updating from
   1.6 or older: every group task with a video subtask that matches no
@@ -193,12 +198,14 @@ and `liveSession` both match the group currently being written.
   `addGroups` calls `attachDurations` itself, so times are sent even when
   "Include video times" is off. Re-adding fills in a missing time on an
   existing subtask but never overwrites one that is set.
-- **The group task's `duration_minutes` is saved, not derived.** The Tasks
-  app stores a parent's time as the sum of its open subtasks' times and
-  recomputes it client-side on each subtask change; the server does not. So
-  after syncing a group, `addGroups` saves that total on the task itself,
-  mirroring `parentMinutes` in the app's `shared.ts`: capped at 10080, `null`
-  once every timed subtask is done, left alone when no subtask has a time.
+- **The group task's `duration_minutes` is saved, not derived.** A parent's
+  time is the sum of its open subtasks' times. The server keeps it so when a
+  subtask is ticked or reopened, but not when one is added or given a time
+  (the Tasks app does that client-side). So after syncing a group,
+  `addGroups` saves that total on the task itself, mirroring `parentMinutes`
+  in the app's `shared.ts`: capped at 10080, `null` once every timed subtask
+  is done, left alone when no subtask has a time. It re-reads the task first
+  when it ticked or reopened anything, since the server changed the total.
 - **The Tasks token sits in `chrome.storage.local`**, readable by anyone with
   the Chrome profile. It shows as "Tab Group Exporter" in the Tasks device list,
   where it can be revoked.
@@ -230,7 +237,7 @@ and `liveSession` both match the group currently being written.
 ## Versioning and releases
 
 - The version lives in **one place**: `version` in `manifest.json` (currently
-  `1.7.0`). Chrome reads it there.
+  `1.7.1`). Chrome reads it there.
 - Use **semver**, and bump it whenever behavior changes (not for docs/comment-only
   edits). Chrome only applies an update if this number increases, so a behavior
   change without a bump can be silently ignored on reload.

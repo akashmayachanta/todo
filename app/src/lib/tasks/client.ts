@@ -47,6 +47,14 @@ export interface TasksClient {
 	completions(since: string): Promise<TaskCompletions>;
 	create(data: TaskIn): Promise<Task>;
 	update(id: string, patch: TaskPatch): Promise<Task>;
+	/**
+	 * Ticks a task. Core decides what that changes: a repeating task stays open and moves to
+	 * its next date (with its reminder), a subtask's time leaves its task's total. Returns the
+	 * task as it is now.
+	 */
+	complete(id: string): Promise<Task>;
+	/** Unticks a done task; a subtask's time returns to its task's total. */
+	reopen(id: string): Promise<Task>;
 	/** Its subtasks go with it. */
 	delete(id: string): Promise<void>;
 	/** Deletes the done ones among these ids (with their subtasks); returns how many. */

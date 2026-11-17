@@ -3,7 +3,7 @@
 A small Chrome extension that turns your browser's tab groups into one list you
 can copy, save, or share — including groups you've already closed.
 
-![version](https://img.shields.io/badge/version-1.7.0-blue)
+![version](https://img.shields.io/badge/version-1.7.1-blue)
 
 ## Why
 

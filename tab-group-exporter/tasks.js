@@ -216,6 +216,24 @@ async function patchTask(task, body) {
   Object.assign(task, await api(`/${encodeURIComponent(task.id)}`, { method: 'POST', body }));
 }
 
+// Today's date here, not the server's: a repeating task moves on from it.
+function localDay() {
+  const d = new Date();
+  const two = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`;
+}
+
+// Ticking and unticking say what happened and the server applies the rules:
+// a subtask's time leaves its task's total when ticked and returns when
+// reopened. The task object is updated; its parent's copy here is not.
+async function completeTask(task) {
+  Object.assign(task, await api(`/${encodeURIComponent(task.id)}/complete`, { method: 'POST', body: { today: localDay() } }));
+}
+
+async function reopenTask(task) {
+  Object.assign(task, await api(`/${encodeURIComponent(task.id)}/reopen`, { method: 'POST' }));
+}
+
 // A removed group's videos count as watched: its open video subtasks are
 // ticked off, and the task is completed once nothing in it is left open.
 // Completing a task on the server also ticks its open subtasks, so a task
@@ -224,14 +242,10 @@ async function closeRemoved(task, tasks) {
   const subtasks = tasks.filter((t) => t.parent_id === task.id);
   for (const sub of subtasks) {
     if (sub.completed_at != null || !videoIdsIn(sub.title).length) continue;
-    await patchTask(sub, { completed_at: new Date().toISOString() });
+    await completeTask(sub);
   }
-  if (subtasks.every((s) => s.completed_at != null)) {
-    await patchTask(task, { completed_at: new Date().toISOString() });
-    return;
-  }
-  const total = parentMinutes(task, subtasks);
-  if (total !== undefined) await patchTask(task, { duration_minutes: total });
+  // Each tick already took that subtask's time off the task's total.
+  if (subtasks.every((s) => s.completed_at != null)) await completeTask(task);
 }
 
 // Returns { created, added, timed, reopened, ticked, skipped, removed,
@@ -305,17 +319,17 @@ export async function addGroups(groups) {
       const existing = byId.get(id) || byTitle.get(label.toLowerCase());
       if (existing) {
         kept.add(existing);
-        const patch = {};
         // The browser wins: a video still in the group is still to watch,
         // even if it was ticked off in the app.
-        if (existing.completed_at != null) patch.completed_at = null;
+        if (existing.completed_at != null) {
+          await reopenTask(existing);
+          reopened++;
+        }
         // Fill in a missing time, e.g. on videos added before times were sent.
         // A time already set is left alone, in case it was edited in the app.
-        if (duration && existing.duration_minutes == null) patch.duration_minutes = duration;
-        if (Object.keys(patch).length) {
-          Object.assign(existing, await api(`/${encodeURIComponent(existing.id)}`, { method: 'POST', body: patch }));
-          if ('completed_at' in patch) reopened++;
-          if ('duration_minutes' in patch) timed++;
+        if (duration && existing.duration_minutes == null) {
+          await patchTask(existing, { duration_minutes: duration });
+          timed++;
         }
         continue;
       }
@@ -334,16 +348,16 @@ export async function addGroups(groups) {
     // the app by hand is left alone.
     for (const sub of subtasks) {
       if (kept.has(sub) || sub.completed_at != null || !videoIdsIn(sub.title).length) continue;
-      Object.assign(sub, await api(`/${encodeURIComponent(sub.id)}`, {
-        method: 'POST', body: { completed_at: new Date().toISOString() }
-      }));
+      await completeTask(sub);
       ticked++;
     }
 
-    // The Tasks app stores a task's time as its open subtasks' total and
-    // recomputes it whenever it changes a subtask; the server never does, so
-    // after a sync the extension saves it the same way (parentMinutes in the
-    // app's shared.ts).
+    // A task's time is its open subtasks' total. The server keeps it so when
+    // a subtask is ticked or reopened, but not when one is added or given a
+    // time, so after a sync the extension saves it the same way
+    // (parentMinutes in the app's shared.ts). The server may have changed the
+    // task's time above, so it is read again before comparing.
+    if (reopened || ticked) Object.assign(task, await api(`/${encodeURIComponent(task.id)}`));
     const total = parentMinutes(task, tasks.filter((t) => t.parent_id === task.id));
     if (total !== undefined) {
       Object.assign(task, await api(`/${encodeURIComponent(task.id)}`, { method: 'POST', body: { duration_minutes: total } }));

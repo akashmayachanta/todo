@@ -380,3 +380,82 @@ fn reorder_sections_sets_the_order_within_a_project() {
 
     assert!(matches!(ops::reorder_sections(&conn, &ctx, "missing", &[]), Err(Error::NotFound(_))));
 }
+
+// ── Completing ───────────────────────────────────────────────────────────────
+
+fn day(s: &str) -> chrono::NaiveDate {
+    chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()
+}
+
+#[test]
+fn completing_a_repeating_task_moves_it_on_with_its_reminder() {
+    let (conn, ctx) = setup();
+    let t = task(&conn, &ctx, json!({
+        "title": "Water plants", "due_date": "2026-11-05", "recurrence": "every day", "remind_at": "2026-11-05T09:00:00Z"
+    }));
+    let done = ops::complete_task(&conn, &ctx, &t.id, day("2026-11-05")).unwrap();
+    assert_eq!(done.completed_at, None);
+    assert_eq!(done.due_date.as_deref(), Some("2026-11-06"));
+    // The reminder moved a whole day, keeping its local time of day.
+    let moved = tasks_core::time::instant_ms(done.remind_at.as_deref().unwrap()).unwrap();
+    let before = tasks_core::time::instant_ms("2026-11-05T09:00:00Z").unwrap();
+    assert!((moved - before - 86_400_000).abs() <= 3_600_000);
+    // The tick is in the Karma log.
+    assert_eq!(ops::list_completions(&conn, "2000-01-01T00:00:00Z").unwrap().total, 1);
+}
+
+#[test]
+fn completing_an_overdue_repeating_task_rolls_past_today() {
+    let (conn, ctx) = setup();
+    let t = task(&conn, &ctx, json!({ "title": "Stretch", "due_date": "2026-11-01", "recurrence": "every day" }));
+    let done = ops::complete_task(&conn, &ctx, &t.id, day("2026-11-05")).unwrap();
+    assert_eq!(done.due_date.as_deref(), Some("2026-11-06"));
+}
+
+#[test]
+fn completing_a_plain_task_finishes_it_and_reopening_takes_the_tick_back() {
+    let (conn, ctx) = setup();
+    let t = task(&conn, &ctx, json!({ "title": "Pay rent", "due_date": "2026-11-05", "recurrence": "sometimes" }));
+    let done = ops::complete_task(&conn, &ctx, &t.id, day("2026-11-05")).unwrap();
+    assert!(done.completed_at.is_some());
+    assert_eq!(done.due_date.as_deref(), Some("2026-11-05"));
+    assert_eq!(ops::list_completions(&conn, "2000-01-01T00:00:00Z").unwrap().total, 1);
+    // Ticking again changes nothing.
+    ops::complete_task(&conn, &ctx, &t.id, day("2026-11-05")).unwrap();
+    assert_eq!(ops::list_completions(&conn, "2000-01-01T00:00:00Z").unwrap().items.len(), 1);
+
+    let open = ops::reopen_task(&conn, &ctx, &t.id).unwrap();
+    assert_eq!(open.completed_at, None);
+    assert!(ops::list_completions(&conn, "2000-01-01T00:00:00Z").unwrap().items.is_empty());
+}
+
+#[test]
+fn a_ticked_subtasks_time_leaves_its_tasks_total_and_comes_back() {
+    let (conn, ctx) = setup();
+    let parent = task(&conn, &ctx, json!({ "title": "Move house" }));
+    let a = ops::create_task(&conn, &ctx, from(json!({ "title": "Pack", "parent_id": parent.id, "duration_minutes": 60 }))).unwrap();
+    ops::create_task(&conn, &ctx, from(json!({ "title": "Clean", "parent_id": parent.id, "duration_minutes": 30 }))).unwrap();
+    // Pack is done, so only Clean is left.
+    ops::complete_task(&conn, &ctx, &a.id, day("2026-11-05")).unwrap();
+    assert_eq!(ops::get_task(&conn, &parent.id).unwrap().duration_minutes, Some(30));
+    ops::reopen_task(&conn, &ctx, &a.id).unwrap();
+    assert_eq!(ops::get_task(&conn, &parent.id).unwrap().duration_minutes, Some(90));
+}
+
+#[test]
+fn ticking_the_last_timed_subtask_clears_its_tasks_duration() {
+    let (conn, ctx) = setup();
+    let parent = task(&conn, &ctx, json!({ "title": "Trip", "duration_minutes": 45 }));
+    let a = ops::create_task(&conn, &ctx, from(json!({ "title": "Book", "parent_id": parent.id, "duration_minutes": 45 }))).unwrap();
+    ops::complete_task(&conn, &ctx, &a.id, day("2026-11-05")).unwrap();
+    assert_eq!(ops::get_task(&conn, &parent.id).unwrap().duration_minutes, None);
+}
+
+#[test]
+fn a_task_with_untimed_subtasks_keeps_its_own_duration() {
+    let (conn, ctx) = setup();
+    let parent = task(&conn, &ctx, json!({ "title": "Plan", "duration_minutes": 20 }));
+    let a = ops::create_task(&conn, &ctx, from(json!({ "title": "Outline", "parent_id": parent.id }))).unwrap();
+    ops::complete_task(&conn, &ctx, &a.id, day("2026-11-05")).unwrap();
+    assert_eq!(ops::get_task(&conn, &parent.id).unwrap().duration_minutes, Some(20));
+}

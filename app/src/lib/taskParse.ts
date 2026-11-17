@@ -64,15 +64,6 @@ export function daysBetween(a: string, b: string): number {
 	return Math.round((Date.UTC(yb, mb - 1, db) - Date.UTC(ya, ma - 1, da)) / 86_400_000);
 }
 
-function addMonths(s: string, months: number): string {
-	const [y, m, d] = s.split('-').map(Number);
-	const target = new Date(y, m - 1 + months, 1);
-	// Clamp the 31st to the last day of a shorter month.
-	const last = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
-	target.setDate(Math.min(d, last));
-	return ymd(target);
-}
-
 /** The time a date with no time counts from: its reminder, and "30m before" it. */
 export const DATE_ONLY_TIME = '10:00';
 
@@ -166,39 +157,6 @@ function firstOn(r: Rule, from: string): string {
 export function firstOccurrence(recurrence: string, from = ymd(new Date())): string | null {
 	const r = rule(recurrence);
 	return r ? firstOn(r, from) : null;
-}
-
-function step(r: Rule, date: string): string {
-	switch (r.unit) {
-		case 'day':   return addDays(date, r.every);
-		case 'week':  return addDays(date, 7 * r.every);
-		case 'month': return addMonths(date, r.every);
-		case 'year':  return addMonths(date, 12 * r.every);
-		default:      return firstOn(r, addDays(date, 1));
-	}
-}
-
-/**
- * The next due date of a recurring task after `due_date`, rolled on past today
- * so finishing an overdue "every day" doesn't leave it overdue. Null when the
- * recurrence isn't understood. core/src/recurrence.rs is the same rule for the
- * notification's Complete button, so change the two together.
- */
-export function nextOccurrence(recurrence: string, due_date: string | null, now = new Date()): string | null {
-	const r = rule(recurrence);
-	if (!r) return null;
-	const today = ymd(now);
-	const from = due_date ?? today;
-	if (r.unit === 'month' || r.unit === 'year') {
-		// Counted from the first date, so the 31st comes back after a shorter month.
-		const months = r.unit === 'month' ? r.every : 12 * r.every;
-		let k = 1;
-		while (addMonths(from, k * months) <= today) k++;
-		return addMonths(from, k * months);
-	}
-	let next = step(r, from);
-	while (next <= today) next = step(r, next);
-	return next;
 }
 
 // ── Quick add ───────────────────────────────────────────────────────────────

@@ -188,6 +188,9 @@ Every route is under `TASKS_API_BASE_PATH`. Errors come back as
 - `GET /auth/me`, `GET /auth/devices`, `POST /auth/devices/{id}/revoke`
 - `GET /?completed=&project_id=&inbox=&limit=`, plus `q=` to search
 - `POST /`, `GET`/`POST /{id}`, `POST /{id}/delete`
+- `POST /{id}/complete` (optional `{today}`, the caller's local date) and
+  `POST /{id}/reopen` tick and untick a task; the server applies the rules
+  (next date of a repeating task, a subtask's time leaving its task's total)
 - `/reorder` takes `{ids}` of sibling tasks in their new order
 - `/projects`, `/projects/reorder`, `/projects/{id}`, `/projects/{id}/delete`
 - `/sections`, `/filters`, with the same `{id}` and `{id}/delete` forms

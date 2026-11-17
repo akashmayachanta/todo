@@ -41,7 +41,7 @@
 		type AddDefaults, type Bucket, type DateViewGroup, type GroupCtx,
 	} from '$lib/components/tasks/taskFilters';
 	import {
-		PROJECT_COLORS, byDue, byPosition, completionPatch, durationTotals, loadLayouts, parentFinder, placeName, projectColor, saveLayouts, shownWhenDue, parentMinutes, subtaskMinutes, taskRoots,
+		PROJECT_COLORS, byDue, byPosition, durationTotals, loadLayouts, parentFinder, placeName, projectColor, saveLayouts, shownWhenDue, parentMinutes, subtaskMinutes, taskRoots,
 		defaultReminder, shiftInstant, type TaskLayout, type TaskSettings, type TaskView,
 	} from '$lib/components/tasks/shared';
 	import type { PinTarget } from '$lib/components/tasks/pins';
@@ -984,12 +984,11 @@
 
 	async function toggleTask(task: Task) {
 		try {
-			const patch = completionPatch(task, now);
-			replace(await api.tasks.update(task.id, patch));
-			// A done subtask's time leaves its task's remaining total; an undone one comes back.
-			if (task.parent_id !== null && task.duration_minutes) await syncParentMinutes(task.parent_id);
-			if (patch.completes_occurrence) {
-				toast.success(`Next: ${dayLabel(patch.due_date!, now)}`);
+			const updated = await (task.completed_at ? api.tasks.reopen(task.id) : api.tasks.complete(task.id));
+			replace(updated);
+			// A repeating task is still open: it moved to its next date.
+			if (!task.completed_at && !updated.completed_at && updated.due_date) {
+				toast.success(`Next: ${dayLabel(updated.due_date, now)}`);
 				return;
 			}
 			if (task.completed_at) completed = completed.filter((t) => t.id !== task.id);

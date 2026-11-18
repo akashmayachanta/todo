@@ -11,7 +11,8 @@ use rusqlite::Connection;
 use serde::Serialize;
 use tasks_core::client::{diagnose, Client, ClientError, ServerInfo};
 use tasks_core::{
-    ops, Section, SectionIn, Completions, Ctx, Filter, FilterIn, Profile, ProfilePatch, Project, ProjectIn, Task, TaskIn, TaskPatch, TaskQuery,
+    ops, Section, SectionIn, Completions, Ctx, Filter, FilterIn, Profile, ProfilePatch, Project, ProjectIn, Report, ReportQuery, Task, TaskIn,
+    TaskPatch, TaskQuery,
 };
 use tauri::{AppHandle, Emitter, State, WebviewWindow};
 
@@ -154,6 +155,11 @@ pub fn tasks_get(st: St, id: String) -> Res<Task> {
 #[tauri::command]
 pub fn tasks_completions(st: St, since: String) -> Res<Completions> {
     db(&st, false, |c, _| ops::list_completions(c, &since))
+}
+
+#[tauri::command]
+pub fn tasks_report(st: St, query: ReportQuery) -> Res<Report> {
+    db(&st, false, |c, _| ops::report(c, &query))
 }
 
 #[tauri::command]

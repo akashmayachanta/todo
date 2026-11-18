@@ -71,6 +71,23 @@ export interface TaskCompletion { task_id: string | null; completed_at: string }
 /** total is every tick ever logged; items are those since the instant asked, oldest first. */
 export interface TaskCompletions { total: number; items: TaskCompletion[] }
 
+/** A page of Reporting; see `ops::report`. */
+export interface TaskReportQuery {
+	since: string;
+	/** '' every project, 'inbox', or a project id. */
+	project?: string;
+	/** The `next` of the page before. */
+	before?: string | null;
+	/** 200 when left out, at most 1000. */
+	limit?: number;
+	/** Minutes east of UTC, which decides each tick's day. */
+	utc_offset: number;
+}
+/** One tick: `day` is its local day, `task` null when the task was deleted. */
+export interface TaskReportItem { id: string; completed_at: string; day: string; task: Task | null }
+/** Ticks newest first; `days` counts every matching tick of the days they fall on. */
+export interface TaskReport { items: TaskReportItem[]; days: { day: string; count: number }[]; next: string | null }
+
 /** A due window a filter can match; see $lib/components/tasks/taskFilters. */
 export type TaskDueWindow = 'overdue' | 'today' | 'tomorrow' | 'next_7' | 'next_30' | 'no_date';
 /** A detail a task row can show. */

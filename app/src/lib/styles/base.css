@@ -14,5 +14,5 @@ code, kbd, samp, pre, table { font-variant-numeric: tabular-nums; }
 button, input, select, textarea { font: inherit; }
 .num, .figure, td.num { font-family: var(--font-outlier); font-variant-numeric: tabular-nums; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-/* Loaders (.spinner, .animate-spin) keep turning: they are state, not decoration */
+/* Loaders (.spinner, .animate-spin) keep moving: they are state, not decoration */
 @media (prefers-reduced-motion: reduce) { *:not(.keep-motion, .spinner, .animate-spin), *:not(.keep-motion, .spinner, .animate-spin)::before, *:not(.keep-motion, .spinner, .animate-spin)::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; } }

@@ -85,7 +85,13 @@
 	] as const;
 
 	/** The keys that go to a view (handled on the page), shown in a tooltip on hover. */
-	const GO_KEYS: Record<string, string> = { inbox: 'I', today: 'T', upcoming: 'U' };
+	const GO_KEYS: Record<string, string> = {
+		inbox: 'I',
+		today: 'T',
+		upcoming: 'U',
+		karma: 'K',
+		reporting: 'R'
+	};
 	let tip = $state<{ label: string; key: string; x: number; y: number } | null>(null);
 	let tipTimer: ReturnType<typeof setTimeout> | undefined;
 

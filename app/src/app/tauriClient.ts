@@ -86,6 +86,16 @@ export const tauriTasksClient: TasksClient = {
 		}),
 	get: (id) => call('tasks_get', { id }),
 	completions: (since) => call('tasks_completions', { since }),
+	report: (query) =>
+		call('tasks_report', {
+			query: {
+				since: query.since,
+				project: query.project || null,
+				before: query.before ?? null,
+				limit: query.limit ?? null,
+				utc_offset: query.utc_offset,
+			},
+		}),
 	create: (data) => write('tasks_create', { data }),
 	update: (id, patch) => write('tasks_update', { id, patch }),
 	complete: (id) => write('tasks_complete', { id }),

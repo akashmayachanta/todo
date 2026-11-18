@@ -87,6 +87,28 @@ function nearestIn(column: HTMLElement, y: number, source: HTMLElement): Hit {
 	return last ? { el: last, mode: 'after' } : { el: column, mode: 'zone' };
 }
 
+const SUB_REACH = 32; // px above or below a subtask list where the pointer still drops into it
+
+/**
+ * A subtask by its own list (its siblings): before the first whose middle is below, else
+ * after the last. Only near the list, so letting go well away from it still cancels.
+ */
+function nearestSub(source: HTMLElement, x: number, y: number): Hit | null {
+	const list = source.parentElement;
+	if (!list) return null;
+	const r = list.getBoundingClientRect();
+	if (y < r.top - SUB_REACH || y > r.bottom + SUB_REACH || x < r.left - SIDE_REACH || x > r.right + SIDE_REACH) return null;
+	const items = [...list.children].filter(
+		(i): i is HTMLElement => i instanceof HTMLElement && i !== source && i.dataset.sortKind === 'sub',
+	);
+	for (const i of items) {
+		const b = i.getBoundingClientRect();
+		if (y < b.top + b.height / 2) return { el: i, mode: 'before' };
+	}
+	const last = items.at(-1);
+	return last ? { el: last, mode: 'after' } : null;
+}
+
 /** The zone (a section, or the tasks outside them) at that height, or the nearest one. */
 function nearestZone(scope: HTMLElement, y: number): HTMLElement | null {
 	let best: HTMLElement | null = null;
@@ -119,8 +141,11 @@ function findTaskHit(x: number, y: number, source: HTMLElement, kind: SortKind):
 	if (!at) return null;
 	let item = at.closest<HTMLElement>('[data-sort-id]');
 	if (kind === 'sub') {
-		if (!item || item === source) return null;
-		return item.dataset.sortKind === 'sub' ? { el: item, mode: half(item, y) } : { el: item, mode: 'into' };
+		if (item && item !== source) {
+			return item.dataset.sortKind === 'sub' ? { el: item, mode: half(item, y) } : { el: item, mode: 'into' };
+		}
+		// In a gap, on its own placeholder or just past the ends: by the nearest subtask in its list.
+		return nearestSub(source, x, y);
 	}
 	const underScope = at.closest<HTMLElement>('[data-sort-scope]');
 	if (!scope || !underScope) return null;
@@ -327,6 +352,8 @@ class Drag {
 		this.last = start;
 		this.scrollers = scrollersOf(source);
 		this.ghost = makeGhost(this.lift);
+		// The line lives on the body: in a dialog it must sit above the dialog to be seen.
+		this.indicator.el.classList.toggle('sort-indicator-modal', !!source.closest('[role="dialog"]'));
 		this.lift.classList.add('sort-dragging');
 		document.documentElement.classList.add('sort-active');
 		this.frame = requestAnimationFrame(this.autoScroll);

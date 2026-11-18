@@ -951,6 +951,88 @@ pub fn list_completions(conn: &Connection, since: &str) -> Result<Completions> {
     Ok(Completions { total, items })
 }
 
+/// One page of Reporting: the ticks since an instant, newest first, each with its
+/// (live) task, filtered by project, plus how many ticks each of their days has in all.
+pub fn report(conn: &Connection, q: &ReportQuery) -> Result<Report> {
+    let since = instant("since", &q.since)?;
+    let limit = q.limit.unwrap_or(200);
+    if !(1..=1000).contains(&limit) {
+        return Err(Error::Invalid("limit: Input should be between 1 and 1000".into()));
+    }
+    if q.utc_offset.abs() > 14 * 60 {
+        return Err(Error::Invalid("utc_offset: Input should be between -840 and 840".into()));
+    }
+    let shift = format!("{:+} minutes", q.utc_offset);
+
+    // The filters both queries share: ?1 since, ?2 the project.
+    let mut filter = String::from("c.deleted_at IS NULL AND c.completed_at >= ?1");
+    let mut args: Vec<SqlValue> = vec![SqlValue::Text(since), SqlValue::Null];
+    match q.project.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+        None => {}
+        Some("inbox") => filter.push_str(" AND t.id IS NOT NULL AND t.project_id IS NULL"),
+        Some(id) => {
+            filter.push_str(" AND t.project_id = ?2");
+            args[1] = SqlValue::Text(id.to_string());
+        }
+    }
+    let from = "FROM task_completions c LEFT JOIN tasks t ON t.id = c.task_id AND t.deleted_at IS NULL";
+
+    // The page: ?3 the day shift, then the cursor (?4 instant, ?5 id) and the limit.
+    let mut page_args = args.clone();
+    page_args.push(SqlValue::Text(shift.clone()));
+    let mut page_filter = filter.clone();
+    if let Some(before) = q.before.as_deref() {
+        let (at, id) = before.split_once(' ').ok_or_else(|| Error::Invalid("before: not a page cursor".into()))?;
+        page_filter.push_str(" AND (c.completed_at < ?4 OR (c.completed_at = ?4 AND c.id < ?5))");
+        page_args.push(SqlValue::Text(at.to_string()));
+        page_args.push(SqlValue::Text(id.to_string()));
+    }
+    page_args.push(SqlValue::Integer(limit + 1));
+    let sql = format!(
+        "SELECT {TASK_COLS}, c.id, c.completed_at, date(c.completed_at, ?3) {from}
+         WHERE {page_filter} ORDER BY c.completed_at DESC, c.id DESC LIMIT ?{}",
+        page_args.len()
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let mut items = stmt
+        .query_map(params_from_iter(page_args), |r| {
+            let task = match r.get::<_, Option<String>>(0)? {
+                Some(_) => Some(task_row(r)?),
+                None => None,
+            };
+            Ok(ReportItem { id: r.get(17)?, completed_at: r.get(18)?, day: r.get(19)?, task })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let next = if items.len() as i64 > limit {
+        items.truncate(limit as usize);
+        items.last().map(|i| format!("{} {}", i.completed_at, i.id))
+    } else {
+        None
+    };
+
+    // The counts for the page's days, over every matching tick: ?3 the day shift,
+    // ?4 and ?5 the first and last day.
+    let days = match (items.last(), items.first()) {
+        (Some(oldest), Some(newest)) => {
+            let mut count_args = args;
+            count_args.push(SqlValue::Text(shift));
+            count_args.push(SqlValue::Text(oldest.day.clone()));
+            count_args.push(SqlValue::Text(newest.day.clone()));
+            let sql = format!(
+                "SELECT date(c.completed_at, ?3) AS day, count(*) {from}
+                 WHERE {filter} AND day BETWEEN ?4 AND ?5 GROUP BY day ORDER BY day DESC"
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt
+                .query_map(params_from_iter(count_args), |r| Ok(ReportDay { day: r.get(0)?, count: r.get(1)? }))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            rows
+        }
+        _ => Vec::new(),
+    };
+    Ok(Report { items, days, next })
+}
+
 // ── Profile ──────────────────────────────────────────────────────────────────
 
 const PROFILE_ID: &str = "me";

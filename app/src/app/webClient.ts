@@ -127,6 +127,13 @@ export const webTasksClient: TasksClient = {
 	},
 	get: (id) => getJson(`/${enc(id)}`),
 	completions: (since) => getJson(`/completions?since=${enc(since)}`),
+	report: (query) => {
+		const q = new URLSearchParams({ since: query.since, utc_offset: String(query.utc_offset) });
+		if (query.project) q.set('project', query.project);
+		if (query.before) q.set('before', query.before);
+		if (query.limit != null) q.set('limit', String(query.limit));
+		return getJson(`/report?${q}`);
+	},
 	create: (data) => post('/', data),
 	update: (id, patch) => post(`/${enc(id)}`, patch),
 	// The browser's own date: a repeating task moves to the day after it.

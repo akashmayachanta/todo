@@ -233,6 +233,7 @@ pub fn run() {
             commands::tasks_list,
             commands::tasks_get,
             commands::tasks_completions,
+            commands::tasks_report,
             commands::tasks_create,
             commands::tasks_update,
             commands::tasks_complete,

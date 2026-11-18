@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tasks_core::sync::{self, PullResponse, PushRequest, PushResponse};
 use tower_http::services::{ServeDir, ServeFile};
-use tasks_core::{ops, Section, SectionIn, Completions, Ctx, Filter, FilterIn, Project, ProjectIn, ProjectOrder, Profile, ProfilePatch, Task, TaskIn, TaskOrder, TaskPatch, TaskQuery};
+use tasks_core::{ops, Section, SectionIn, Completions, Ctx, Filter, FilterIn, Project, ProjectIn, ProjectOrder, Profile, ProfilePatch, Report, ReportQuery, Task, TaskIn, TaskOrder, TaskPatch, TaskQuery};
 
 use crate::auth::{AuthUser, Device};
 use crate::error::{ApiError, ApiResult};
@@ -89,6 +89,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(&p("/filters/{id}/delete"), post(delete_filter))
         .route(&p("/profile"), get(get_profile).post(update_profile))
         .route(&p("/completions"), get(list_completions))
+        .route(&p("/report"), get(report))
         .route(&p("/reorder"), post(reorder_tasks))
         .route(&p("/delete-completed"), post(delete_completed))
         .route(&p("/auth/login"), post(login))
@@ -106,7 +107,21 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(&p("/{id}/complete"), post(complete_task))
         .route(&p("/{id}/reopen"), post(reopen_task))
         .layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024))
+        .layer(compression())
         .with_state(state)
+}
+
+/// Gzip or Brotli, whichever the client takes, for JSON and the web UI's files.
+/// The default predicate already skips small bodies, images and the event stream;
+/// the app installers are compressed already and their downloads show progress
+/// from Content-Length, which compressing would drop.
+fn compression() -> tower_http::compression::CompressionLayer<impl tower_http::compression::Predicate> {
+    use tower_http::compression::predicate::{DefaultPredicate, NotForContentType, Predicate};
+    tower_http::compression::CompressionLayer::new().compress_when(
+        DefaultPredicate::new()
+            .and(NotForContentType::const_new("application/vnd.microsoft.portable-executable"))
+            .and(NotForContentType::const_new("application/vnd.android.package-archive")),
+    )
 }
 
 async fn health() -> Json<Value> {
@@ -226,6 +241,11 @@ struct SinceQuery {
 
 async fn list_completions(State(s): St, u: AuthUser, Q(q): Q<SinceQuery>) -> ApiResult<Json<Completions>> {
     Ok(Json(s.store.run(u.user_id, move |c| ops::list_completions(c, &q.since)).await?))
+}
+
+/// A page of Reporting: the ticks with their tasks, newest first.
+async fn report(State(s): St, u: AuthUser, Q(q): Q<ReportQuery>) -> ApiResult<Json<Report>> {
+    Ok(Json(s.store.run(u.user_id, move |c| ops::report(c, &q)).await?))
 }
 
 async fn get_task(State(s): St, u: AuthUser, Path(id): Path<String>) -> ApiResult<Json<Task>> {

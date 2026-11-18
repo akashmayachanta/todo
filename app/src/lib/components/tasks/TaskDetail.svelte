@@ -357,6 +357,21 @@
 		}
 	}
 
+	/** A subtask's "⋯" menu: the actions its row has in the lists. Edit opens it here. */
+	let subMenuItems = $derived([
+		{ id: 'edit', label: 'Edit' },
+		...(onduplicate ? [{ id: 'duplicate', label: 'Duplicate' }] : []),
+		...(onpin ? [{ id: 'pin', label: 'Pin to desktop' }] : []),
+		{ id: 'delete', label: 'Delete', danger: true },
+	]);
+
+	function onSubMenu(sub: Task, id: string) {
+		if (id === 'edit') onopen(sub);
+		else if (id === 'duplicate') onduplicate?.(sub);
+		else if (id === 'pin') onpin?.(sub);
+		else if (id === 'delete') ondelete(sub);
+	}
+
 	onMount(() => panel?.focus());
 
 	// The title and description are edited as typed; their links open from a line under the title.
@@ -559,6 +574,17 @@
 									<LinkedText text={sub.title} />
 								</div>
 								{#if sub.duration_minutes}<span class="task-modal-sub-time">{formatDuration(sub.duration_minutes)}</span>{/if}
+								<DropdownMenu
+									class="task-actions"
+									triggerClass="tasks-icon-btn"
+									ariaLabel="Actions for {subName}"
+									items={subMenuItems}
+									onselect={(id) => onSubMenu(sub, id)}
+								>
+									{#snippet icon()}
+										<svg aria-hidden="true" class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path d="M6 10a2 2 0 11-4 0 2 2 0 014 0zm6 0a2 2 0 11-4 0 2 2 0 014 0zm6 0a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+									{/snippet}
+								</DropdownMenu>
 							</div>
 						{/each}
 						{#if addingSubtask}

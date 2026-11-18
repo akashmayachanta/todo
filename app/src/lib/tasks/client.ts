@@ -3,6 +3,7 @@
 
 import type {
 	Task, TaskSection, TaskCompletions, TaskFilter, TaskFilterIn, TaskIn, TaskPatch, TaskProject,
+	TaskReport, TaskReportQuery,
 } from '$lib/api';
 
 export interface TaskListOptions {
@@ -45,6 +46,8 @@ export interface TasksClient {
 	get(id: string): Promise<Task>;
 	/** The Karma log since an ISO instant. */
 	completions(since: string): Promise<TaskCompletions>;
+	/** A page of Reporting: ticks newest first, each with its task. */
+	report(query: TaskReportQuery): Promise<TaskReport>;
 	create(data: TaskIn): Promise<Task>;
 	update(id: string, patch: TaskPatch): Promise<Task>;
 	/**

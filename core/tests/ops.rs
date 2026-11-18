@@ -405,6 +405,61 @@ fn completing_a_repeating_task_moves_it_on_with_its_reminder() {
 }
 
 #[test]
+fn the_report_pages_newest_first_and_counts_whole_days() {
+    let (conn, ctx) = setup();
+    let home = project(&conn, &ctx, "Home");
+    let walk = task(&conn, &ctx, json!({ "title": "Walk", "project_id": home.id }));
+    let read = task(&conn, &ctx, json!({ "title": "Read" }));
+    let gone = task(&conn, &ctx, json!({ "title": "Gone" }));
+    // Five ticks: three on 2026-11-02 in India (one of them late on 1 Nov UTC), two on 3 Nov.
+    for (id, task_id, at) in [
+        ("c1", &walk.id, "2026-11-01T20:00:00.000Z"),
+        ("c2", &read.id, "2026-11-02T08:00:00.000Z"),
+        ("c3", &gone.id, "2026-11-02T09:00:00.000Z"),
+        ("c4", &walk.id, "2026-11-03T08:00:00.000Z"),
+        ("c5", &read.id, "2026-11-03T09:00:00.000Z"),
+    ] {
+        conn.execute(
+            "INSERT INTO task_completions (id, task_id, completed_at, created_at) VALUES (?1, ?2, ?3, ?3)",
+            [id, task_id.as_str(), at],
+        )
+        .unwrap();
+    }
+    ops::delete_task(&conn, &ctx, &gone.id).unwrap();
+    let q = |before: Option<String>, project: Option<&str>| tasks_core::ReportQuery {
+        since: "2000-01-01T00:00:00Z".into(),
+        project: project.map(str::to_string),
+        before,
+        limit: Some(2),
+        utc_offset: 330,
+    };
+
+    let first = ops::report(&conn, &q(None, None)).unwrap();
+    let ids: Vec<_> = first.items.iter().map(|i| i.id.as_str()).collect();
+    assert_eq!(ids, ["c5", "c4"]);
+    assert_eq!(first.items[0].task.as_ref().unwrap().title, "Read");
+    assert_eq!(first.days.iter().map(|d| (d.day.as_str(), d.count)).collect::<Vec<_>>(), [("2026-11-03", 2)]);
+
+    let second = ops::report(&conn, &q(first.next.clone(), None)).unwrap();
+    let ids: Vec<_> = second.items.iter().map(|i| i.id.as_str()).collect();
+    assert_eq!(ids, ["c3", "c2"]);
+    // The deleted task's tick stays, without its task.
+    assert!(second.items[0].task.is_none());
+    // The whole day is counted, though this page holds two of its three.
+    assert_eq!(second.days.iter().map(|d| (d.day.as_str(), d.count)).collect::<Vec<_>>(), [("2026-11-02", 3)]);
+
+    let last = ops::report(&conn, &q(second.next.clone(), None)).unwrap();
+    assert_eq!(last.items.len(), 1);
+    assert_eq!(last.items[0].day, "2026-11-02");
+    assert!(last.next.is_none());
+
+    let home_only = ops::report(&conn, &q(None, Some(home.id.as_str()))).unwrap();
+    assert_eq!(home_only.items.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(), ["c4", "c1"]);
+    let inbox = ops::report(&conn, &q(None, Some("inbox"))).unwrap();
+    assert_eq!(inbox.items.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(), ["c5", "c2"]);
+}
+
+#[test]
 fn completing_an_overdue_repeating_task_rolls_past_today() {
     let (conn, ctx) = setup();
     let t = task(&conn, &ctx, json!({ "title": "Stretch", "due_date": "2026-11-01", "recurrence": "every day" }));

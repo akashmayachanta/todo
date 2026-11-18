@@ -87,6 +87,55 @@ pub struct Completions {
     pub items: Vec<Completion>,
 }
 
+/// A page of Reporting: ticks newest first, each with its task.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct ReportQuery {
+    /// Only ticks at or after this instant.
+    pub since: String,
+    /// '' or absent for every project, `inbox`, or a project id. A deleted task's
+    /// ticks only show under every project.
+    #[serde(default)]
+    pub project: Option<String>,
+    /// The `next` of the page before, to get the page after it.
+    #[serde(default)]
+    pub before: Option<String>,
+    /// Rows in the page: 200 when absent, at most 1000.
+    #[serde(default)]
+    pub limit: Option<i64>,
+    /// The device's offset from UTC in minutes (+330 for India), which decides each
+    /// tick's local day. One offset for every date, so a tick within an hour of
+    /// midnight on the far side of a daylight-saving change can land on the next day.
+    #[serde(default)]
+    pub utc_offset: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReportItem {
+    /// The tick's own id.
+    pub id: String,
+    pub completed_at: String,
+    /// Its local day, `YYYY-MM-DD`.
+    pub day: String,
+    /// None when the task was deleted.
+    pub task: Option<Task>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReportDay {
+    pub day: String,
+    /// Every tick of that day that matches the query, not only those in this page.
+    pub count: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Report {
+    pub items: Vec<ReportItem>,
+    /// The days the items fall on, newest first.
+    pub days: Vec<ReportDay>,
+    /// Pass as `before` for the next page; None at the end.
+    pub next: Option<String>,
+}
+
 // ── Input ────────────────────────────────────────────────────────────────────
 
 /// Some(None) when the key was sent as null, None when it was left out.

@@ -1695,8 +1695,14 @@
 		return view === 'upcoming' ? `date:${tomorrow}` : 'main';
 	}
 
-	/** G then I, T or U: go to the Inbox, Today or Upcoming, as in Todoist. */
-	const GO_VIEWS: Record<string, TaskView> = { i: 'inbox', t: 'today', u: 'upcoming' };
+	/** G then I, T, U, K or R: go to the Inbox, Today, Upcoming, Karma or Reporting, as in Todoist. */
+	const GO_VIEWS: Record<string, TaskView> = {
+		i: 'inbox',
+		t: 'today',
+		u: 'upcoming',
+		k: 'karma',
+		r: 'reporting'
+	};
 	let goPending = 0;
 
 	function goKey(e: KeyboardEvent): boolean {

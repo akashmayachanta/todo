@@ -26,6 +26,14 @@
 				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d={ICON_PATHS[item.variant]} />
 			</svg>
 			<span class="min-w-0">{item.message}</span>
+			{#if item.action}
+				{@const action = item.action}
+				<button
+					type="button"
+					onclick={() => { toast.dismiss(item.id); action.run(); }}
+					class="ml-1 shrink-0 px-1.5 py-0.5 rounded font-semibold underline underline-offset-2 opacity-90 hover:opacity-100"
+				>{action.label}</button>
+			{/if}
 			<button
 				type="button"
 				onclick={() => toast.dismiss(item.id)}

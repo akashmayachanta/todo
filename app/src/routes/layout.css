@@ -669,13 +669,19 @@ a:focus-visible,
 summary:focus-visible,
 select:focus-visible,
 [role="button"]:focus-visible,
-[role="switch"]:focus-visible,
 [role="tab"]:focus-visible,
 [role="menuitem"]:focus-visible,
 [role="radio"]:focus-visible {
   outline: 2px solid var(--color-focus);
   outline-offset: 2px;
   transition: none;
+}
+
+/* Switches get no ring, by mouse or keyboard: the knob shows the state. */
+[role="switch"]:focus,
+[role="switch"]:focus-visible {
+  outline: none;
+  box-shadow: none;
 }
 
 /* The skip link lands focus on <main>: ring it inside its own edge */

@@ -6,7 +6,7 @@ import { DEFAULT_DATE_PREFS, type DatePrefs } from '$lib/datePrefs.svelte';
 export type TaskView = 'inbox' | 'today' | 'upcoming' | 'karma' | 'reporting' | 'projects' | 'project' | 'filter' | 'search';
 
 /** How a view is laid out, chosen per view (like Todoist's View menu). */
-export type TaskLayout = 'list' | 'board' | 'calendar';
+export type TaskLayout = 'list' | 'board' | 'calendar' | 'table';
 
 const LAYOUT_KEY = 'tasks.layout';
 
@@ -35,8 +35,9 @@ export type TaskSettings = DatePrefs & {
 	/** Open-task counts in the pane. */
 	showCounts: boolean;
 	/**
-	 * Done tasks listed under the open ones (Inbox and projects, list and board), and
-	 * done subtasks under their task, in the lists and the task window.
+	 * Done tasks listed in their own section after the open ones (Inbox and projects,
+	 * list, board and table), and done subtasks under their task, in the lists and the
+	 * task window. Switched in the header's Display menu.
 	 */
 	showCompleted: boolean;
 	/** The view `/tasks` opens on. */

@@ -188,13 +188,13 @@
 
 	// ── General ──────────────────────────────────────────────────────────────
 
-	type Toggle = 'showSubtasks' | 'showNotes' | 'showPlace' | 'showCounts' | 'showCompleted';
+	// Show completed tasks lives in the Display menu over each list.
+	type Toggle = 'showSubtasks' | 'showNotes' | 'showPlace' | 'showCounts';
 	const TOGGLES: { key: Toggle; label: string; hint?: string; sub?: boolean }[] = [
 		{ key: 'showSubtasks', label: 'Show subtasks', hint: 'Under their task in the Inbox and projects' },
 		{ key: 'showNotes', label: 'Show descriptions', hint: 'The first line, under the title' },
 		{ key: 'showPlace', label: 'Show project in Today and Upcoming' },
 		{ key: 'showCounts', label: 'Show task counts', hint: 'Beside each list in the sidebar' },
-		{ key: 'showCompleted', label: 'Show completed tasks', hint: 'Tasks under the open ones in the Inbox and projects, and subtasks everywhere' },
 	];
 	const START_VIEWS = [
 		{ value: 'today', label: 'Today' },
@@ -1083,7 +1083,7 @@
 	.set-switch::after {
 		content: '';
 		position: absolute;
-		top: 2px;
+		top: 50%;
 		left: 2px;
 		width: 16px;
 		height: 16px;
@@ -1091,21 +1091,21 @@
 		corner-shape: round;
 		background: #fff;
 		box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
+		transform: translateY(-50%);
 		transition: transform var(--dur-short) var(--ease-out);
 	}
 	.set-switch:checked {
 		background: var(--color-brand);
 	}
 	.set-switch:checked::after {
-		transform: translateX(16px);
+		transform: translate(16px, -50%);
 	}
 	.set-switch:disabled {
 		opacity: 0.45;
 	}
-	/* A soft ring instead of the app's outline, so a switch keeps its shape. */
+	/* No ring around a switch: its knob already shows where it is (layout.css). */
 	.set-switch:focus-visible {
 		outline: none;
-		box-shadow: 0 0 0 3px var(--color-brand-glow);
 	}
 
 	/* Theme */

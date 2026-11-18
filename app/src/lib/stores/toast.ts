@@ -6,11 +6,15 @@ export interface ToastItem {
 	id: number;
 	message: string;
 	variant: ToastVariant;
+	/** A button in the toast (e.g. Undo); pressing it runs `run` and closes the toast. */
+	action?: { label: string; run: () => void };
 }
 
 const DEFAULT_DURATION = 2000;
 // Errors stay a bit longer so they can be read; the cross lets users dismiss any toast early.
 const ERROR_DURATION = 4000;
+// A toast with a button (Undo) stays long enough to reach it.
+const ACTION_DURATION = 5000;
 
 function createToastStore() {
 	const { subscribe, update } = writable<ToastItem[]>([]);
@@ -24,9 +28,10 @@ function createToastStore() {
 		message: string,
 		variant: ToastVariant = 'info',
 		duration = variant === 'error' ? ERROR_DURATION : DEFAULT_DURATION,
+		action?: ToastItem['action'],
 	) {
 		const id = ++counter;
-		update((items) => [...items, { id, message, variant }]);
+		update((items) => [...items, { id, message, variant, action }]);
 		setTimeout(() => dismiss(id), duration);
 		return id;
 	}
@@ -46,6 +51,9 @@ function createToastStore() {
 		success: (message: string, duration?: number) => push(message, 'success', duration),
 		error: (message: string, duration?: number) => push(message, 'error', duration),
 		info: (message: string, duration?: number) => push(message, 'info', duration),
+		/** A success toast with a button, up long enough to press it. */
+		withAction: (message: string, label: string, run: () => void, duration = ACTION_DURATION) =>
+			push(message, 'success', duration, { label, run }),
 	};
 }
 

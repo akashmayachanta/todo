@@ -30,7 +30,8 @@
 	import TaskCalendar from '$lib/components/tasks/TaskCalendar.svelte';
 	import TaskKarma from '$lib/components/tasks/TaskKarma.svelte';
 	import TaskReporting from '$lib/components/tasks/TaskReporting.svelte';
-	import LayoutToggle from '$lib/components/tasks/LayoutToggle.svelte';
+	import DisplayMenu from '$lib/components/tasks/DisplayMenu.svelte';
+	import TaskTable, { type TableGroup } from '$lib/components/tasks/TaskTable.svelte';
 	import SmartTips from '$lib/components/tasks/SmartTips.svelte';
 	import GroupMenu from '$lib/components/tasks/GroupMenu.svelte';
 	import TaskProjects from '$lib/components/tasks/TaskProjects.svelte';
@@ -142,6 +143,9 @@
 	let taskId = $derived(params.get('task') || null);
 	/** Done tasks are listed in the Inbox and projects when Settings → General says so. */
 	let completedShown = $derived(settings.showCompleted && (view === 'project' || view === 'inbox'));
+	/** The done tasks shown, each after the open ones of its own section (or the Inbox board's priority column). */
+	let doneTop = $derived(completedShown ? completed.filter((t) => t.parent_id === null) : []);
+	const doneIn = (sectionId: string | null) => doneTop.filter((t) => t.project_id === projectId && t.section_id === sectionId);
 	/** Phones: the Browse tab (account, filters, projects) in place of the list. */
 	let browsing = $derived(!projectId && !filterId && params.get('view') === 'browse');
 	let project = $derived(projects.find((p) => p.id === projectId) ?? null);
@@ -181,8 +185,11 @@
 
 	let subtaskMap = $derived.by(() => {
 		const map = new Map<string, Task[]>();
-		for (const t of tasks) {
-			if (t.parent_id === null) continue;
+		const seen = new Set<string>();
+		// The open tasks' subtasks, then the done subtasks of done tasks (shown in their sections).
+		for (const t of [...tasks, ...completed]) {
+			if (t.parent_id === null || seen.has(t.id)) continue;
+			seen.add(t.id);
 			const list = map.get(t.parent_id) ?? [];
 			list.push(t);
 			map.set(t.parent_id, list);
@@ -299,7 +306,12 @@
 
 	let layoutKey = $derived(view === 'project' ? `project:${projectId}` : view === 'filter' ? `filter:${filterId}` : view);
 	/** Today has no calendar: it is one day (and the overdue ones). */
-	let layoutOptions = $derived<readonly TaskLayout[]>(view === 'search' ? ['list'] : view === 'today' || view === 'projects' ? ['list', 'board'] : ['list', 'board', 'calendar']);
+	let layoutOptions = $derived<readonly TaskLayout[]>(
+		view === 'search' ? ['list']
+			: view === 'projects' ? ['list', 'board']
+			: view === 'today' ? ['list', 'board', 'table']
+			: ['list', 'board', 'calendar', 'table'],
+	);
 	let layout = $derived.by((): TaskLayout => {
 		const l = layouts[layoutKey];
 		return l && layoutOptions.includes(l) ? l : 'list';
@@ -371,6 +383,8 @@
 		/** A dot before the title (a project's colour). */
 		color?: string | null;
 		tasks: Task[];
+		/** Its done tasks, after the open ones, when completed tasks are shown. */
+		done: Task[];
 		overdue?: boolean;
 		section?: TaskSection;
 		/** What dropping a task here changes; null when nothing can be dropped here. */
@@ -382,26 +396,27 @@
 	let columns = $derived.by((): Column[] => {
 		if (buckets) {
 			return buckets.map((b) => ({
-				key: b.key, title: b.title, sub: b.sub, color: b.color, overdue: b.overdue, tasks: b.tasks,
+				key: b.key, title: b.title, sub: b.sub, color: b.color, overdue: b.overdue, tasks: b.tasks, done: [],
 				drop: b.drop, add: b.drop ? { key: b.key, defaults: b.defaults } : null,
 			}));
 		}
 		if (view === 'filter') {
-			return filter ? [{ key: 'filter', title: 'Tasks', tasks: filterTasks, drop: null, add: { key: 'main', defaults: filterBase } }] : [];
+			return filter ? [{ key: 'filter', title: 'Tasks', tasks: filterTasks, done: [], drop: null, add: { key: 'main', defaults: filterBase } }] : [];
 		}
 		if (view === 'inbox') {
 			return ([1, 2, 3, 4] as TaskPriority[]).map((p) => ({
 				key: `pri:${p}`,
 				title: `Priority ${p}`,
 				tasks: inboxTasks.filter((t) => t.priority === p),
+				done: doneTop.filter((t) => t.priority === p),
 				drop: { priority: p },
 				add: { key: p === 4 ? 'main' : `pri:${p}`, defaults: { priority: p } },
 			}));
 		}
 		if (view === 'today') {
 			const cols: Column[] = [];
-			if (overdue.length) cols.push({ key: 'overdue', title: 'Overdue', tasks: overdueRows, overdue: true, drop: null, add: null });
-			cols.push({ key: `date:${today}`, title: todayHeading(today), tasks: todayRows, drop: { due_date: today }, add: { key: 'main', defaults: { due_date: today } } });
+			if (overdue.length) cols.push({ key: 'overdue', title: 'Overdue', tasks: overdueRows, done: [], overdue: true, drop: null, add: null });
+			cols.push({ key: `date:${today}`, title: todayHeading(today), tasks: todayRows, done: [], drop: { due_date: today }, add: { key: 'main', defaults: { due_date: today } } });
 			return cols;
 		}
 		if (view === 'upcoming') {
@@ -414,30 +429,47 @@
 					title: head.title,
 					sub: head.sub,
 					tasks: dated.filter((t) => t.due_date === date).sort(byDue),
+					done: [],
 					drop: { due_date: date },
 					add: { key: `date:${date}`, defaults: { due_date: date } },
 				});
 			}
-			if (later.length) cols.push({ key: 'later', title: 'Later', tasks: later, drop: null, add: null });
+			if (later.length) cols.push({ key: 'later', title: 'Later', tasks: later, done: [], drop: null, add: null });
 			return cols;
 		}
 		if (!project) return [];
 		// "No section" only when it has tasks, or is the project's only column, or its quick add is open (q).
-		const showNone = unsectioned.length > 0 || projectSections.length === 0 || addingAt === 'main';
+		const showNone = unsectioned.length > 0 || doneIn(null).length > 0 || projectSections.length === 0 || addingAt === 'main';
 		return [
 			...(showNone
-				? [{ key: 'cat:none', title: 'No section', tasks: unsectioned, drop: { section_id: null }, add: { key: 'main', defaults: { project_id: project.id } } }]
+				? [{ key: 'cat:none', title: 'No section', tasks: unsectioned, done: doneIn(null), drop: { section_id: null }, add: { key: 'main', defaults: { project_id: project.id } } }]
 				: []),
 			...projectSections.map((c) => ({
 				key: `cat:${c.id}`,
 				title: c.name,
 				section: c,
 				tasks: inSection(c.id),
+				done: doneIn(c.id),
 				drop: { section_id: c.id },
 				add: { key: `cat:${c.id}`, defaults: { project_id: project!.id, section_id: c.id } },
 			})),
 		];
 	});
+
+	/** The table's groups: the board's columns, but the Inbox as one list (its rows show their priority). */
+	let tableGroups = $derived.by((): TableGroup[] => {
+		if (view === 'inbox' && !buckets) return [{ key: 'inbox', title: null, tasks: inboxTasks, done: doneTop, add: { key: 'main', defaults: {} } }];
+		return columns.map((c) => ({
+			key: c.key, title: c.title, sub: c.sub, color: c.color, overdue: c.overdue, tasks: c.tasks, done: c.done, add: c.add,
+		}));
+	});
+
+	/** The subtasks the table lists under a task, as the list would. */
+	function tableSubrows(t: Task): Task[] {
+		if (!settings.showSubtasks || t.parent_id !== null) return [];
+		if (!(view === 'inbox' || view === 'project' || view === 'today')) return [];
+		return subtasksOf(t.id).filter((s) => (settings.showCompleted || !s.completed_at) && (view !== 'today' || dueSubtasks(t, s)));
+	}
 
 	/* Phones: the board shows one column a page, swiped sideways, with a dot for each page. */
 	let boardEl = $state<HTMLElement | null>(null);
@@ -728,13 +760,17 @@
 		if (view === 'search') return [...searchOpen, ...searchDone];
 		let list: Task[];
 		if (layout === 'calendar') list = [...calendarTasks].sort(byDue).concat(calendarUndated ?? []);
-		else if (layout === 'board' || buckets) list = withSubtasks(columns.flatMap((c) => c.tasks));
+		else if (layout === 'table') list = tableGroups.flatMap((g) => withSubtasks([...g.tasks, ...g.done]));
+		else if (layout === 'board' || buckets) list = columns.flatMap((c) => withSubtasks([...c.tasks, ...c.done]));
 		else if (view === 'filter') list = filterTasks;
-		else if (view === 'inbox') list = withSubtasks(inboxTasks);
+		else if (view === 'inbox') list = withSubtasks([...inboxTasks, ...doneTop]);
 		else if (view === 'today') list = withSubtasks([...overdueRows, ...todayRows]);
 		else if (view === 'upcoming') list = [...upcomingDays.flatMap((d) => d.tasks), ...later];
-		else list = withSubtasks([...unsectioned, ...projectSections.flatMap((c) => inSection(c.id))]);
-		return completedShown && layout !== 'calendar' ? [...list, ...completed] : list;
+		else list = withSubtasks([
+			...unsectioned, ...doneIn(null),
+			...projectSections.flatMap((c) => [...inSection(c.id), ...doneIn(c.id)]),
+		]);
+		return list;
 	});
 
 	/** The tasks either side of the open one: in the view, else among its sibling subtasks. */
@@ -1016,7 +1052,21 @@
 				return;
 			}
 			if (task.completed_at) completed = completed.filter((t) => t.id !== task.id);
-			else if (task.parent_id === null) toast.success(`Completed "${plainText(task.title)}"`);
+			else if (task.parent_id === null || !settings.showCompleted) {
+				// It leaves the list, so a slip of the mouse can be put right from here.
+				toast.withAction(`Completed "${plainText(task.title)}"`, 'Undo', () => void reopenTask(updated));
+			}
+			await reloadTasks();
+		} catch (e) {
+			toast.error(errorDetail(e));
+		}
+	}
+
+	/** Undo from the "Completed" toast. */
+	async function reopenTask(task: Task) {
+		try {
+			replace(await api.tasks.reopen(task.id));
+			completed = completed.filter((t) => t.id !== task.id);
 			await reloadTasks();
 		} catch (e) {
 			toast.error(errorDetail(e));
@@ -2095,7 +2145,13 @@
 						<GroupMenu value={groupBy} options={groupOptions} onchange={setGroup} />
 					{/if}
 					{#if !loading && !error && view !== 'karma' && view !== 'reporting' && view !== 'search'}
-						<LayoutToggle {layout} options={layoutOptions} onchange={setLayout} />
+						<DisplayMenu
+							{layout}
+							options={layoutOptions}
+							onchange={setLayout}
+							showCompleted={view === 'projects' ? null : settings.showCompleted}
+							oncompleted={(show) => taskSettings.update('showCompleted', show)}
+						/>
 							{#if view === 'projects'}<button type="button" class="btn btn-secondary" onclick={newProject}>Add project</button>{/if}
 					{/if}
 					{#if view !== 'karma' && view !== 'reporting' && view !== 'projects' && view !== 'search'}<SmartTips />{/if}
@@ -2234,6 +2290,11 @@
 										{@render row(task, sortable, !sortable, boardSortApi)}
 									</div>
 								{/each}
+								{#each col.done as task (task.id)}
+									<div class="task-card task-card-done" class:task-card-selected={selection.has(task.id)} role="listitem">
+										{@render row(task, true, false)}
+									</div>
+								{/each}
 								{#if col.add}{@render adder(col.add.key, col.add.defaults)}{/if}
 							</div>
 						</section>
@@ -2263,6 +2324,17 @@
 						{/each}
 					</nav>
 				{/if}
+			{:else if layout === 'table'}
+				<TaskTable
+					groups={tableGroups}
+					subrows={tableSubrows}
+					placeOf={view === 'project' || view === 'inbox' ? null : placeOf}
+					{now}
+					ontoggle={toggleTask}
+					onopen={openTask}
+					{adder}
+					empty={view === 'filter' ? 'No tasks match this filter.' : view === 'today' ? 'Nothing due today.' : view === 'upcoming' ? 'Nothing coming up.' : ''}
+				/>
 			{:else if layout === 'calendar'}
 				{#if addingAt === 'main' || addingAt?.startsWith('date:')}
 					{@const date = addingAt.startsWith('date:') ? addingAt.slice(5) : null}
@@ -2311,8 +2383,11 @@
 				{#each inboxTasks as task (task.id)}
 					{@render row(task, true, false, true)}
 				{/each}
+				{#each doneTop as task (task.id)}
+					{@render row(task, true, false)}
+				{/each}
 				{@render adder('main', {})}
-				{#if !inboxTasks.length && addingAt !== 'main'}
+				{#if !inboxTasks.length && !doneTop.length && addingAt !== 'main'}
 					<p class="tasks-empty">Nothing in the Inbox. Press <kbd>q</kbd> to add a task.</p>
 				{/if}
 			{:else if view === 'today'}
@@ -2364,6 +2439,9 @@
 					{#each unsectioned as task (task.id)}
 						{@render row(task, true, false, true)}
 					{/each}
+					{#each doneIn(null) as task (task.id)}
+						{@render row(task, true, false)}
+					{/each}
 					{@render adder('main', { project_id: project.id })}
 				</div>
 
@@ -2376,6 +2454,9 @@
 							{#each list as task (task.id)}
 								{@render row(task, true, false, true)}
 							{/each}
+							{#each doneIn(c.id) as task (task.id)}
+								{@render row(task, true, false)}
+							{/each}
 							{@render adder(`cat:${c.id}`, { project_id: project.id, section_id: c.id })}
 						</section>
 					{/each}
@@ -2384,20 +2465,11 @@
 				{@render sectionAdder()}
 			{/if}
 
-			{#if completedShown && (view === 'project' || view === 'inbox') && layout !== 'calendar'}
-				<section class="task-group">
-					<h2 class="task-group-head">
-						Completed <span class="task-group-count">{completed.length}</span>
-						{#if completed.length}
-							<button type="button" class="ml-3 text-xs font-normal underline opacity-70 hover:opacity-100" onclick={() => clearCompleted()}>Delete all</button>
-						{/if}
-					</h2>
-					{#each completed as task (task.id)}
-						{@render row(task, false, false)}
-					{:else}
-						<p class="tasks-empty">No completed tasks.</p>
-					{/each}
-				</section>
+			{#if completedShown && view === 'inbox' && layout !== 'calendar' && doneTop.length}
+				<p class="tasks-done-foot">
+					{doneTop.length} completed {doneTop.length === 1 ? 'task' : 'tasks'} shown
+					<button type="button" class="tasks-done-foot-btn" onclick={() => clearCompleted()}>Delete all</button>
+				</p>
 			{/if}
 		</div>
 	</div>

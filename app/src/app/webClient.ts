@@ -88,6 +88,12 @@ export function webSignOut() {
 	webSession.set(null);
 }
 
+/** The account's photo and display name (the synced `profile` row); see profile.ts. */
+export const webProfile = {
+	get: <T>() => getJson<T>('/profile'),
+	update: <T>(patch: unknown) => post<T>('/profile', patch),
+};
+
 export const webTasksClient: TasksClient = {
 	projects: {
 		list: () => getJson('/projects'),

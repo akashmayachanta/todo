@@ -1,4 +1,5 @@
 // `npm run icons`: makes every icon size. Windows from icons-src/icon.svg (green);
+// The web favicon is copied from the Windows one into static/.
 // Android from icons-src/icon-android.json (also green, with a smaller check so it
 // fits the adaptive icon's mask) into src-tauri/icons/android.
 // `tauri icon` writes all platforms at once, so Android's go to a temp folder and
@@ -13,6 +14,9 @@ const app = fileURLToPath(new URL('..', import.meta.url));
 const icon = (...args) => execFileSync(`npx tauri icon ${args.map((a) => `"${a}"`).join(' ')}`, { cwd: app, stdio: 'inherit', shell: true });
 
 icon('icons-src/icon.svg');
+// The web copy's favicon (served from static/).
+cpSync(join(app, 'icons-src/icon.svg'), join(app, 'static/favicon.svg'));
+cpSync(join(app, 'src-tauri/icons/32x32.png'), join(app, 'static/favicon.png'));
 
 const temp = mkdtempSync(join(tmpdir(), 'tasks-icons-'));
 try {

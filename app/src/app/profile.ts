@@ -11,6 +11,7 @@ import { browser } from '$app/environment';
 import { onTasksChanged } from '$lib/tasks/client';
 import { isTauri } from './platform';
 import { call, write } from './tauriClient';
+import { webProfile } from './webClient';
 
 const SIZE = 128;
 const QUALITY = 0.8;
@@ -49,8 +50,13 @@ async function squareJpeg(source: Blob): Promise<string> {
 	return canvas.toDataURL('image/jpeg', QUALITY);
 }
 
+/** The app reads its local DB; a browser has none, so it asks the server. */
+const load = () => (isTauri ? call<ProfileRow>('profile_get') : webProfile.get<ProfileRow>());
+const save = (patch: Partial<ProfileRow>) =>
+	isTauri ? write<ProfileRow>('profile_update', { patch }) : webProfile.update<ProfileRow>(patch);
+
 async function update(username: string, patch: Partial<ProfileRow>) {
-	show(username, await write<ProfileRow>('profile_update', { patch }));
+	show(username, await save(patch));
 }
 
 export async function setPhoto(username: string, file: File) {
@@ -81,7 +87,7 @@ async function refresh() {
 	if (!current) return;
 	const username = current;
 	try {
-		const row = await call<ProfileRow>('profile_get');
+		const row = await load();
 		if (username === current) show(username, row);
 	} catch {
 		/* the next change loads it */
@@ -89,21 +95,22 @@ async function refresh() {
 }
 
 /**
- * Shows `username`'s profile from the local DB, and again whenever the tasks
- * change (a sync pulled it from another device, or another window saved it).
+ * Shows `username`'s profile from the local DB (the server, in a browser), and
+ * again whenever the tasks change (a sync pulled it from another device, another
+ * window saved it, or the browser's event stream said so).
  * Pass `ready` once this device's first sync has finished: only then is it safe
  * to move a profile saved here by an older version up to the account.
  */
 export async function startProfile(username: string, ready: boolean) {
-	// The browser has no local DB; the profile row isn't in the REST API, so it shows the username.
-	if (!browser || !isTauri) return;
+	if (!browser) return;
 	if (current !== username) {
 		current = username;
 		stopListening?.();
 		stopListening = onTasksChanged(refresh);
 	}
 	await refresh();
-	if (ready) await adoptLegacy(username);
+	// Only the apps ever kept a profile in localStorage.
+	if (ready && isTauri) await adoptLegacy(username);
 }
 
 // Before profiles synced they were kept in localStorage, per username.
@@ -135,7 +142,7 @@ async function adoptLegacy(username: string) {
 	const name = legacy(LEGACY_NAMES)[username];
 	if (!photo && !name) return;
 	try {
-		const row = await call<ProfileRow>('profile_get');
+		const row = await load();
 		if (!row.photo && !row.display_name) {
 			const patch: Partial<ProfileRow> = {};
 			if (name) patch.display_name = name;

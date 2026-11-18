@@ -88,13 +88,14 @@ if exist "%~1\%~2.version" (
 )
 exit /b 0
 
-rem Mirrors the browser UI (target\release\web, from build-server.bat) to %TO%\web,
+rem Mirrors the browser UI (target\release\web, from npm run build:web or
+rem build-server.bat) to %TO%\web,
 rem where the server serves it at /tasks-app/. /mir also removes the last build's
 rem old files there; it only touches the web folder. The server reads the files on
 rem each request, so it doesn't need a restart unless the folder is new.
 :copy_web
 if not exist "%FROM%\web\index.html" (
-    echo Missing: web\ hasn't been built yet, run build-server.bat.
+    echo Missing: web\ hasn't been built yet, run npm run build:web in app\.
     set "FAILED=1"
     exit /b 0
 )

@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tasks_core::sync::{self, PullResponse, PushRequest, PushResponse};
 use tower_http::services::{ServeDir, ServeFile};
-use tasks_core::{ops, Section, SectionIn, Completions, Ctx, Filter, FilterIn, Project, ProjectIn, ProjectOrder, Task, TaskIn, TaskOrder, TaskPatch, TaskQuery};
+use tasks_core::{ops, Section, SectionIn, Completions, Ctx, Filter, FilterIn, Project, ProjectIn, ProjectOrder, Profile, ProfilePatch, Task, TaskIn, TaskOrder, TaskPatch, TaskQuery};
 
 use crate::auth::{AuthUser, Device};
 use crate::error::{ApiError, ApiResult};
@@ -87,6 +87,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(&p("/filters"), get(list_filters).post(create_filter))
         .route(&p("/filters/{id}"), post(update_filter))
         .route(&p("/filters/{id}/delete"), post(delete_filter))
+        .route(&p("/profile"), get(get_profile).post(update_profile))
         .route(&p("/completions"), get(list_completions))
         .route(&p("/reorder"), post(reorder_tasks))
         .route(&p("/delete-completed"), post(delete_completed))
@@ -198,6 +199,18 @@ async fn update_filter(State(s): St, u: AuthUser, Path(id): Path<String>, Body(i
 async fn delete_filter(State(s): St, u: AuthUser, Path(id): Path<String>) -> ApiResult<Json<Value>> {
     write(&s, &u, move |c| ops::delete_filter(c, &Ctx::server(), &id)).await?;
     Ok(ok())
+}
+
+// ── Profile ──────────────────────────────────────────────────────────────────
+
+/// The account's display name and photo: the synced `profile` row, for the browser
+/// (the apps read their own copy).
+async fn get_profile(State(s): St, u: AuthUser) -> ApiResult<Json<Profile>> {
+    Ok(Json(s.store.run(u.user_id, ops::get_profile).await?))
+}
+
+async fn update_profile(State(s): St, u: AuthUser, Body(patch): Body<ProfilePatch>) -> ApiResult<Json<Profile>> {
+    Ok(Json(write(&s, &u, move |c| ops::update_profile(c, &Ctx::server(), patch)).await?))
 }
 
 // ── Tasks ────────────────────────────────────────────────────────────────────

@@ -48,11 +48,11 @@
 		{ key: 'theme', label: 'Theme', icon: 'M12 3a9 9 0 100 18c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01a1.5 1.5 0 011.12-2.49H16a5 5 0 005-5c0-4.42-4.03-8-9-8zM6.5 12a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm3-4a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm5 0a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm3 4a1.5 1.5 0 110-3 1.5 1.5 0 010 3z' },
 		{ key: 'server', label: 'Server', icon: 'M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01' },
 	];
-	/** Desktop is only on Windows. A browser (platform 'web') has only what lives in the browser: General and Theme. */
+	/** Desktop is only on Windows. A browser (platform 'web') has no server or desktop settings;
+	 *  its Account tab is only the profile (it signs out from the account menu). */
+	const web = untrack(() => status.platform === 'web');
 	const tabs = untrack(() =>
-		TABS.filter((t) =>
-			status.platform === 'web' ? t.key === 'general' || t.key === 'theme' : t.key !== 'desktop' || status.platform !== 'android',
-		),
+		TABS.filter((t) => (web ? t.key !== 'desktop' && t.key !== 'server' : t.key !== 'desktop' || status.platform !== 'android')),
 	);
 
 	let current = $state<SettingsTab>(untrack(() => (tabs.some((t) => t.key === tab) ? tab : tabs[0].key)));
@@ -367,7 +367,7 @@
 										<button type="button" class="btn btn-ghost set-text-btn" onclick={() => status.username && removePhoto(status.username).catch((err) => toast.error(errorDetail(err)))}>Remove</button>
 									{/if}
 								</div>
-								<p class="set-hint">Kept on this device. A square crop of the middle of the picture.</p>
+								<p class="set-hint">Shown on all your devices. A square crop of the middle of the picture.</p>
 							</div>
 							<input bind:this={fileInput} type="file" accept="image/*" class="sr-only" tabindex="-1" onchange={pickPhoto} />
 						</div>
@@ -394,6 +394,7 @@
 						</label>
 					</div>
 
+					{#if !web}
 					<div class="set-group">
 						<span class="set-label">Sync</span>
 						<p class="set-value">
@@ -408,6 +409,7 @@
 						<button type="button" class="btn btn-secondary" onclick={onswitch}>Sign in as someone else</button>
 						<button type="button" class="btn btn-secondary set-danger" onclick={signOut}>Sign out</button>
 					</div>
+					{/if}
 				{:else if current === 'server'}
 					<form class="set-form" onsubmit={connect}>
 						<p class="set-hint set-lede">Where this device syncs. Your tasks stay on this device and work offline either way.</p>

@@ -17,7 +17,7 @@ use tasks_core::sync::{self, PullResponse, PushRequest, PushResponse};
 use tower_http::services::{ServeDir, ServeFile};
 use tasks_core::{ops, Section, SectionIn, Completions, Ctx, Filter, FilterIn, Project, ProjectIn, ProjectOrder, Profile, ProfilePatch, Report, ReportQuery, Task, TaskIn, TaskOrder, TaskPatch, TaskQuery};
 
-use crate::auth::{AuthUser, Device};
+use crate::auth::{self, Accounts, AuthUser, Device, McpScope, McpToken};
 use crate::error::{ApiError, ApiResult};
 use crate::releases::{Platform, Release};
 use crate::AppState;
@@ -60,9 +60,29 @@ where
     T: Send + 'static,
     F: FnOnce(&rusqlite::Connection) -> tasks_core::Result<T> + Send + 'static,
 {
-    let out = s.store.run(u.user_id, f).await?;
-    s.hub.notify(u.user_id, &u.device_id);
+    write_as(s, u.user_id, &u.device_id, f).await
+}
+
+/// A write by `sender` (a device id, or `mcp:<token id>`): every other device of
+/// the user is told to sync.
+pub(crate) async fn write_as<T, F>(s: &AppState, user_id: i64, sender: &str, f: F) -> ApiResult<T>
+where
+    T: Send + 'static,
+    F: FnOnce(&rusqlite::Connection) -> tasks_core::Result<T> + Send + 'static,
+{
+    let out = s.store.run(user_id, f).await?;
+    s.hub.notify(user_id, sender);
     Ok(out)
+}
+
+/// The caller's local date (`2026-11-05`) a repeating task moves on from when
+/// ticked; the server's own date when left out.
+pub(crate) fn parse_today(day: Option<&str>) -> ApiResult<chrono::NaiveDate> {
+    match day {
+        Some(day) => chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d")
+            .map_err(|_| ApiError::unprocessable("today must be a date like 2026-11-05".to_string())),
+        None => Ok(chrono::Local::now().date_naive()),
+    }
 }
 
 pub fn router(state: Arc<AppState>) -> Router {
@@ -97,6 +117,10 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(&p("/auth/me"), get(me))
         .route(&p("/auth/devices"), get(list_devices))
         .route(&p("/auth/devices/{id}/revoke"), post(revoke_device))
+        .route(&p("/auth/mcp-tokens"), get(list_mcp_tokens).post(create_mcp_token))
+        .route(&p("/auth/mcp-tokens/{id}"), post(update_mcp_token))
+        .route(&p("/auth/mcp-tokens/{id}/delete"), post(delete_mcp_token))
+        .route(&p("/mcp"), post(crate::mcp::handle).get(crate::mcp::not_allowed))
         .route(&p("/sync/push"), post(push))
         .route(&p("/sync/pull"), get(pull))
         .route(&p("/sync/events"), get(events))
@@ -271,11 +295,7 @@ struct CompleteIn {
 /// Ticks a task: core decides what that changes (ops::complete_task). A repeating
 /// task's reminder moves by whole days in the server's time zone.
 async fn complete_task(State(s): St, u: AuthUser, Path(id): Path<String>, Body(input): Body<CompleteIn>) -> ApiResult<Json<Task>> {
-    let today = match input.today.as_deref() {
-        Some(day) => chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d")
-            .map_err(|_| ApiError::unprocessable("today must be a date like 2026-11-05".to_string()))?,
-        None => chrono::Local::now().date_naive(),
-    };
+    let today = parse_today(input.today.as_deref())?;
     Ok(Json(write(&s, &u, move |c| ops::complete_task(c, &Ctx::server(), &id, today)).await?))
 }
 
@@ -358,6 +378,94 @@ async fn revoke_device(State(s): St, u: AuthUser, Path(id): Path<String>) -> Api
         .map_err(|e| ApiError::internal(e.to_string()))??;
     if !found {
         return Err(ApiError::new(StatusCode::NOT_FOUND, "Device not found"));
+    }
+    Ok(ok())
+}
+
+// ── MCP tokens ───────────────────────────────────────────────────────────────
+
+/// Runs `f` on accounts.db off the async runtime.
+async fn on_accounts<T, F>(s: &AppState, f: F) -> ApiResult<T>
+where
+    T: Send + 'static,
+    F: FnOnce(&Accounts) -> ApiResult<T> + Send + 'static,
+{
+    let accounts = s.accounts.clone();
+    tokio::task::spawn_blocking(move || f(&accounts)).await.map_err(|e| ApiError::internal(e.to_string()))?
+}
+
+/// Left out: None; `null`: Some(None); a value: Some(Some(v)).
+fn double<'de, D, T>(de: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(de).map(Some)
+}
+
+#[derive(Deserialize)]
+struct McpTokenIn {
+    #[serde(default)]
+    name: String,
+    scope: McpScope,
+    /// Left out: 30 days from now. `null`: never expires.
+    #[serde(default, deserialize_with = "double")]
+    expires_at: Option<Option<String>>,
+}
+
+#[derive(Serialize)]
+struct McpTokenOut {
+    /// Shown once; only its hash is kept.
+    token: String,
+    info: McpToken,
+}
+
+#[derive(Deserialize)]
+struct McpExpiryIn {
+    /// `null`: never expires.
+    expires_at: Option<String>,
+}
+
+fn mcp_token_name(name: &str) -> ApiResult<String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Ok("AI client".to_string());
+    }
+    if name.chars().count() > 100 {
+        return Err(ApiError::unprocessable("A token's name is at most 100 characters"));
+    }
+    Ok(name.to_string())
+}
+
+fn no_mcp_token() -> ApiError {
+    ApiError::new(StatusCode::NOT_FOUND, "MCP token not found")
+}
+
+async fn list_mcp_tokens(State(s): St, u: AuthUser) -> ApiResult<Json<Vec<McpToken>>> {
+    Ok(Json(on_accounts(&s, move |a| a.list_mcp_tokens(u.user_id)).await?))
+}
+
+/// Makes an MCP token for Settings → AI. The token is in the answer only.
+async fn create_mcp_token(State(s): St, u: AuthUser, Body(input): Body<McpTokenIn>) -> ApiResult<(StatusCode, Json<McpTokenOut>)> {
+    let name = mcp_token_name(&input.name)?;
+    let expires_at = match input.expires_at {
+        None => Some(auth::default_expiry()),
+        Some(at) => auth::check_expiry(at.as_deref())?,
+    };
+    let (info, token) = on_accounts(&s, move |a| a.create_mcp_token(u.user_id, &name, input.scope, expires_at)).await?;
+    tracing::info!("{} made an MCP token, {} ({})", u.username, info.name, if info.scope.can_write() { "read and write" } else { "read only" });
+    Ok((StatusCode::CREATED, Json(McpTokenOut { token, info })))
+}
+
+/// Changes a token's expiry.
+async fn update_mcp_token(State(s): St, u: AuthUser, Path(id): Path<String>, Body(input): Body<McpExpiryIn>) -> ApiResult<Json<McpToken>> {
+    let expires_at = auth::check_expiry(input.expires_at.as_deref())?;
+    on_accounts(&s, move |a| a.set_mcp_token_expiry(u.user_id, &id, expires_at)).await?.map(Json).ok_or_else(no_mcp_token)
+}
+
+async fn delete_mcp_token(State(s): St, u: AuthUser, Path(id): Path<String>) -> ApiResult<Json<Value>> {
+    if !on_accounts(&s, move |a| a.delete_mcp_token(u.user_id, &id)).await? {
+        return Err(no_mcp_token());
     }
     Ok(ok())
 }

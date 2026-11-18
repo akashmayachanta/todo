@@ -4,6 +4,9 @@
 // subtask (added, or reopened if it was ticked off), and a video subtask
 // whose tab is gone is ticked off. A group removed from the archive has its
 // task closed. Nothing is ever deleted or renamed.
+//
+// It talks to the server's MCP endpoint with an MCP token made in Tasks →
+// Settings → AI; there is no sign-in.
 
 import { loadArchive } from './archive.js';
 import { attachDurations, videoId } from './durations.js';
@@ -15,19 +18,23 @@ export const SECTION = 'YT';
 export const UNGROUPED_TITLE = 'Ungrouped tabs';
 
 const CONFIG_KEY = 'tasksConfig';
-// { "<serverUrl>|<username>": ["<group title, lower case>", ...] }: the groups
-// this extension has synced to each account. Only these can be closed as
-// removed, so another browser's groups in the same account are left alone.
+// { "<serverUrl>": ["<group title, lower case>", ...] }: the groups this
+// extension has synced to each server. Only these can be closed as removed,
+// so another browser's groups in the same account are left alone.
 const SYNCED_KEY = 'tasksSynced';
 // Set once by background.js on updating from a version without SYNCED_KEY,
 // so the first sync also closes the tasks of groups removed before then.
 const CLEANUP_KEY = 'tasksCleanupPending';
-const DEVICE_NAME = 'Tab Group Exporter';
+// MCP tokens start with this; device tokens, from before 1.8, with the other.
+const MCP_PREFIX = 'mcp_';
+const DEVICE_PREFIX = 'dt_';
 // The server's limit on a subtask's title, counted on the plain text
 // (SUBTASK_TITLE_MAX in tasks-core).
 const SUBTASK_TITLE_MAX = 255;
 // The server takes durations of 1 to 10080 minutes.
 const DURATION_MAX = 10080;
+// list_tasks pages; the server takes up to 500.
+const PAGE = 500;
 
 export const DEFAULT_SERVER = 'http://localhost:8050';
 
@@ -59,25 +66,31 @@ export async function initSynced(reason) {
   else if (reason === 'update') await chrome.storage.local.set({ [CLEANUP_KEY]: true });
 }
 
-// { serverUrl, token, username, deviceId }. The password is never stored.
+// { serverUrl, token }: an MCP token. A config from before 1.8 holds a device
+// token (dt_…) instead, which counts as not connected; connecting revokes it.
 export async function loadConfig() {
   const { [CONFIG_KEY]: config = {} } = await chrome.storage.local.get(CONFIG_KEY);
   return config;
 }
 
-export async function saveConfig(config) {
+export function isConnected(config) {
+  return !!config.serverUrl && typeof config.token === 'string' && config.token.startsWith(MCP_PREFIX);
+}
+
+async function saveConfig(config) {
   await chrome.storage.local.set({ [CONFIG_KEY]: config });
 }
 
-// "192.168.1.10:8050" → "http://192.168.1.10:8050/tasks-api". A URL that
-// already has a path is kept as typed, for servers with another base path.
+// "192.168.1.10:8050" → "http://192.168.1.10:8050/tasks-api". The MCP address
+// copied from Settings → AI (…/tasks-api/mcp) works too. A URL with another
+// path is kept as typed, for servers with another base path.
 export function normalizeServerUrl(input) {
   let text = input.trim();
   if (!text) throw new Error('Enter the server address');
   if (!/^https?:\/\//i.test(text)) text = 'http://' + text;
   let u;
   try { u = new URL(text); } catch { throw new Error('That server address is not valid'); }
-  const path = u.pathname.replace(/\/+$/, '');
+  const path = u.pathname.replace(/\/+$/, '').replace(/\/mcp$/i, '');
   return u.origin + (path || '/tasks-api');
 }
 
@@ -88,7 +101,14 @@ export function originPattern(serverUrl) {
   return `${u.protocol}//${u.hostname}/*`;
 }
 
-// ---------- API ----------
+// "http://192.168.1.10:8050/tasks-api" → "192.168.1.10:8050", for the popup.
+export function serverLabel(serverUrl) {
+  try { return new URL(serverUrl).host; } catch { return serverUrl; }
+}
+
+// ---------- MCP ----------
+// The server's MCP endpoint ({serverUrl}/mcp, tasks-server's mcp.rs) is
+// stateless: each call is one JSON-RPC message, with no session to open.
 
 class ApiError extends Error {
   constructor(message, status) {
@@ -97,16 +117,19 @@ class ApiError extends Error {
   }
 }
 
-async function request(serverUrl, token, path, { method = 'GET', body } = {}) {
-  const headers = {};
-  if (token) headers.Authorization = `Bearer ${token}`;
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
+let rpcId = 0;
+
+async function rpc(serverUrl, token, method, params) {
   let res;
   try {
-    res = await fetch(serverUrl + path, {
-      method,
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body)
+    res = await fetch(`${serverUrl}/mcp`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json, text/event-stream'
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: ++rpcId, method, params })
     });
   } catch {
     throw new ApiError(`Could not reach the server at ${serverUrl}`, 0);
@@ -114,46 +137,76 @@ async function request(serverUrl, token, path, { method = 'GET', body } = {}) {
   if (!res.ok) {
     let detail = '';
     try { detail = (await res.json()).detail || ''; } catch { /* not JSON */ }
+    if (res.status === 404 || res.status === 405) detail = 'This Tasks server has no MCP endpoint yet. Update the server.';
     throw new ApiError(detail || `Server error ${res.status}`, res.status);
   }
-  return res.status === 204 ? null : res.json();
+  const msg = await res.json();
+  if (msg.error) throw new ApiError(msg.error.message || 'The server refused the call', 400);
+  return msg.result;
 }
 
-// Calls the API with the saved token. A 401 means the token was revoked, so
-// it is dropped and the popup asks the user to sign in again.
-async function api(path, opts) {
+// Runs one tool. A tool's own failure (bad input, not found, a read-only
+// token) comes back as isError, with a message to show.
+async function callTool(serverUrl, token, name, args = {}) {
+  const result = await rpc(serverUrl, token, 'tools/call', { name, arguments: args });
+  const text = result?.content?.find((c) => c.type === 'text')?.text ?? '';
+  if (result?.isError) throw new ApiError(text || `${name} failed`, 422);
+  if (result?.structuredContent !== undefined) return result.structuredContent;
+  try { return JSON.parse(text); } catch { return text; }
+}
+
+// A tool with the saved token. A 401 means it expired or was deleted, so it
+// is dropped and the popup asks for a new one.
+async function tool(name, args) {
   const config = await loadConfig();
-  if (!config.token) throw new ApiError('Sign in first', 401);
+  if (!isConnected(config)) throw new ApiError('Connect to Tasks first', 401);
   try {
-    return await request(config.serverUrl, config.token, path, opts);
+    return await callTool(config.serverUrl, config.token, name, args);
   } catch (err) {
     if (err.status === 401) {
-      await saveConfig({ serverUrl: config.serverUrl, username: config.username });
-      throw new ApiError('Signed out by the server. Sign in again.', 401);
+      await saveConfig({ serverUrl: config.serverUrl });
+      throw new ApiError('Tasks refused the MCP token: it has expired or was deleted. Paste a new one.', 401);
     }
     throw err;
   }
 }
 
-export async function signIn(serverUrl, username, password) {
-  const out = await request(serverUrl, null, '/auth/login', {
-    method: 'POST',
-    body: { username: username.trim(), password, device_name: DEVICE_NAME }
-  });
-  const config = { serverUrl, token: out.token, username: out.username, deviceId: out.device?.id };
+// Checks that the token can add tasks, then keeps it. A device token from an
+// older version is revoked on the server, best effort.
+export async function connect(serverUrl, token) {
+  token = token.trim();
+  if (!token.startsWith(MCP_PREFIX)) {
+    throw new Error('Paste an MCP token (it starts with mcp_). Make one in Tasks → Settings → AI.');
+  }
+  let listed;
+  try {
+    listed = await rpc(serverUrl, token, 'tools/list', {});
+  } catch (err) {
+    if (err.status === 401) throw new Error('Tasks refused that token: it is wrong, expired or deleted.');
+    throw err;
+  }
+  if (!listed?.tools?.some((t) => t.name === 'create_task')) {
+    throw new Error('That token is read-only. Make a Read & write token in Tasks → Settings → AI.');
+  }
+  const previous = await loadConfig();
+  if (previous.token?.startsWith(DEVICE_PREFIX) && previous.deviceId && previous.serverUrl) {
+    try {
+      await fetch(`${previous.serverUrl}/auth/devices/${encodeURIComponent(previous.deviceId)}/revoke`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${previous.token}` }
+      });
+    } catch { /* offline or already revoked: forgetting it is enough */ }
+  }
+  const config = { serverUrl, token };
   await saveConfig(config);
   return config;
 }
 
-// Revokes this device's token on the server when it can, then forgets it.
-export async function signOut() {
+// Forgets the token here. It stays valid until it expires or is deleted in
+// Tasks → Settings → AI.
+export async function disconnect() {
   const config = await loadConfig();
-  if (config.token && config.deviceId) {
-    try {
-      await request(config.serverUrl, config.token, `/auth/devices/${encodeURIComponent(config.deviceId)}/revoke`, { method: 'POST' });
-    } catch { /* offline or already revoked: forgetting it locally is enough */ }
-  }
-  await saveConfig({ serverUrl: config.serverUrl, username: config.username });
+  await saveConfig({ serverUrl: config.serverUrl });
 }
 
 // ---------- Matching ----------
@@ -185,19 +238,42 @@ function videoLabel(tab, id) {
   return [...label].length > SUBTASK_TITLE_MAX ? [...label].slice(0, SUBTASK_TITLE_MAX - 1).join('') + '…' : label;
 }
 
-async function findOrCreateProject() {
-  const projects = await api('/projects');
-  return projects.find((p) => sameName(p.name, PROJECT))
-    || api('/projects', { method: 'POST', body: { name: PROJECT } });
+// MCP can't make projects or sections, so they must exist in Tasks already.
+async function findProjectAndSection() {
+  const { projects } = await tool('list_projects');
+  const project = projects.find((p) => sameName(p.name, PROJECT));
+  const { sections } = project ? await tool('list_sections', { project_id: project.id }) : { sections: [] };
+  const section = sections.find((c) => sameName(c.name, SECTION));
+  if (!project || !section) {
+    throw new ApiError(`In Tasks, make a project called "${PROJECT}" with a section called "${SECTION}", then try again.`, 422);
+  }
+  return { project, section };
 }
 
-async function findOrCreateSection(projectId) {
-  const sections = await api(`/sections?project_id=${encodeURIComponent(projectId)}`);
-  return sections.find((c) => sameName(c.name, SECTION))
-    || api('/sections', { method: 'POST', body: { project_id: projectId, name: SECTION } });
+// Every open task in the project with its subtasks, a page at a time, so a
+// long watch list isn't cut short (a missed subtask would be added twice).
+async function projectTasks(projectId) {
+  const tasks = [];
+  for (;;) {
+    const page = await tool('list_tasks', { project_id: projectId, limit: PAGE, offset: tasks.length });
+    tasks.push(...page.tasks);
+    if (!page.more || !page.tasks.length) return tasks;
+  }
 }
 
 // ---------- Sync ----------
+
+// The groups synced to this server. Before 1.8 the record was kept per
+// "<serverUrl>|<username>"; an MCP token has no username, and these are this
+// browser's groups whichever account they went to, so those lists fold in.
+function syncedTitles(byServer, serverUrl) {
+  if (byServer[serverUrl]) return byServer[serverUrl];
+  const titles = new Set();
+  for (const [key, list] of Object.entries(byServer)) {
+    if (key.startsWith(`${serverUrl}|`)) list.forEach((t) => titles.add(t));
+  }
+  return [...titles];
+}
 
 // Two groups with one title (say an open "Work" and a closed "Work") share a
 // task, so their videos are synced together; otherwise one would tick off the
@@ -213,7 +289,7 @@ function mergeByTitle(groups) {
 }
 
 async function patchTask(task, body) {
-  Object.assign(task, await api(`/${encodeURIComponent(task.id)}`, { method: 'POST', body }));
+  Object.assign(task, await tool('update_task', { id: task.id, ...body }));
 }
 
 // Today's date here, not the server's: a repeating task moves on from it.
@@ -227,11 +303,11 @@ function localDay() {
 // a subtask's time leaves its task's total when ticked and returns when
 // reopened. The task object is updated; its parent's copy here is not.
 async function completeTask(task) {
-  Object.assign(task, await api(`/${encodeURIComponent(task.id)}/complete`, { method: 'POST', body: { today: localDay() } }));
+  Object.assign(task, await tool('complete_task', { id: task.id, today: localDay() }));
 }
 
 async function reopenTask(task) {
-  Object.assign(task, await api(`/${encodeURIComponent(task.id)}/reopen`, { method: 'POST' }));
+  Object.assign(task, await tool('reopen_task', { id: task.id }));
 }
 
 // A removed group's videos count as watched: its open video subtasks are
@@ -261,19 +337,17 @@ export async function addGroups(groups) {
   await attachDurations(groups);
 
   const config = await loadConfig();
-  const account = `${config.serverUrl}|${titleKey(config.username || '')}`;
   const stored = await chrome.storage.local.get([SYNCED_KEY, CLEANUP_KEY]);
-  const syncedByAccount = stored[SYNCED_KEY] || {};
-  const synced = new Set(syncedByAccount[account] || []);
+  const syncedByServer = stored[SYNCED_KEY] || {};
+  const synced = new Set(syncedTitles(syncedByServer, config.serverUrl));
   const saveSynced = () => chrome.storage.local.set({
-    [SYNCED_KEY]: { ...syncedByAccount, [account]: [...synced] }
+    [SYNCED_KEY]: { ...syncedByServer, [config.serverUrl]: [...synced] }
   });
 
-  const project = await findOrCreateProject();
-  const section = await findOrCreateSection(project.id);
-  // One call: the open top-level tasks in the project, plus every subtask of
-  // an open task, ticked off or not.
-  const tasks = await api(`/?project_id=${encodeURIComponent(project.id)}`);
+  const { project, section } = await findProjectAndSection();
+  // The open top-level tasks in the project, plus every subtask of an open
+  // task, ticked off or not.
+  const tasks = await projectTasks(project.id);
   const groupTask = (key) => tasks.find((t) => t.parent_id == null && t.section_id === section.id
     && titleKey(plainText(t.title)) === key);
 
@@ -292,7 +366,7 @@ export async function addGroups(groups) {
     if (!task && !videos.length) { result.skipped++; continue; }
     let created = false;
     if (!task) {
-      task = await api('/', { method: 'POST', body: { title: group.title, project_id: project.id, section_id: section.id } });
+      task = await tool('create_task', { title: group.title, project_id: project.id, section_id: section.id });
       tasks.push(task);
       created = true;
       result.created++;
@@ -335,7 +409,7 @@ export async function addGroups(groups) {
       }
       const body = { title: `[${label}](https://www.youtube.com/watch?v=${id})`, parent_id: task.id };
       if (duration) body.duration_minutes = duration;
-      const sub = await api('/', { method: 'POST', body });
+      const sub = await tool('create_task', body);
       tasks.push(sub);
       kept.add(sub);
       byId.set(id, sub);
@@ -357,11 +431,9 @@ export async function addGroups(groups) {
     // time, so after a sync the extension saves it the same way
     // (parentMinutes in the app's shared.ts). The server may have changed the
     // task's time above, so it is read again before comparing.
-    if (reopened || ticked) Object.assign(task, await api(`/${encodeURIComponent(task.id)}`));
+    if (reopened || ticked) Object.assign(task, await tool('get_task', { id: task.id }));
     const total = parentMinutes(task, tasks.filter((t) => t.parent_id === task.id));
-    if (total !== undefined) {
-      Object.assign(task, await api(`/${encodeURIComponent(task.id)}`, { method: 'POST', body: { duration_minutes: total } }));
-    }
+    if (total !== undefined) await patchTask(task, { duration_minutes: total });
 
     result.added += added;
     result.timed += timed;

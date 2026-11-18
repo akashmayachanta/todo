@@ -157,6 +157,27 @@ pub struct DeviceOut {
     pub username: String,
 }
 
+/// An MCP token as the server lists it (tasks-server's auth::McpToken); the
+/// app only shows these, so the scope stays a string.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct McpToken {
+    pub id: String,
+    pub name: String,
+    /// "read" or "read_write".
+    pub scope: String,
+    pub created_at: String,
+    /// None: never expires.
+    pub expires_at: Option<String>,
+    pub last_used_at: Option<String>,
+}
+
+/// A new MCP token: the token itself, shown once, and its details.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NewMcpToken {
+    pub token: String,
+    pub info: McpToken,
+}
+
 impl Client {
     pub fn new(server: ServerInfo) -> Client {
         let http = reqwest::Client::builder()
@@ -218,6 +239,50 @@ impl Client {
             return Ok(None);
         }
         Ok(Some(check(res).await?.json().await?))
+    }
+
+    // ── MCP tokens (Settings → AI) ───────────────────────────────────────────
+
+    pub async fn mcp_tokens(&self, token: &str) -> Result<Vec<McpToken>, ClientError> {
+        let res = self.http.get(self.server.tasks_url("/auth/mcp-tokens")).bearer_auth(token).send().await?;
+        Ok(check(res).await?.json().await?)
+    }
+
+    /// Makes an MCP token. `scope` is "read" or "read_write"; `expires_at` an
+    /// ISO instant, or None for never. The token is in the answer only.
+    pub async fn create_mcp_token(
+        &self,
+        token: &str,
+        name: &str,
+        scope: &str,
+        expires_at: Option<&str>,
+    ) -> Result<NewMcpToken, ClientError> {
+        let res = self
+            .http
+            .post(self.server.tasks_url("/auth/mcp-tokens"))
+            .bearer_auth(token)
+            .json(&serde_json::json!({ "name": name, "scope": scope, "expires_at": expires_at }))
+            .send()
+            .await?;
+        Ok(check(res).await?.json().await?)
+    }
+
+    /// Moves a token's expiry; None: never expires.
+    pub async fn set_mcp_token_expiry(&self, token: &str, id: &str, expires_at: Option<&str>) -> Result<McpToken, ClientError> {
+        let res = self
+            .http
+            .post(self.server.tasks_url(&format!("/auth/mcp-tokens/{id}")))
+            .bearer_auth(token)
+            .json(&serde_json::json!({ "expires_at": expires_at }))
+            .send()
+            .await?;
+        Ok(check(res).await?.json().await?)
+    }
+
+    pub async fn delete_mcp_token(&self, token: &str, id: &str) -> Result<(), ClientError> {
+        let res = self.http.post(self.server.tasks_url(&format!("/auth/mcp-tokens/{id}/delete"))).bearer_auth(token).send().await?;
+        check(res).await?;
+        Ok(())
     }
 
     /// Downloads that build. It can be tens of MB, so it gets longer than a sync call.

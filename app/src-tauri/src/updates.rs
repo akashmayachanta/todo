@@ -38,7 +38,8 @@ pub struct UpdateInfo {
     size: u64,
 }
 
-fn client(st: &AppState) -> Result<(Client, String), String> {
+/// The server client and this device's token, for calls outside sync.
+pub(crate) fn client(st: &AppState) -> Result<(Client, String), String> {
     let server = lock(&st.config).server.clone().ok_or("This device isn't set up with a server")?;
     let token = st.token().ok_or("This device is signed out")?;
     Ok((Client::new(server), token))

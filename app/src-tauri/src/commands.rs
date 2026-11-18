@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use rusqlite::Connection;
 use serde::Serialize;
-use tasks_core::client::{diagnose, Client, ClientError, ServerInfo};
+use tasks_core::client::{diagnose, Client, ClientError, McpToken, NewMcpToken, ServerInfo};
 use tasks_core::{
     ops, Section, SectionIn, Completions, Ctx, Filter, FilterIn, Profile, ProfilePatch, Project, ProjectIn, Report, ReportQuery, Task, TaskIn,
     TaskPatch, TaskQuery,
@@ -546,5 +546,62 @@ pub async fn app_open_reminder_setting(app: AppHandle, kind: String) -> Res<()> 
     {
         let _ = (app, kind);
         Result::Ok(())
+    }
+}
+
+// ── Settings → AI: MCP tokens ────────────────────────────────────────────────
+// The device token stays here in Rust, so the AI tab manages MCP tokens
+// through these. Not on Android, whose Settings has no AI tab.
+
+/// The signed-in server client, or an error the page can show.
+fn ai_client(st: &AppState) -> Res<(Client, String)> {
+    if cfg!(target_os = "android") {
+        return Err(fail(404, "MCP tokens are managed from the desktop app or the web"));
+    }
+    crate::updates::client(st).map_err(|e| fail(401, e))
+}
+
+/// The address an MCP client connects to.
+#[tauri::command]
+pub fn app_mcp_url(st: St) -> Res<String> {
+    let server = lock(&st.config).server.clone().ok_or_else(|| fail(401, "This device isn't set up with a server"))?;
+    Result::Ok(server.tasks_url("/mcp"))
+}
+
+#[tauri::command]
+pub async fn app_mcp_tokens(st: St<'_>) -> Res<Vec<McpToken>> {
+    let (client, token) = ai_client(&st)?;
+    match client.mcp_tokens(&token).await {
+        Result::Ok(list) => Result::Ok(list),
+        Err(e) => Err(client_err(diagnose(e).await)),
+    }
+}
+
+/// `scope`: "read" or "read_write". `expires_at`: an ISO instant, or null for never.
+#[tauri::command]
+pub async fn app_mcp_token_create(st: St<'_>, name: String, scope: String, expires_at: Option<String>) -> Res<NewMcpToken> {
+    let (client, token) = ai_client(&st)?;
+    match client.create_mcp_token(&token, &name, &scope, expires_at.as_deref()).await {
+        Result::Ok(made) => Result::Ok(made),
+        Err(e) => Err(client_err(diagnose(e).await)),
+    }
+}
+
+/// `expires_at`: an ISO instant, or null for never.
+#[tauri::command]
+pub async fn app_mcp_token_expiry(st: St<'_>, id: String, expires_at: Option<String>) -> Res<McpToken> {
+    let (client, token) = ai_client(&st)?;
+    match client.set_mcp_token_expiry(&token, &id, expires_at.as_deref()).await {
+        Result::Ok(info) => Result::Ok(info),
+        Err(e) => Err(client_err(diagnose(e).await)),
+    }
+}
+
+#[tauri::command]
+pub async fn app_mcp_token_delete(st: St<'_>, id: String) -> Res<Ok> {
+    let (client, token) = ai_client(&st)?;
+    match client.delete_mcp_token(&token, &id).await {
+        Result::Ok(()) => Result::Ok(OK),
+        Err(e) => Err(client_err(diagnose(e).await)),
     }
 }

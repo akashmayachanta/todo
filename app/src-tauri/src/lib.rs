@@ -264,6 +264,11 @@ pub fn run() {
             commands::app_open_reminder_setting,
             updates::app_update_check,
             updates::app_update_install,
+            commands::app_mcp_url,
+            commands::app_mcp_tokens,
+            commands::app_mcp_token_create,
+            commands::app_mcp_token_expiry,
+            commands::app_mcp_token_delete,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Tasks app");

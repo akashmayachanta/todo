@@ -4,6 +4,10 @@
 //! token, sent as `Authorization: Bearer <token>` from then on.
 //! Tokens are stored hashed and can be revoked; a disabled user's devices are
 //! refused.
+//!
+//! MCP tokens (`mcp_…`) are a second kind, for AI clients on {base}/mcp only.
+//! A user makes them from a signed-in device; each has a scope (read, or read
+//! and write) and an optional expiry.
 
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
@@ -12,9 +16,10 @@ use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, Salt
 use argon2::Argon2;
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
-use axum::http::StatusCode;
+use axum::http::{HeaderValue, StatusCode};
+use axum::response::{IntoResponse, Response};
 use rusqlite::{params, Connection, OptionalExtension};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::error::ApiError;
@@ -23,8 +28,17 @@ use crate::AppState;
 /// Device tokens start with this.
 pub const TOKEN_PREFIX: &str = "dt_";
 
+/// MCP tokens start with this. They work only on {base}/mcp.
+pub const MCP_TOKEN_PREFIX: &str = "mcp_";
+
+/// How long a new MCP token lasts when the request doesn't say.
+pub const MCP_TOKEN_DEFAULT_DAYS: i64 = 30;
+
 /// Each entry moves accounts.db up one version; see server/migrations.
-const MIGRATIONS: &[(&str, &str)] = &[("0001_accounts", include_str!("../migrations/0001_accounts.sql"))];
+const MIGRATIONS: &[(&str, &str)] = &[
+    ("0001_accounts", include_str!("../migrations/0001_accounts.sql")),
+    ("0002_mcp_tokens", include_str!("../migrations/0002_mcp_tokens.sql")),
+];
 
 /// The signed-in user, from a device token.
 #[derive(Clone, Debug)]
@@ -55,6 +69,97 @@ impl FromRequestParts<Arc<AppState>> for AuthUser {
             .map_err(|e| ApiError::internal(e.to_string()))??
             .ok_or_else(|| ApiError::unauthorized("Invalid or revoked device token"))
     }
+}
+
+/// What an MCP token may do.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum McpScope {
+    /// List and read only.
+    Read,
+    /// Read, add, change, tick off and delete tasks.
+    ReadWrite,
+}
+
+impl McpScope {
+    fn as_str(self) -> &'static str {
+        match self {
+            McpScope::Read => "read",
+            McpScope::ReadWrite => "read_write",
+        }
+    }
+
+    fn parse(s: &str) -> McpScope {
+        if s == "read_write" { McpScope::ReadWrite } else { McpScope::Read }
+    }
+
+    pub fn can_write(self) -> bool {
+        self == McpScope::ReadWrite
+    }
+}
+
+/// An MCP token as the AI tab lists it; the token itself is shown only once.
+#[derive(Clone, Debug, Serialize)]
+pub struct McpToken {
+    pub id: String,
+    pub name: String,
+    pub scope: McpScope,
+    pub created_at: String,
+    /// None: never expires.
+    pub expires_at: Option<String>,
+    pub last_used_at: Option<String>,
+}
+
+/// The caller of {base}/mcp, from an MCP token.
+#[derive(Clone, Debug)]
+pub struct McpUser {
+    pub user_id: i64,
+    pub token_id: String,
+    pub scope: McpScope,
+}
+
+/// A 401 for /mcp: MCP clients look for `WWW-Authenticate: Bearer`.
+fn mcp_unauthorized(detail: &str) -> Response {
+    let mut res = ApiError::unauthorized(detail).into_response();
+    res.headers_mut().insert(axum::http::header::WWW_AUTHENTICATE, HeaderValue::from_static("Bearer"));
+    res
+}
+
+impl FromRequestParts<Arc<AppState>> for McpUser {
+    type Rejection = Response;
+
+    async fn from_request_parts(parts: &mut Parts, state: &Arc<AppState>) -> Result<Self, Self::Rejection> {
+        let token = parts
+            .headers
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|h| h.strip_prefix("Bearer ").or_else(|| h.strip_prefix("bearer ")))
+            .map(|t| t.trim().to_string())
+            .ok_or_else(|| mcp_unauthorized("Not authenticated: send Authorization: Bearer <MCP token>"))?;
+        let accounts = state.accounts.clone();
+        tokio::task::spawn_blocking(move || accounts.check_mcp(&token))
+            .await
+            .map_err(|e| ApiError::internal(e.to_string()).into_response())?
+            .map_err(IntoResponse::into_response)?
+            .ok_or_else(|| mcp_unauthorized("Invalid, expired or deleted MCP token"))
+    }
+}
+
+/// Checks an expiry a user picked: a future instant, returned in canonical form.
+/// None stays None (never expires).
+pub fn check_expiry(expires_at: Option<&str>) -> Result<Option<String>, ApiError> {
+    let Some(value) = expires_at else { return Ok(None) };
+    let at = tasks_core::time::parse_instant(value)
+        .ok_or_else(|| ApiError::unprocessable("expires_at must be a date and time like 2026-12-31T23:59:59Z"))?;
+    if at <= tasks_core::time::now_iso() {
+        return Err(ApiError::unprocessable("expires_at must be in the future"));
+    }
+    Ok(Some(at))
+}
+
+/// The default expiry for a new MCP token.
+pub fn default_expiry() -> String {
+    tasks_core::time::iso(chrono::Utc::now() + chrono::Duration::days(MCP_TOKEN_DEFAULT_DAYS))
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -88,8 +193,8 @@ fn random_bytes<const N: usize>() -> Result<[u8; N], ApiError> {
     Ok(buf)
 }
 
-fn random_token() -> Result<String, ApiError> {
-    Ok(format!("{TOKEN_PREFIX}{}", random_bytes::<32>()?.iter().map(|b| format!("{b:02x}")).collect::<String>()))
+fn random_token(prefix: &str) -> Result<String, ApiError> {
+    Ok(format!("{prefix}{}", random_bytes::<32>()?.iter().map(|b| format!("{b:02x}")).collect::<String>()))
 }
 
 pub fn hash_password(password: &str) -> Result<String, ApiError> {
@@ -220,7 +325,7 @@ impl Accounts {
 
     /// A token for a new device; returned once, only its hash is kept.
     fn new_device(&self, user_id: i64, name: &str) -> Result<(Device, String), ApiError> {
-        let token = random_token()?;
+        let token = random_token(TOKEN_PREFIX)?;
         let device = Device {
             id: tasks_core::new_id(),
             name: name.to_string(),
@@ -286,6 +391,102 @@ impl Accounts {
         )?;
         Ok(changed > 0)
     }
+
+    // ── MCP tokens ───────────────────────────────────────────────────────────
+
+    /// A new MCP token; returned once, only its hash is kept. `expires_at` is a
+    /// canonical instant (see check_expiry), or None for never.
+    pub fn create_mcp_token(
+        &self,
+        user_id: i64,
+        name: &str,
+        scope: McpScope,
+        expires_at: Option<String>,
+    ) -> Result<(McpToken, String), ApiError> {
+        let token = random_token(MCP_TOKEN_PREFIX)?;
+        let info = McpToken {
+            id: tasks_core::new_id(),
+            name: name.to_string(),
+            scope,
+            created_at: tasks_core::time::now_iso(),
+            expires_at,
+            last_used_at: None,
+        };
+        self.lock().execute(
+            "INSERT INTO mcp_tokens (id, user_id, name, scope, token_hash, created_at, expires_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![info.id, user_id, info.name, scope.as_str(), hash_token(&token), info.created_at, info.expires_at],
+        )?;
+        Ok((info, token))
+    }
+
+    /// Newest first, expired ones included.
+    pub fn list_mcp_tokens(&self, user_id: i64) -> Result<Vec<McpToken>, ApiError> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, scope, created_at, expires_at, last_used_at FROM mcp_tokens
+             WHERE user_id = ?1 ORDER BY created_at DESC",
+        )?;
+        let rows = stmt.query_map([user_id], mcp_token_row)?.collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Moves a token's expiry (None: never). None if the user has no such token.
+    pub fn set_mcp_token_expiry(&self, user_id: i64, id: &str, expires_at: Option<String>) -> Result<Option<McpToken>, ApiError> {
+        let conn = self.lock();
+        let changed =
+            conn.execute("UPDATE mcp_tokens SET expires_at = ?1 WHERE id = ?2 AND user_id = ?3", params![expires_at, id, user_id])?;
+        if changed == 0 {
+            return Ok(None);
+        }
+        let token = conn.query_row(
+            "SELECT id, name, scope, created_at, expires_at, last_used_at FROM mcp_tokens WHERE id = ?1",
+            [id],
+            mcp_token_row,
+        )?;
+        Ok(Some(token))
+    }
+
+    /// Removes a token. False if the user has no such token.
+    pub fn delete_mcp_token(&self, user_id: i64, id: &str) -> Result<bool, ApiError> {
+        let changed = self.lock().execute("DELETE FROM mcp_tokens WHERE id = ?1 AND user_id = ?2", params![id, user_id])?;
+        Ok(changed > 0)
+    }
+
+    /// The caller behind an MCP token that exists, hasn't expired, and whose
+    /// user isn't disabled.
+    pub fn check_mcp(&self, token: &str) -> Result<Option<McpUser>, ApiError> {
+        if !token.starts_with(MCP_TOKEN_PREFIX) {
+            return Ok(None);
+        }
+        let now = tasks_core::time::now_iso();
+        let conn = self.lock();
+        // expires_at is canonical ISO, so it compares as text.
+        let found: Option<(String, i64, String, Option<String>)> = conn
+            .query_row(
+                "SELECT t.id, u.id, t.scope, t.last_used_at FROM mcp_tokens t JOIN users u ON u.id = t.user_id
+                 WHERE t.token_hash = ?1 AND u.disabled_at IS NULL AND (t.expires_at IS NULL OR t.expires_at > ?2)",
+                params![hash_token(token), now],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .optional()?;
+        let Some((token_id, user_id, scope, last_used)) = found else { return Ok(None) };
+        if last_used.as_deref().map(|s| &s[..16.min(s.len())]) != Some(&now[..16]) {
+            conn.execute("UPDATE mcp_tokens SET last_used_at = ?1 WHERE id = ?2", params![now, token_id])?;
+        }
+        Ok(Some(McpUser { user_id, token_id, scope: McpScope::parse(&scope) }))
+    }
+}
+
+fn mcp_token_row(r: &rusqlite::Row) -> rusqlite::Result<McpToken> {
+    Ok(McpToken {
+        id: r.get(0)?,
+        name: r.get(1)?,
+        scope: McpScope::parse(&r.get::<_, String>(2)?),
+        created_at: r.get(3)?,
+        expires_at: r.get(4)?,
+        last_used_at: r.get(5)?,
+    })
 }
 
 fn no_user(username: &str) -> ApiError {
@@ -354,6 +555,66 @@ mod tests {
         assert!(a.login("akash", "old password", "PC").is_err());
         assert!(a.login("akash", "new password", "PC").is_ok());
         assert_eq!(a.check(&token).unwrap().unwrap().user_id, user.id);
+    }
+
+    #[test]
+    fn mcp_tokens_work_until_deleted_and_only_as_mcp_tokens() {
+        let (_dir, a) = accounts();
+        let (user, _, device_token) = a.register("akash", "password1", "PC").unwrap();
+        let (info, token) = a.create_mcp_token(user.id, "Claude", McpScope::Read, Some(default_expiry())).unwrap();
+        assert!(token.starts_with(MCP_TOKEN_PREFIX));
+
+        let caller = a.check_mcp(&token).unwrap().unwrap();
+        assert_eq!((caller.user_id, caller.token_id.as_str(), caller.scope), (user.id, info.id.as_str(), McpScope::Read));
+        assert!(a.list_mcp_tokens(user.id).unwrap()[0].last_used_at.is_some());
+
+        // Neither kind of token works in the other's place.
+        assert!(a.check(&token).unwrap().is_none());
+        assert!(a.check_mcp(&device_token).unwrap().is_none());
+
+        assert!(a.delete_mcp_token(user.id, &info.id).unwrap());
+        assert!(a.check_mcp(&token).unwrap().is_none());
+        assert!(a.list_mcp_tokens(user.id).unwrap().is_empty());
+        assert!(!a.delete_mcp_token(user.id, &info.id).unwrap());
+    }
+
+    #[test]
+    fn an_expired_mcp_token_is_refused_until_its_expiry_moves() {
+        let (_dir, a) = accounts();
+        let user = a.add_user("akash", "password1").unwrap();
+        let (info, token) =
+            a.create_mcp_token(user.id, "Claude", McpScope::ReadWrite, Some("2020-01-01T00:00:00.000Z".into())).unwrap();
+        assert!(a.check_mcp(&token).unwrap().is_none());
+
+        let moved = a.set_mcp_token_expiry(user.id, &info.id, Some(default_expiry())).unwrap().unwrap();
+        assert!(moved.expires_at.is_some());
+        assert!(a.check_mcp(&token).unwrap().unwrap().scope.can_write());
+
+        a.set_mcp_token_expiry(user.id, &info.id, None).unwrap().unwrap();
+        assert!(a.check_mcp(&token).unwrap().is_some());
+
+        a.lock().execute("UPDATE users SET disabled_at = 'now' WHERE id = ?1", [user.id]).unwrap();
+        assert!(a.check_mcp(&token).unwrap().is_none());
+    }
+
+    #[test]
+    fn a_user_cannot_touch_another_users_mcp_tokens() {
+        let (_dir, a) = accounts();
+        let one = a.add_user("one", "password1").unwrap();
+        let two = a.add_user("two", "password1").unwrap();
+        let (info, token) = a.create_mcp_token(one.id, "Claude", McpScope::Read, None).unwrap();
+        assert!(a.set_mcp_token_expiry(two.id, &info.id, None).unwrap().is_none());
+        assert!(!a.delete_mcp_token(two.id, &info.id).unwrap());
+        assert!(a.list_mcp_tokens(two.id).unwrap().is_empty());
+        assert!(a.check_mcp(&token).unwrap().is_some());
+    }
+
+    #[test]
+    fn an_expiry_must_be_a_future_instant() {
+        assert_eq!(check_expiry(None).unwrap(), None);
+        assert!(check_expiry(Some("2020-01-01T00:00:00Z")).is_err());
+        assert!(check_expiry(Some("next week")).is_err());
+        assert_eq!(check_expiry(Some("2999-12-31T23:59:59+00:00")).unwrap().unwrap(), "2999-12-31T23:59:59.000Z");
     }
 
     /// A throwaway folder, removed afterwards.

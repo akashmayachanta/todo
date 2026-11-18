@@ -177,21 +177,31 @@
     .share-actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 12px; }
     .share-status { min-height: 1.45em; margin: 8px 0 0; color: var(--muted); text-align: center; }
 
-    .tasks-signin { display: grid; gap: 8px; }
-    .tasks-signin label { display: grid; gap: 3px; color: var(--muted); }
-    .tasks-signin input {
+    /* Tasks, on the main view: a connect form shown when Tasks is clicked with
+       no token, and one line saying where it syncs once connected. */
+    .tasks-connect {
+      display: grid;
+      gap: 8px;
+      margin: 0 16px 14px;
+      padding: 12px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    }
+    .tasks-connect p { margin: 0; color: var(--muted); }
+    .tasks-connect label { display: grid; gap: 3px; color: var(--muted); }
+    .tasks-connect input {
       font: inherit;
       color: var(--text);
-      background: var(--surface);
+      background: var(--bg);
       border: 1px solid var(--line);
       border-radius: 6px;
       padding: 6px 8px;
     }
-    .tasks-ready { display: grid; gap: 10px; }
-    .tasks-ready p { margin: 0; }
-    .tasks-ready .qr-note { text-align: left; }
+    .tasks-connect-actions { display: flex; justify-content: flex-end; gap: 8px; }
+    .tasks-line { margin: -6px 16px 12px; color: var(--muted); }
     /* display: grid above would otherwise override the hidden attribute. */
-    .tasks-signin[hidden], .tasks-ready[hidden] { display: none; }
+    .tasks-connect[hidden], .tasks-line[hidden] { display: none; }
   </style>
 </head>
 <body>
@@ -223,7 +233,7 @@
   <textarea id="output" readonly aria-label="Export preview"></textarea>
 
   <footer>
-    <button class="tasks-btn" id="tasks" title="Add to Tasks: each group's videos as subtasks">
+    <button class="tasks-btn" id="tasks" title="Sync to Tasks: each group a task in Learning → YT, its videos as subtasks">
       <svg class="tasks-logo" viewBox="160 160 704 704" aria-hidden="true">
         <path d="M292 540 L448 696 L748 368" fill="none" stroke="#fff" stroke-width="120" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>Tasks</button>
@@ -232,6 +242,24 @@
     <button id="share">Share</button>
     <span class="status" id="status" role="status"></span>
   </footer>
+
+  <form class="tasks-connect" id="tasksConnect" hidden>
+    <p>Connect to Tasks once. In Tasks, open Settings → AI, make a <b>Read &amp; write</b>
+      token, and paste it here with the MCP server address shown there.</p>
+    <label>MCP server address
+      <input id="tasksServer" placeholder="http://localhost:8050/tasks-api/mcp" autocomplete="url" spellcheck="false" required>
+    </label>
+    <label>MCP token
+      <input id="tasksToken" type="password" placeholder="mcp_..." autocomplete="off" spellcheck="false" required>
+    </label>
+    <div class="tasks-connect-actions">
+      <button type="button" id="tasksCancel">Cancel</button>
+      <button class="primary" type="submit" id="tasksConnectBtn">Connect and sync</button>
+    </div>
+  </form>
+
+  <p class="tasks-line" id="tasksLine" hidden>Syncs to Tasks at <b id="tasksWhere"></b> ·
+    <button class="link" id="tasksDisconnect">Disconnect</button></p>
   </div>
 
   <section class="share" id="sharePanel" hidden aria-label="Share tab groups">
@@ -251,35 +279,6 @@
       <button id="shareMore" title="Open the system share sheet, or save as a file">More…</button>
     </div>
     <p class="share-status" id="shareStatus" role="status"></p>
-  </section>
-
-  <section class="share" id="tasksPanel" hidden aria-label="Add to Tasks">
-    <div class="share-top">
-      <button id="tasksBack">&larr; Back</button>
-      <select id="tasksScope" aria-label="Which groups to add"></select>
-    </div>
-
-    <form class="tasks-signin" id="tasksSignin" hidden>
-      <label>Server
-        <input id="tasksServer" placeholder="http://localhost:8050" autocomplete="url" spellcheck="false" required>
-      </label>
-      <label>Username
-        <input id="tasksUser" autocomplete="username" spellcheck="false" required>
-      </label>
-      <label>Password
-        <input id="tasksPass" type="password" autocomplete="current-password" required>
-      </label>
-      <button class="primary" type="submit" id="tasksSignInBtn">Sign in</button>
-    </form>
-
-    <div class="tasks-ready" id="tasksReady" hidden>
-      <p>Signed in as <b id="tasksWho"></b> · <button class="link" id="tasksSignOut">Sign out</button></p>
-      <p class="qr-note">Each group becomes a task in Learning → YT, with its videos as subtasks.
-        Videos already there are skipped, and ticked-off ones are reopened. A group whose
-        task you've completed gets a new task.</p>
-      <button class="primary" id="tasksAdd">Add to Tasks</button>
-    </div>
-    <p class="share-status" id="tasksStatus" role="status"></p>
   </section>
 
   <script type="module" src="popup.js"></script>

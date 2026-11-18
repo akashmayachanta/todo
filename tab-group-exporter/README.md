@@ -3,7 +3,7 @@
 A small Chrome extension that turns your browser's tab groups into one list you
 can copy, save, or share — including groups you've already closed.
 
-![version](https://img.shields.io/badge/version-1.7.1-blue)
+![version](https://img.shields.io/badge/version-1.8.0-blue)
 
 ## Why
 
@@ -45,13 +45,32 @@ card in `chrome://extensions`.
 
 Closed groups appear as dashed outline pills; the `×` on one removes it from your
 list (this can't be undone). **Forget closed** clears all closed groups at once.
-If a removed group was sent to Tasks, the next **Add to Tasks** ticks off its
+If a removed group was sent to Tasks, the next **Tasks** sync ticks off its
 videos and completes its task.
+
+## Tasks
+
+**Tasks** syncs every group the popup shows (with the filters above) to your
+Tasks server, right from the main view: each group becomes a task in
+**Learning → YT**, with its videos as subtasks. The result shows under the buttons.
+
+The first time, it asks you to connect:
+
+1. In the Tasks app (Windows or the browser), open **Settings → AI**.
+2. Make a **Read & write** token. Pick how long it lasts.
+3. Paste the **MCP server address** and the token into the popup and click
+   **Connect and sync**. Chrome asks once for access to that server.
+
+The extension talks to the server's MCP endpoint with that token; it never sees
+your password. **Disconnect** forgets the token here; delete it in Settings → AI
+to switch it off. When the token expires, the popup asks for a new one.
+
+The **Learning** project and its **YT** section must already exist in Tasks: an
+MCP token can add tasks but not projects or sections.
 
 ## Permissions and privacy
 
-Everything stays on your machine. The extension has no server and sends nothing
-anywhere.
+Everything stays on your machine, unless you connect to your own Tasks server.
 
 | Permission | Why it's needed |
 | --- | --- |
@@ -60,9 +79,10 @@ anywhere.
 | `storage` | Keep the local archive of groups and cached video times. |
 | `downloads` | Save the `.md` file. |
 | `youtube.com` | Look up video lengths from the public watch page. |
+| Your Tasks server (optional) | Asked for when you connect, for that one host. |
 
-The only network request is fetching a YouTube video's public watch page to read
-its length; lengths are cached so each video is fetched once.
+Besides your Tasks server, the only network request is fetching a YouTube video's
+public watch page to read its length; lengths are cached so each video is fetched once.
 
 ## Notes
 

@@ -8,6 +8,7 @@ mod auth;
 mod config;
 mod error;
 mod events;
+mod mcp;
 mod releases;
 mod routes;
 mod store;

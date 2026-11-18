@@ -1,7 +1,7 @@
 import { GROUP_COLORS, snapshot, forgetClosed, forgetGroup } from './archive.js';
 import { attachDurations, formatDuration, groupTime, videoId } from './durations.js';
 import qrcode from './vendor/qrcode.js';
-import { addGroups, DEFAULT_SERVER, loadConfig, normalizeServerUrl, originPattern, signIn, signOut, UNGROUPED_TITLE } from './tasks.js';
+import { addGroups, connect, DEFAULT_SERVER, disconnect, isConnected, loadConfig, normalizeServerUrl, originPattern, serverLabel, UNGROUPED_TITLE } from './tasks.js';
 
 qrcode.stringToBytes = qrcode.stringToBytesFuncs['UTF-8'];
 
@@ -106,7 +106,7 @@ function renderPills(groups) {
       const remove = document.createElement('button');
       remove.className = 'remove';
       remove.textContent = '×';
-      remove.title = 'Remove from this list (its task is closed on the next Add to Tasks)';
+      remove.title = 'Remove from this list (its task is closed on the next Tasks sync)';
       remove.setAttribute('aria-label', `Remove ${g.title}`);
       remove.addEventListener('click', async () => {
         await forgetGroup(g.key);
@@ -167,9 +167,7 @@ async function refresh() {
 }
 
 function flash(message) {
-  const el = !$('sharePanel').hidden ? $('shareStatus')
-    : !$('tasksPanel').hidden ? $('tasksStatus')
-    : $('status');
+  const el = !$('sharePanel').hidden ? $('shareStatus') : $('status');
   el.textContent = message;
   clearTimeout(flash.timer);
   flash.timer = setTimeout(() => (el.textContent = ''), 4000);
@@ -347,80 +345,34 @@ async function shareMore() {
   flash('Saved as file');
 }
 
-// ---------- 6. Add to Tasks ----------
+// ---------- 6. Sync to Tasks ----------
+// Clicking Tasks syncs the groups shown, with the filters above, straight
+// away. With no MCP token yet it opens the connect form on this view instead,
+// and syncs once connected.
 
-function setTasksStatus(message) {
+// A sync's result stays up until the next action; flash() would clear it.
+function setStatus(message) {
   clearTimeout(flash.timer);
-  $('tasksStatus').textContent = message;
+  $('status').textContent = message;
 }
 
-async function openTasks() {
-  const scope = $('tasksScope');
-  scope.replaceChildren(new Option(`All groups (${plural(state.groups.length, 'group')})`, 'all'));
-  state.groups.forEach((g, i) => scope.append(new Option(`${g.title} (${g.tabs.length})`, i)));
-  $('tasksStatus').textContent = '';
-  $('mainView').hidden = true;
-  $('tasksPanel').hidden = false;
-  await renderTasks();
-}
-
-function closeTasks() {
-  $('tasksPanel').hidden = true;
-  $('mainView').hidden = false;
-}
-
-async function renderTasks() {
+async function renderTasksLine() {
   const config = await loadConfig();
-  const signedIn = !!config.token;
-  $('tasksSignin').hidden = signedIn;
-  $('tasksReady').hidden = !signedIn;
-  if (signedIn) {
-    $('tasksWho').textContent = config.username || 'you';
-  } else {
-    if (!$('tasksServer').value) $('tasksServer').value = config.serverUrl || DEFAULT_SERVER;
-    if (config.username && !$('tasksUser').value) $('tasksUser').value = config.username;
-  }
+  const connected = isConnected(config);
+  $('tasksLine').hidden = !connected;
+  if (connected) $('tasksWhere').textContent = serverLabel(config.serverUrl);
 }
 
-function tasksGroups() {
-  const v = $('tasksScope').value;
-  return v === 'all' ? state.groups : [state.groups[Number(v)]];
+async function showConnect() {
+  const config = await loadConfig();
+  if (!$('tasksServer').value) $('tasksServer').value = config.serverUrl ? `${config.serverUrl}/mcp` : DEFAULT_SERVER;
+  $('tasksConnect').hidden = false;
+  $('tasksToken').focus();
 }
 
-async function tasksSignIn(event) {
-  event.preventDefault();
-  let serverUrl;
-  try {
-    serverUrl = normalizeServerUrl($('tasksServer').value);
-  } catch (err) {
-    setTasksStatus(err.message);
-    return;
-  }
-  const button = $('tasksSignInBtn');
-  button.disabled = true;
-  try {
-    // Must be the first await: Chrome only shows the prompt during the click.
-    const granted = await chrome.permissions.request({ origins: [originPattern(serverUrl)] });
-    if (!granted) {
-      setTasksStatus('Chrome needs access to the server to send tasks.');
-      return;
-    }
-    setTasksStatus('Signing in…');
-    await signIn(serverUrl, $('tasksUser').value, $('tasksPass').value);
-    $('tasksPass').value = '';
-    setTasksStatus('');
-    await renderTasks();
-  } catch (err) {
-    setTasksStatus(err.message);
-  } finally {
-    button.disabled = false;
-  }
-}
-
-async function tasksSignOut() {
-  await signOut();
-  setTasksStatus('Signed out');
-  await renderTasks();
+function hideConnect() {
+  $('tasksConnect').hidden = true;
+  $('tasksToken').value = '';
 }
 
 function describeResult({ added, timed, reopened, ticked, skipped, removed, groups }) {
@@ -435,21 +387,66 @@ function describeResult({ added, timed, reopened, ticked, skipped, removed, grou
   if (timed) parts.push(`Set the time on ${plural(timed, 'video')}`);
   if (same) parts.push(`${plural(same, 'group')} up to date`);
   if (skipped) parts.push(`${plural(skipped, 'group')} without videos skipped`);
-  return parts.join(' · ') || 'Nothing to add';
+  return parts.join(' · ') || 'Nothing to sync';
 }
 
-async function tasksAdd() {
-  const button = $('tasksAdd');
+async function syncTasks() {
+  if (!isConnected(await loadConfig())) {
+    await showConnect();
+    setStatus('Connect to Tasks to sync');
+    return;
+  }
+  const button = $('tasks');
   button.disabled = true;
-  setTasksStatus('Adding…');
+  setStatus('Syncing to Tasks…');
   try {
-    setTasksStatus(describeResult(await addGroups(tasksGroups())));
+    setStatus(describeResult(await addGroups(state.groups)));
   } catch (err) {
-    setTasksStatus(err.message);
-    if (err.status === 401) await renderTasks();
+    setStatus(err.message);
+    if (err.status === 401) {
+      await renderTasksLine();
+      await showConnect();
+    }
+  } finally {
+    button.disabled = state.groups.length === 0;
+  }
+}
+
+async function tasksConnect(event) {
+  event.preventDefault();
+  let serverUrl;
+  try {
+    serverUrl = normalizeServerUrl($('tasksServer').value);
+  } catch (err) {
+    setStatus(err.message);
+    return;
+  }
+  const button = $('tasksConnectBtn');
+  button.disabled = true;
+  try {
+    // Must be the first await: Chrome only shows the prompt during the click.
+    const granted = await chrome.permissions.request({ origins: [originPattern(serverUrl)] });
+    if (!granted) {
+      setStatus('Chrome needs access to the server to send tasks.');
+      return;
+    }
+    setStatus('Connecting…');
+    await connect(serverUrl, $('tasksToken').value);
+    hideConnect();
+    await renderTasksLine();
+  } catch (err) {
+    setStatus(err.message);
+    return;
   } finally {
     button.disabled = false;
   }
+  await syncTasks();
+}
+
+async function tasksDisconnect() {
+  await disconnect();
+  await renderTasksLine();
+  setStatus('Disconnected. The token still works until you delete it in Tasks → Settings → AI.');
 }
 
 // ---------- Wire up ----------
@@ -478,12 +475,10 @@ $('shareScope').addEventListener('change', renderShare);
 $('shareEmail').addEventListener('click', shareEmail);
 $('shareWhatsapp').addEventListener('click', shareWhatsapp);
 $('shareMore').addEventListener('click', shareMore);
-$('tasks').addEventListener('click', openTasks);
-$('tasksBack').addEventListener('click', closeTasks);
-$('tasksScope').addEventListener('change', () => setTasksStatus(''));
-$('tasksSignin').addEventListener('submit', tasksSignIn);
-$('tasksSignOut').addEventListener('click', tasksSignOut);
-$('tasksAdd').addEventListener('click', tasksAdd);
+$('tasks').addEventListener('click', syncTasks);
+$('tasksConnect').addEventListener('submit', tasksConnect);
+$('tasksCancel').addEventListener('click', () => { hideConnect(); setStatus(''); });
+$('tasksDisconnect').addEventListener('click', tasksDisconnect);
 $('forget').addEventListener('click', async () => {
   await forgetClosed();
   await refresh();
@@ -492,3 +487,4 @@ $('forget').addEventListener('click', async () => {
 
 restoreOptions();
 refresh();
+renderTasksLine();

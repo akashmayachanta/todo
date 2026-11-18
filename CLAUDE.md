@@ -26,7 +26,7 @@ list the build commands they need to run.
 |---|---|
 | `core/` | `tasks-core`: the rules (`ops.rs`), sync merge (`sync.rs`), device sync client (`client.rs`) |
 | `core/migrations/` | The tasks DB schema. Never edit a shipped migration; add the next numbered file |
-| `server/` | `tasks-server`: Axum REST API, accounts, `/sync`, tray icon |
+| `server/` | `tasks-server`: Axum REST API, accounts, `/sync`, `/mcp` for AI clients, tray icon |
 | `app/src/` | SvelteKit UI (Svelte 5 runes, Tailwind 4, static adapter) |
 | `app/src/lib/` | Tasks UI: `components/tasks/`, smart parsing in `taskParse.ts`, links in `links.ts` |
 | `app/src/app/` | App shell, imported as `$shell`: setup, settings, sync status |
@@ -45,6 +45,16 @@ list the build commands they need to run.
 - User data: `%APPDATA%\dev.tasks.app\tasks.db` on the desktop, `data/` on the server.
   Back up before changing either, and prefer the app's own paths. Device tokens are
   in the Credential Manager; don't read them.
+
+**MCP** (`server/src/mcp.rs`, Settings → AI)
+- MCP tokens (`mcp_…`, table `mcp_tokens`) work only on `/mcp`, and device tokens
+  (`dt_…`) never do. Keep the two apart in `auth.rs`.
+- A read-only token must neither see nor run a write tool: mark each tool's
+  `writes` in `TOOLS`. Tool descriptions are what the model reads; keep their
+  rules in step with `core/src/model.rs` and `recurrence.rs`.
+- MCP writes go through `routes::write_as`, so devices are told to sync.
+- The AI tab is on Windows and the web, not Android. The Windows app reaches the
+  token routes through Tauri commands, since only Rust holds the device token.
 
 **Task text**
 - Titles and descriptions are stored as typed, including `[label](https://…)`.

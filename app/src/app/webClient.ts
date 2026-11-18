@@ -88,6 +88,14 @@ export function webSignOut() {
 	webSession.set(null);
 }
 
+/** Settings → AI: this account's MCP tokens (server/src/routes.rs); see mcpTokens.ts. */
+export const webMcp = {
+	list: <T>() => getJson<T>('/auth/mcp-tokens'),
+	create: <T>(body: unknown) => post<T>('/auth/mcp-tokens', body),
+	setExpiry: <T>(id: string, expires_at: string | null) => post<T>(`/auth/mcp-tokens/${enc(id)}`, { expires_at }),
+	delete: (id: string) => post(`/auth/mcp-tokens/${enc(id)}/delete`).then(done),
+};
+
 /** The account's photo and display name (the synced `profile` row); see profile.ts. */
 export const webProfile = {
 	get: <T>() => getJson<T>('/profile'),

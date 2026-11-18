@@ -4,7 +4,7 @@ Guidance for agents working in the **Tab Group Exporter** repository.
 
 ## What this is
 
-A Chrome **Manifest V3** extension (v1.7.1) that exports your browser's **open and
+A Chrome **Manifest V3** extension (v1.8.0) that exports your browser's **open and
 closed tab groups** as a single list you can copy, save, or share. The extension
 has no build step, no dependencies to install, and no test suite.
 
@@ -23,8 +23,8 @@ appear in exports.
 | `archive.js` | Core data layer. Reads/writes the group archive in `chrome.storage.local`. |
 | `durations.js` | Fetches and caches YouTube video lengths; computes group time totals. |
 | `popup.html` | Popup markup + all CSS (theme variables, light/dark, pill and share styling). |
-| `popup.js` | Popup logic: collect → format → render, copy, save, share, QR, the Tasks panel. |
-| `tasks.js` | Tasks server client: sign-in, and syncing groups as tasks (Learning → YT) with videos as subtasks. |
+| `popup.js` | Popup logic: collect → format → render, copy, save, share, QR, and Tasks sync on the main view. |
+| `tasks.js` | Tasks server client over MCP (an MCP token, no sign-in), and syncing groups as tasks (Learning → YT) with videos as subtasks. |
 | `vendor/qrcode.js` | Vendored `qrcode-generator` 1.4.4 (MIT), wrapped as an ES module. |
 | `icons/` | Extension icons (16/32/48/128 px). |
 | `YT-List.md` | A **sample export** (generated output). Not loaded by the extension. |
@@ -104,12 +104,18 @@ after a newer one bails out instead of overwriting the UI.
   ```
 
 - `durationCache` — `{ "<videoId>": seconds }`, never invalidated (lengths are stable).
-- `tasksConfig` — `{ serverUrl, token, username, deviceId }` for the Tasks server.
-  `serverUrl` includes the base path (e.g. `http://host:8050/tasks-api`). The
-  password is never stored; signing out revokes the device token on the server.
-- `tasksSynced` — `{ "<serverUrl>|<username>": ["<group title, lower case>"] }`,
-  the group titles this extension has synced to each Tasks account. Written
-  empty on install; its absence after an update means a pre-1.7 install.
+- `tasksConfig` — `{ serverUrl, token }` for the Tasks server. `token` is an MCP
+  token (`mcp_…`, made in Tasks → Settings → AI); `serverUrl` includes the base
+  path (e.g. `http://host:8050/tasks-api`), and the MCP address the user pastes
+  (`…/tasks-api/mcp`) is cut back to it. A pre-1.8 config holds a device token
+  (`dt_…`, with `username` and `deviceId`): it counts as not connected, and
+  connecting revokes it on the server, best effort. Disconnect only forgets the
+  token here; it stays valid until it expires or is deleted in Settings → AI.
+- `tasksSynced` — `{ "<serverUrl>": ["<group title, lower case>"] }`, the group
+  titles this extension has synced to each Tasks server. Before 1.8 it was keyed
+  `"<serverUrl>|<username>"`; an MCP token has no username, so the first sync on
+  1.8 folds those lists into the server's key. Written empty on install; its
+  absence after an update means a pre-1.7 install.
 - `tasksCleanupPending` — `true` after updating from a version without
   `tasksSynced`; the next sync runs the one-time cleanup, then removes it.
 
@@ -153,9 +159,25 @@ and `liveSession` both match the group currently being written.
 - **Permissions are minimal.** `youtube.com` host permission exists solely for the
   duration fetches in `durations.js`. Do not broaden it without cause. The
   Tasks server's host is an **optional** permission, requested for that one
-  origin at sign-in; keep `chrome.permissions.request` the first `await` in the
-  click handler, or Chrome drops the user gesture and refuses.
-- **Add to Tasks syncs; the browser wins.** A group matches the open top-level
+  origin on Connect; keep `chrome.permissions.request` the first `await` in the
+  submit handler, or Chrome drops the user gesture and refuses.
+- **Tasks goes through MCP, not the REST API.** An MCP token works only on
+  `{serverUrl}/mcp`, so every call is a `tools/call` JSON-RPC message
+  (`list_projects`, `list_sections`, `list_tasks`, `get_task`, `create_task`,
+  `update_task`, `complete_task`, `reopen_task`). The endpoint is stateless, so
+  there is no `initialize`. A tool's failure is `isError` with a message, shown
+  as is; a 401 drops the token and reopens the connect form. Connect checks
+  `tools/list` for `create_task`, refusing a read-only token.
+  - MCP can't make projects or sections: **Learning → YT must exist** in Tasks,
+    or the sync stops with a message saying so.
+  - `list_tasks` is read in pages (`limit` 500, `offset`) until `more` is false.
+    A missed subtask would be added again, so never read just one page.
+- **The Tasks button syncs at once, from the main view.** It sends
+  `state.groups`, the groups shown with the popup's filters; there's no second
+  screen or group picker. With no token it shows the connect form (address and
+  token) under the footer, then syncs once connected. The result stays in
+  `#status` until the next action.
+- **A sync is the browser winning.** A group matches the open top-level
   task in Learning → YT with the same title (trimmed, case-insensitive); groups
   sent together with the same title are merged first so they share one task.
   Videos match existing subtasks by **video id** from the subtask's link,
@@ -163,14 +185,12 @@ and `liveSession` both match the group currently being written.
   the group's videos:
   - a video with no subtask is **added**;
   - a ticked-off subtask whose video is in the group is **reopened**
-    (`POST /{id}/reopen`), even if it was ticked in the app on purpose;
+    (`reopen_task`), even if it was ticked in the app on purpose;
   - an open subtask that links a video no longer in the group is **ticked off**
-    (`POST /{id}/complete` with today's local date). Closing a tab means
-    "watched."
+    (`complete_task` with today's local date). Closing a tab means "watched."
 
-  Ticking and reopening go through those two routes, never a `completed_at`
-  patch: the server applies the Tasks rules, so they need a Tasks server
-  that has the routes (a 404 otherwise).
+  Ticking and reopening go through those two tools, never a `completed_at`
+  patch (`update_task` refuses one): the server applies the Tasks rules.
   This applies to closed (archived) groups too: their last known tabs count as
   still to watch. Subtasks with no video link (typed in the app) are never
   touched, and nothing is ever deleted. A group with no videos left still
@@ -206,9 +226,9 @@ and `liveSession` both match the group currently being written.
   in the app's `shared.ts`: capped at 10080, `null` once every timed subtask
   is done, left alone when no subtask has a time. It re-reads the task first
   when it ticked or reopened anything, since the server changed the total.
-- **The Tasks token sits in `chrome.storage.local`**, readable by anyone with
-  the Chrome profile. It shows as "Tab Group Exporter" in the Tasks device list,
-  where it can be revoked.
+- **The MCP token sits in `chrome.storage.local`**, readable by anyone with the
+  Chrome profile. It is listed in Tasks → Settings → AI under the name the user
+  gave it, where it can be deleted, and it stops at its expiry.
 - **Chrome group colors** live in `GROUP_COLORS` in `archive.js`; keep it in sync
   with Chrome's palette. Unknown colors fall back to grey in the UI.
 
@@ -237,7 +257,7 @@ and `liveSession` both match the group currently being written.
 ## Versioning and releases
 
 - The version lives in **one place**: `version` in `manifest.json` (currently
-  `1.7.1`). Chrome reads it there.
+  `1.8.0`). Chrome reads it there.
 - Use **semver**, and bump it whenever behavior changes (not for docs/comment-only
   edits). Chrome only applies an update if this number increases, so a behavior
   change without a bump can be silently ignored on reload.

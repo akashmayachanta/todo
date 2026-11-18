@@ -9,7 +9,8 @@ the server keeps them in step across devices.
 ├── core/                tasks-core: the rules, the sync merge, and (feature
 │   │                    "client") the device side of sync over HTTP
 │   └── migrations/      the tasks DB's numbered SQL migrations
-├── server/              tasks-server: accounts, the REST API, /sync for devices
+├── server/              tasks-server: accounts, the REST API, /sync for devices,
+│   │                    /mcp for AI clients
 │   ├── icons/           the server's logo: icon.svg is the source of icon.ico
 │   └── migrations/      accounts.db's numbered SQL migrations
 └── app/                 Tauri 2 app (Windows .exe/.msi, Android .apk)
@@ -45,6 +46,8 @@ the server keeps them in step across devices.
   the [tray icon](#server). There's no way to do it over the network.
 - `GET /auth/devices` lists a user's devices, and
   `POST /auth/devices/<id>/revoke` signs one out.
+- AI clients get their own tokens, made in Settings → AI; see
+  [AI clients (MCP)](#ai-clients-mcp).
 
 ### Online the first time, offline after that
 
@@ -175,7 +178,7 @@ Without that folder the page is off.
 In a browser the UI calls the REST API directly with its own device token
 ("Browser" in the device list, kept in the browser's local storage). It's online
 only: no offline copy, reminders, pins, quick add popup, taskbar count or
-updates, and Settings shows only General and Theme. Other devices' edits arrive
+updates, and Settings shows only Account, General, Theme and AI. Other devices' edits arrive
 over `/sync/events`, as in the app. It assumes the API is at `/tasks-api`; for
 another `TASKS_API_BASE_PATH`, build it with `VITE_TASKS_API_BASE=<path>` set.
 
@@ -184,6 +187,34 @@ The log is `tasks-server.log` in the data folder and starts over once it passes
 
 To reach it from a phone, expose it over HTTPS, e.g. `ngrok http 8050`, and
 use the ngrok address as the server address in the app.
+
+### AI clients (MCP)
+
+The server is also an MCP server, so an AI assistant such as Claude can read your
+tasks, work through them and tick them off. It is at `<server>/tasks-api/mcp`
+(under `TASKS_API_BASE_PATH`), over MCP's Streamable HTTP transport.
+
+1. In the Windows app or the browser, open **Settings → AI** (Android has no AI tab).
+2. **Generate token**: give it a name, pick **Read & write** or **Read only**, and
+   an expiry: 7, 30 (the default) or 90 days, a date, or none.
+3. Copy the token straight away: it's shown once. The tab also gives the setup
+   for Claude Code, and a JSON block for other clients:
+   ```
+   claude mcp add --transport http tasks https://<server>/tasks-api/mcp --header "Authorization: Bearer mcp_…"
+   ```
+
+- **MCP tokens** start with `mcp_` and work only on `/mcp`; device tokens don't
+  work there. A user can have any number. Changing a token's expiry or deleting it
+  takes effect on the next call; an expired one stays in the list until deleted.
+- **Tools.** Read: `list_projects`, `list_sections`, `list_tasks`, `get_task`.
+  Read & write adds `create_task`, `update_task`, `complete_task`, `reopen_task`
+  and `delete_task`. Projects and sections can't be changed over MCP. A read-only
+  token doesn't see the write tools.
+- Changes go through the same rules as the apps' and reach your devices in about
+  2 s, like any other device's edit.
+- Behind a proxy, it must pass the `Authorization` header and allow POST to
+  `/mcp`. A request whose `Origin` isn't the server's own host is refused; the
+  proxy should pass `Host` or `X-Forwarded-Host` through.
 
 ### Moving existing tasks DBs in
 
@@ -201,6 +232,11 @@ Every route is under `TASKS_API_BASE_PATH`. Errors come back as
 - `POST /auth/register`, `POST /auth/login`: `{username, password, device_name}`
   returns `{token, device, user_id, username}`
 - `GET /auth/me`, `GET /auth/devices`, `POST /auth/devices/{id}/revoke`
+- `GET /auth/mcp-tokens`; `POST /auth/mcp-tokens` with `{name, scope, expires_at}`
+  (`scope` is `read` or `read_write`; `expires_at` left out is 30 days, `null`
+  never) returns `{token, info}`; `POST /auth/mcp-tokens/{id}` with `{expires_at}`;
+  `POST /auth/mcp-tokens/{id}/delete`. These take a device token.
+- `POST /mcp`: the MCP endpoint, with an MCP token
 - `GET /?completed=&project_id=&inbox=&limit=`, plus `q=` to search
 - `POST /`, `GET`/`POST /{id}`, `POST /{id}/delete`
 - `POST /{id}/complete` (optional `{today}`, the caller's local date) and
@@ -331,5 +367,5 @@ AlarmManager.
 ## Checking it
 
 - `cargo test --workspace`: the migrations and accounts (sign-up, sign-in,
-  disabling, revoking).
+  disabling, revoking, MCP tokens), and the MCP tools.
 - `cargo clippy --workspace --all-targets`, and `npm run check` in `app/`.

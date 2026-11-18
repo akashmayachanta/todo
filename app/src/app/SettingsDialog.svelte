@@ -1,5 +1,5 @@
 <script module lang="ts">
-	export type SettingsTab = 'account' | 'general' | 'desktop' | 'theme' | 'server';
+	export type SettingsTab = 'account' | 'general' | 'desktop' | 'theme' | 'ai' | 'server';
 </script>
 
 <script lang="ts">
@@ -17,12 +17,30 @@
 	import { displayNames, photos, removePhoto, setDisplayName, setPhoto } from './profile';
 	import { SYNC_LABELS, ago, syncTrouble } from './syncText';
 	import { call, type AppStatus, type ServerInfo } from './tauriClient';
+	import {
+		DEFAULT_EXPIRY,
+		EXPIRY_CHOICES,
+		claudeCodeCommand,
+		copyText,
+		expiryInstant,
+		expiryText,
+		firstExpiryDay,
+		mcpApi,
+		mcpJson,
+		shortDate,
+		unreachable,
+		type ExpiryChoice,
+		type McpScope,
+		type McpToken,
+		type NewMcpToken,
+	} from './mcpTokens';
 
 	/**
 	 * Settings: Account (photo, who is signed in, sign out), General (how tasks and
 	 * dates are shown and read), Desktop (shortcuts and startup; not on Android),
-	 * Theme, and Server (the host and API path, kept apart from the account).
-	 * Account, Desktop and Server live in the app; General and Theme in this browser.
+	 * Theme, AI (MCP tokens for AI clients; not on Android), and Server (the host
+	 * and API path, kept apart from the account). Account, Desktop and Server live
+	 * in the app, AI on the server; General and Theme in this browser.
 	 */
 	let {
 		status,
@@ -46,13 +64,20 @@
 		{ key: 'general', label: 'General', icon: 'M4 6h16M4 12h10M4 18h7' },
 		{ key: 'desktop', label: 'Desktop', icon: 'M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z' },
 		{ key: 'theme', label: 'Theme', icon: 'M12 3a9 9 0 100 18c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01a1.5 1.5 0 011.12-2.49H16a5 5 0 005-5c0-4.42-4.03-8-9-8zM6.5 12a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm3-4a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm5 0a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm3 4a1.5 1.5 0 110-3 1.5 1.5 0 010 3z' },
+		{ key: 'ai', label: 'AI', icon: 'M9.8 15.9L9 18.75l-.8-2.85a4.5 4.5 0 00-3.1-3.1L2.25 12l2.85-.8a4.5 4.5 0 003.1-3.1L9 5.25l.8 2.85a4.5 4.5 0 003.1 3.1l2.85.8-2.85.8a4.5 4.5 0 00-3.1 3.1zM18.25 8.5L18 9.75l-.25-1.25a3 3 0 00-2.25-2.25L14.25 6l1.25-.25A3 3 0 0017.75 3.5L18 2.25l.25 1.25a3 3 0 002.25 2.25l1.25.25-1.25.25a3 3 0 00-2.25 2.25z' },
 		{ key: 'server', label: 'Server', icon: 'M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01' },
 	];
 	/** Desktop is only on Windows. A browser (platform 'web') has no server or desktop settings;
-	 *  its Account tab is only the profile (it signs out from the account menu). */
+	 *  its Account tab is only the profile (it signs out from the account menu). AI is on
+	 *  Windows and the web, not Android. */
 	const web = untrack(() => status.platform === 'web');
+	const android = untrack(() => status.platform === 'android');
 	const tabs = untrack(() =>
-		TABS.filter((t) => (web ? t.key !== 'desktop' && t.key !== 'server' : t.key !== 'desktop' || status.platform !== 'android')),
+		TABS.filter((t) => {
+			if (web && (t.key === 'desktop' || t.key === 'server')) return false;
+			if (android && (t.key === 'desktop' || t.key === 'ai')) return false;
+			return true;
+		}),
 	);
 
 	let current = $state<SettingsTab>(untrack(() => (tabs.some((t) => t.key === tab) ? tab : tabs[0].key)));
@@ -245,6 +270,126 @@
 		}
 	}
 
+	// ── AI: MCP tokens (mcpTokens.ts; not on Android) ────────────────────────
+
+	const SCOPES: { value: McpScope; label: string; hint: string }[] = [
+		{ value: 'read_write', label: 'Read & write', hint: 'Can read your tasks, add and change them, tick them off and delete them.' },
+		{ value: 'read', label: 'Read only', hint: 'Can list and read your tasks, but not change anything.' },
+	];
+	type Expiry = { choice: ExpiryChoice; day: string };
+	const freshExpiry = (): Expiry => ({ choice: DEFAULT_EXPIRY, day: '' });
+
+	const mcp = mcpApi(untrack(() => status.platform));
+	let mcpUrl = $state('');
+	let mcpTokens = $state<McpToken[] | null>(null);
+	let mcpLoadError = $state('');
+	let mcpLoading = false;
+
+	let newName = $state('');
+	let newScope = $state<McpScope>('read_write');
+	let newExpiry = $state<Expiry>(freshExpiry());
+	let creating = $state(false);
+	let createError = $state('');
+	/** The token just made: shown until Done, never again. */
+	let made = $state<NewMcpToken | null>(null);
+
+	let editingId = $state<string | null>(null);
+	let editExpiry = $state<Expiry>(freshExpiry());
+	let editBusy = $state(false);
+	let editError = $state('');
+
+	async function loadMcp() {
+		if (mcpLoading) return;
+		mcpLoading = true;
+		mcpLoadError = '';
+		mcp.url().then((u) => (mcpUrl = u)).catch(() => {});
+		try {
+			mcpTokens = await mcp.list();
+		} catch (err) {
+			mcpLoadError = unreachable(err) ? 'Connect to the server to manage tokens.' : errorDetail(err);
+		} finally {
+			mcpLoading = false;
+		}
+	}
+
+	// Loaded the first time the tab opens.
+	$effect(() => {
+		if (current === 'ai' && mcpTokens === null && !mcpLoadError) untrack(loadMcp);
+	});
+
+	async function createToken(e: SubmitEvent) {
+		e.preventDefault();
+		createError = '';
+		let expiresAt: string | null;
+		try {
+			expiresAt = expiryInstant(newExpiry.choice, newExpiry.day);
+		} catch (err) {
+			createError = errorDetail(err);
+			return;
+		}
+		creating = true;
+		try {
+			made = await mcp.create(newName.trim(), newScope, expiresAt);
+			mcpTokens = [made.info, ...(mcpTokens ?? [])];
+			newName = '';
+			newScope = 'read_write';
+			newExpiry = freshExpiry();
+		} catch (err) {
+			createError = errorDetail(err);
+		} finally {
+			creating = false;
+		}
+	}
+
+	function startEdit(t: McpToken) {
+		editingId = t.id;
+		editExpiry = freshExpiry();
+		editError = '';
+	}
+
+	async function saveExpiry(id: string) {
+		editError = '';
+		let expiresAt: string | null;
+		try {
+			expiresAt = expiryInstant(editExpiry.choice, editExpiry.day);
+		} catch (err) {
+			editError = errorDetail(err);
+			return;
+		}
+		editBusy = true;
+		try {
+			const updated = await mcp.setExpiry(id, expiresAt);
+			mcpTokens = (mcpTokens ?? []).map((t) => (t.id === id ? updated : t));
+			editingId = null;
+		} catch (err) {
+			editError = errorDetail(err);
+		} finally {
+			editBusy = false;
+		}
+	}
+
+	async function deleteToken(t: McpToken) {
+		const ok = await confirmDialog(`Delete the token "${t.name}"? Any AI client using it stops working.`, {
+			title: 'Delete token',
+			confirmLabel: 'Delete',
+		});
+		if (!ok) return;
+		try {
+			await mcp.delete(t.id);
+			mcpTokens = (mcpTokens ?? []).filter((x) => x.id !== t.id);
+			if (made?.info.id === t.id) made = null;
+			if (editingId === t.id) editingId = null;
+		} catch (err) {
+			toast.error(errorDetail(err));
+		}
+	}
+
+	function copy(text: string, what: string) {
+		copyText(text)
+			.then(() => toast.success(`${what} copied`))
+			.catch((err) => toast.error(errorDetail(err)));
+	}
+
 	// ── Reminders on this phone (Android) ────────────────────────────────────
 
 	type BackgroundRun = { at: number; ok: boolean; error: string | null; source: string };
@@ -321,6 +466,28 @@
 </script>
 
 <svelte:window onkeydown={onKey} />
+
+{#snippet expiryPicker(id: string, exp: Expiry)}
+	<div class="set-group">
+		<label class="set-label" for={id}>Expires</label>
+		<div class="set-expiry">
+			<div class="set-choice-select">
+				<Select {id} value={exp.choice} options={EXPIRY_CHOICES} onchange={(v) => (exp.choice = v as ExpiryChoice)} />
+			</div>
+			{#if exp.choice === 'custom'}
+				<input
+					type="date"
+					class="input set-expiry-day"
+					aria-label="Expiry date"
+					min={firstExpiryDay()}
+					value={exp.day}
+					oninput={(e) => (exp.day = e.currentTarget.value)}
+				/>
+			{/if}
+		</div>
+		<span class="set-hint">The token stops working at the end of that day. You can change this later.</span>
+	</div>
+{/snippet}
 
 <div class="modal-backdrop" onclick={onclose} aria-hidden="true"></div>
 <div class="modal-overlay">
@@ -701,6 +868,120 @@
 					{:else}
 						<p class="set-hint">Loading…</p>
 					{/if}
+				{:else if current === 'ai'}
+					<p class="set-hint set-lede">
+						Let an AI assistant, like Claude, read your tasks and work through them over MCP. Give each AI app its own
+						token; deleting one cuts that app off.
+					</p>
+					<div class="set-group">
+						<span class="set-label">MCP server address</span>
+						<div class="set-copy-row">
+							<input class="input set-mono set-readonly" value={mcpUrl || '…'} readonly aria-label="MCP server address" />
+							<button type="button" class="btn btn-secondary" disabled={!mcpUrl} onclick={() => copy(mcpUrl, 'Address')}>Copy</button>
+						</div>
+					</div>
+
+					{#if made}
+						{@const token = made.token}
+						<div class="set-callout" role="status">
+							<span class="set-label">New token for {made.info.name}</span>
+							<p class="set-hint">Copy it now. It won't be shown again.</p>
+							<div class="set-copy-row">
+								<input class="input set-mono" value={token} readonly aria-label="New token" onfocus={(e) => e.currentTarget.select()} />
+								<button type="button" class="btn btn-primary" onclick={() => copy(token, 'Token')}>Copy</button>
+							</div>
+							<div class="set-group">
+								<span class="set-label">Claude Code</span>
+								<pre class="set-code">{claudeCodeCommand(mcpUrl, token)}</pre>
+								<div class="set-row-buttons">
+									<button type="button" class="btn btn-secondary" onclick={() => copy(claudeCodeCommand(mcpUrl, token), 'Command')}>Copy command</button>
+								</div>
+							</div>
+							<div class="set-group">
+								<span class="set-label">Other MCP clients</span>
+								<pre class="set-code">{mcpJson(mcpUrl, token)}</pre>
+								<div class="set-row-buttons">
+									<button type="button" class="btn btn-secondary" onclick={() => copy(mcpJson(mcpUrl, token), 'Settings')}>Copy JSON</button>
+								</div>
+							</div>
+							<div class="set-row-buttons set-row-end">
+								<button type="button" class="btn btn-primary" onclick={() => (made = null)}>Done</button>
+							</div>
+						</div>
+					{/if}
+
+					<form class="set-callout" onsubmit={createToken}>
+						<span class="set-label">New token</span>
+						<div class="set-pair">
+							<label class="set-group">
+								<span class="set-label">Name</span>
+								<input class="input" bind:value={newName} maxlength="100" placeholder="Claude Desktop" />
+								<span class="set-hint">Which app it's for.</span>
+							</label>
+							<div class="set-group">
+								<span class="set-label" id="settings-ai-access">Access</span>
+								<div class="set-segment" role="radiogroup" aria-labelledby="settings-ai-access">
+									{#each SCOPES as s (s.value)}
+										<button type="button" role="radio" aria-checked={newScope === s.value} onclick={() => (newScope = s.value)}>{s.label}</button>
+									{/each}
+								</div>
+								<span class="set-hint">{SCOPES.find((s) => s.value === newScope)?.hint}</span>
+							</div>
+						</div>
+						{@render expiryPicker('settings-ai-expiry', newExpiry)}
+						{#if createError}<p class="set-error" role="alert">{createError}</p>{/if}
+						<div class="set-row-buttons set-row-end">
+							<button type="submit" class="btn btn-primary" disabled={creating || !mcpTokens}>{creating ? 'Generating…' : 'Generate token'}</button>
+						</div>
+					</form>
+
+					<div class="set-group">
+						<span class="set-label">Your tokens</span>
+						{#if mcpLoadError}
+							<p class="set-error" role="alert">{mcpLoadError}</p>
+							<div class="set-row-buttons">
+								<button type="button" class="btn btn-secondary" onclick={loadMcp}>Try again</button>
+							</div>
+						{:else if !mcpTokens}
+							<p class="set-hint">Loading…</p>
+						{:else if mcpTokens.length === 0}
+							<p class="set-hint">None yet. Generate one above for each AI app you use.</p>
+						{:else}
+							<div class="set-toggles">
+								{#each mcpTokens as t (t.id)}
+									{@const exp = expiryText(t, now)}
+									<div class="set-toggle set-token">
+										<span class="set-toggle-text">
+											<span class="set-toggle-label">
+												{t.name}
+												<span class="set-badge">{t.scope === 'read' ? 'Read only' : 'Read & write'}</span>
+											</span>
+											<span class="set-hint">
+												<span class:set-expired={exp.expired}>{exp.text}</span>
+												· made {shortDate(t.created_at)} · {t.last_used_at ? `last used ${ago(t.last_used_at, now)}` : 'never used'}
+											</span>
+										</span>
+										<div class="set-row-buttons">
+											<button type="button" class="btn btn-ghost set-text-btn" onclick={() => startEdit(t)}>Change expiry</button>
+											<button type="button" class="btn btn-ghost set-text-btn set-danger" onclick={() => deleteToken(t)}>Delete</button>
+										</div>
+										{#if editingId === t.id}
+											<div class="set-token-edit">
+												{@render expiryPicker(`settings-ai-expiry-${t.id}`, editExpiry)}
+												{#if editError}<p class="set-error" role="alert">{editError}</p>{/if}
+												<div class="set-row-buttons set-row-end">
+													<button type="button" class="btn btn-secondary" onclick={() => (editingId = null)}>Cancel</button>
+													<button type="button" class="btn btn-primary" disabled={editBusy} onclick={() => saveExpiry(t.id)}>
+														{editBusy ? 'Saving…' : 'Save'}
+													</button>
+												</div>
+											</div>
+										{/if}
+									</div>
+								{/each}
+							</div>
+						{/if}
+					</div>
 				{:else if current === 'theme'}
 					<div class="set-group">
 						<span class="set-label">Mode</span>
@@ -1154,6 +1435,59 @@
 		height: 1rem;
 		border-radius: 999px;
 		corner-shape: round;
+	}
+
+	/* AI: the MCP address, a new token, and the list of tokens */
+	.set-copy-row {
+		display: flex;
+		gap: 0.5rem;
+	}
+	.set-copy-row .input {
+		flex: 1;
+		min-width: 0;
+	}
+	.set-code {
+		margin: 0;
+		padding: 0.6rem 0.75rem;
+		border-radius: 8px;
+		background: var(--bg-card);
+		border: 1px solid var(--clr-border);
+		font-family: var(--font-outlier);
+		font-size: var(--text-xs);
+		color: var(--text-primary);
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
+	.set-expiry {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.5rem;
+	}
+	.set-expiry-day {
+		width: 11rem;
+	}
+	.set-token {
+		flex-wrap: wrap;
+		cursor: default;
+	}
+	.set-token-edit {
+		flex-basis: 100%;
+		display: grid;
+		gap: 0.6rem;
+		padding-top: 0.25rem;
+	}
+	.set-badge {
+		padding: 0 0.45rem;
+		border-radius: 999px;
+		corner-shape: round;
+		border: 1px solid var(--clr-border);
+		font-size: var(--text-xs);
+		font-weight: 400;
+		color: var(--text-secondary);
+	}
+	.set-expired {
+		color: var(--color-warning);
 	}
 
 	/* Phones: one fixed-height panel. It first lists the sections; tapping one opens

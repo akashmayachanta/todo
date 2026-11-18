@@ -23,6 +23,8 @@ interface ProfileRow {
 
 export const photos = writable<Record<string, string>>({});
 export const displayNames = writable<Record<string, string>>({});
+/** The signed-in username, once `startProfile` has run. */
+export const me = writable<string | null>(null);
 
 function show(username: string, row: ProfileRow) {
 	const put = (store: typeof photos, value: string | null) =>
@@ -105,6 +107,7 @@ export async function startProfile(username: string, ready: boolean) {
 	if (!browser) return;
 	if (current !== username) {
 		current = username;
+		me.set(username);
 		stopListening?.();
 		stopListening = onTasksChanged(refresh);
 	}

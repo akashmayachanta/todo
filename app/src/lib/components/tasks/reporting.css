@@ -1,0 +1,174 @@
+/* Reporting view (TaskReporting): completed tasks by day. Theme tokens only. */
+
+.report {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  max-width: 52rem;
+}
+
+.report-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.report-filter .input {
+  width: auto;
+  min-width: 9rem;
+}
+
+.report-empty {
+  color: var(--text-muted);
+}
+
+.report-day-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding-bottom: var(--space-2xs);
+  border-bottom: var(--rule-hair) solid var(--clr-border);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.report-day-count {
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.report-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.report-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  padding-block: 0.5rem;
+  border-bottom: var(--rule-hair) solid var(--clr-border);
+  font-size: var(--text-sm);
+}
+
+.report-who {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.report-badge {
+  position: absolute;
+  right: -4px;
+  bottom: -3px;
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--bg-base);
+  border-radius: 9999px;
+  background-color: var(--color-brand);
+  color: var(--color-brand-text);
+}
+
+.report-badge svg {
+  width: 10px;
+  height: 10px;
+}
+
+.report-verb {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+
+.report-chip {
+  --ring: var(--clr-field);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0.125rem 0.5rem;
+  border: var(--rule-hair) solid var(--clr-border);
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.report-chip:hover {
+  border-color: var(--clr-border-light);
+  color: var(--text-secondary);
+}
+
+.report-chip[data-priority="1"] { --ring: var(--color-danger); }
+.report-chip[data-priority="2"] { --ring: var(--color-warning); }
+.report-chip[data-priority="3"] { --ring: var(--color-info); }
+
+.report-chip-gone {
+  cursor: default;
+  font-style: italic;
+}
+
+.report-chip-check {
+  flex-shrink: 0;
+  width: 0.8125rem;
+  height: 0.8125rem;
+  border-radius: 9999px;
+  background-color: color-mix(in oklab, var(--ring) 55%, transparent);
+}
+
+.report-chip-title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-decoration: line-through;
+}
+
+.report-meta {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.75rem;
+  margin-left: auto;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.report-place {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.report-time {
+  font-variant-numeric: tabular-nums;
+}
+
+.report-more {
+  align-self: flex-start;
+}
+
+@media (max-width: 640px) {
+  .report-row {
+    flex-wrap: wrap;
+  }
+
+  .report-verb {
+    display: none;
+  }
+
+  .report-chip {
+    flex: 1;
+  }
+
+  .report-meta {
+    width: 100%;
+    padding-left: calc(26px + 0.5rem);
+  }
+}

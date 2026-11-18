@@ -2684,8 +2684,8 @@ button.tcal-day:hover {
     display: none;
   }
 
-  /* The bar has Inbox, Today, Upcoming and Karma already. */
-  .tasks-pane-views {
+  /* The bar has Inbox, Today, Upcoming and Karma already; Reporting stays here. */
+  .tasks-pane-views > .tasks-pane-link:not(.tasks-pane-link-phone) {
     display: none;
   }
 

@@ -226,6 +226,15 @@ object HomeWidgets {
     )
   }
 
+  /**
+   * Puts a layout's text colour back on a view. From Android 12 the launcher reads the
+   * colour resource itself, so it keeps following dark mode; before, it is read here.
+   */
+  fun layoutTextColor(c: Context, views: RemoteViews, id: Int, color: Int) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) views.setColorStateList(id, "setTextColor", color)
+    else views.setTextColor(id, c.getColor(color))
+  }
+
   fun saveStyle(c: Context, widgetId: Int, s: WidgetStyle) {
     prefs(c).edit().putString("c$widgetId", s.color).putInt("o$widgetId", s.opacity).putString("k$widgetId", s.text).apply()
   }
@@ -273,11 +282,19 @@ object HomeWidgets {
     // The app's own colours come from the layout, so they follow dark mode as it changes.
     val style = style(c, widgetId)
     views.setInt(R.id.tasks_widget_bg, "setImageAlpha", style.opacity * 255 / 100)
-    style.tint?.let { views.setInt(R.id.tasks_widget_bg, "setColorFilter", it) }
-    style.ink?.let {
-      views.setTextColor(R.id.tasks_widget_title, it.text)
-      views.setTextColor(R.id.tasks_widget_empty, it.muted)
-      views.setInt(R.id.tasks_widget_pick, "setColorFilter", it.muted)
+    // The launcher applies an update to the views it already shows, so a colour set
+    // earlier stays unless it is undone: back to the app's own, each one is reset.
+    // A clear filter (0) draws the layout's own colour unchanged.
+    views.setInt(R.id.tasks_widget_bg, "setColorFilter", style.tint ?: 0)
+    val ink = style.ink
+    if (ink != null) {
+      views.setTextColor(R.id.tasks_widget_title, ink.text)
+      views.setTextColor(R.id.tasks_widget_empty, ink.muted)
+      views.setInt(R.id.tasks_widget_pick, "setColorFilter", ink.muted)
+    } else {
+      layoutTextColor(c, views, R.id.tasks_widget_title, R.color.tasks_widget_text)
+      layoutTextColor(c, views, R.id.tasks_widget_empty, R.color.tasks_widget_muted)
+      views.setInt(R.id.tasks_widget_pick, "setColorFilter", 0)
     }
     val service = Intent(c, TasksWidgetService::class.java).putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
     // Each widget its own adapter: intents that differ only in extras count as one.
@@ -425,7 +442,9 @@ class TasksWidgetFactory(private val c: Context, private val widgetId: Int) : Re
     val row = rows.getOrNull(position) ?: return views
     views.setTextViewText(R.id.tasks_widget_item_title, row.title)
     val ink = ink
-    ink?.let { views.setTextColor(R.id.tasks_widget_item_title, it.text) }
+    // Rows are reused too, so the app's own text colour is set back, not left as it was.
+    if (ink != null) views.setTextColor(R.id.tasks_widget_item_title, ink.text)
+    else HomeWidgets.layoutTextColor(c, views, R.id.tasks_widget_item_title, R.color.tasks_widget_text)
     if (row.due.isEmpty()) {
       views.setViewVisibility(R.id.tasks_widget_item_due, View.GONE)
     } else {

@@ -16,7 +16,7 @@
 	/**
 	 * The Tasks page's own pane: the account (from the app shell) and the sidebar button
 	 * (which hides the whole pane; the page then shows its own) at the top, the fixed views
-	 * (Karma, the progress charts, last), the saved filters, then the projects.
+	 * (Karma, the progress charts, then Reporting, the completed tasks by day, last), the saved filters, then the projects.
 	 * A project with sections has an expander that lists them; a section links to
 	 * its section of the project, and has a menu to move it to another project. Projects are
 	 * reordered by dragging them, or with Move up / Move down in their menu. The "Projects"
@@ -81,6 +81,7 @@
 		{ key: 'today',    label: 'Today' }, // TodayIcon: a calendar tile with the day number
 		{ key: 'upcoming', label: 'Upcoming', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
 		{ key: 'karma',    label: 'Karma',    icon: 'M4 20h16M7 16v-4m5 4V8m5 8v-7' },
+		{ key: 'reporting', label: 'Reporting', icon: 'M9 12l2 2 4-4M7 3h10a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2z' },
 	] as const;
 
 	/** The keys that go to a view (handled on the page), shown in a tooltip on hover. */
@@ -354,6 +355,7 @@
 				<a
 					href="?view={v.key}"
 					class="tasks-pane-link"
+					class:tasks-pane-link-phone={v.key === 'reporting'}
 					class:tasks-pane-task-over={taskDropOn === v.key}
 					aria-current={view === v.key ? 'page' : undefined}
 					aria-keyshortcuts={GO_KEYS[v.key] ? `G ${GO_KEYS[v.key]}` : undefined}
@@ -371,7 +373,7 @@
 					{/if}
 					<span class="tasks-pane-label">{v.label}</span>
 					{#if v.key === 'today' && minutes.today}<span class="tasks-pane-count tasks-pane-time" title="Work due today and overdue">{formatDuration(minutes.today)}</span>{/if}
-					{#if v.key !== 'karma' && count(counts[v.key])}<span class="tasks-pane-count">{count(counts[v.key])}</span>{/if}
+					{#if v.key !== 'karma' && v.key !== 'reporting' && count(counts[v.key])}<span class="tasks-pane-count">{count(counts[v.key])}</span>{/if}
 				</a>
 			{/each}
 		</div>

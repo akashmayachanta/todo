@@ -29,6 +29,7 @@
 	import TaskInlineEdit from '$lib/components/tasks/TaskInlineEdit.svelte';
 	import TaskCalendar from '$lib/components/tasks/TaskCalendar.svelte';
 	import TaskKarma from '$lib/components/tasks/TaskKarma.svelte';
+	import TaskReporting from '$lib/components/tasks/TaskReporting.svelte';
 	import LayoutToggle from '$lib/components/tasks/LayoutToggle.svelte';
 	import SmartTips from '$lib/components/tasks/SmartTips.svelte';
 	import GroupMenu from '$lib/components/tasks/GroupMenu.svelte';
@@ -136,7 +137,7 @@
 		if (searchQuery) return 'search';
 		const v = params.get('view');
 		// With no view in the URL, the one picked in Settings ("Open on").
-		return v === 'inbox' || v === 'upcoming' || v === 'today' || v === 'karma' || v === 'projects' ? v : settings.startView;
+		return v === 'inbox' || v === 'upcoming' || v === 'today' || v === 'karma' || v === 'reporting' || v === 'projects' ? v : settings.startView;
 	});
 	let taskId = $derived(params.get('task') || null);
 	/** Done tasks are listed in the Inbox and projects when Settings → General says so. */
@@ -770,7 +771,7 @@
 	let heading = $derived(
 		view === 'project' ? project?.name ?? 'Project'
 			: view === 'filter' ? filter?.name ?? 'Filter'
-			: view === 'inbox' ? 'Inbox' : view === 'today' ? 'Today' : view === 'karma' ? 'Karma' : view === 'projects' ? 'Projects' : view === 'search' ? 'Search' : 'Upcoming',
+			: view === 'inbox' ? 'Inbox' : view === 'today' ? 'Today' : view === 'karma' ? 'Karma' : view === 'reporting' ? 'Reporting: My completed tasks' : view === 'projects' ? 'Projects' : view === 'search' ? 'Search' : 'Upcoming',
 	);
 
 	// ── Search ─────────────────────────────────────────────────────────────────
@@ -1752,7 +1753,7 @@
 		if (el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName))) return;
 		if (goKey(e)) return;
 		if (e.key !== 'q') return;
-		if (projectDialog || filterDialog || movingSection || movingTasks || taskId || view === 'karma' || view === 'projects' || view === 'search') return;
+		if (projectDialog || filterDialog || movingSection || movingTasks || taskId || view === 'karma' || view === 'reporting' || view === 'projects' || view === 'search') return;
 		e.preventDefault();
 		addingAt = mainAddKey();
 	}
@@ -2075,6 +2076,8 @@
 						<p class="page-subtitle">{fromYmd(today).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</p>
 					{:else if view === 'karma'}
 						<p class="page-subtitle">Your progress: tasks completed against your daily and weekly goals</p>
+					{:else if view === 'reporting'}
+						<p class="page-subtitle">Every task you ticked, and when</p>
 					{:else if view === 'projects'}
 						<p class="page-subtitle">Drag a project to reorder it, or a section to move it within or between projects</p>
 					{:else if view === 'search'}
@@ -2085,11 +2088,11 @@
 					{#if !loading && !error && groupShown}
 						<GroupMenu value={groupBy} options={groupOptions} onchange={setGroup} />
 					{/if}
-					{#if !loading && !error && view !== 'karma' && view !== 'search'}
+					{#if !loading && !error && view !== 'karma' && view !== 'reporting' && view !== 'search'}
 						<LayoutToggle {layout} options={layoutOptions} onchange={setLayout} />
 							{#if view === 'projects'}<button type="button" class="btn btn-secondary" onclick={newProject}>Add project</button>{/if}
 					{/if}
-					{#if view !== 'karma' && view !== 'projects' && view !== 'search'}<SmartTips />{/if}
+					{#if view !== 'karma' && view !== 'reporting' && view !== 'projects' && view !== 'search'}<SmartTips />{/if}
 					{#if pinTarget}
 						<button type="button" class="tasks-icon-btn" onclick={() => pin(pinTarget!)} title="Pin to desktop" aria-label="Pin to desktop">
 							<svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M12 17v5M7 17h10l-1.5-4.5V6a2 2 0 00-2-2h-3a2 2 0 00-2 2v6.5L7 17z" /></svg>
@@ -2142,6 +2145,8 @@
 					weeklyGoal={settings.weeklyGoal}
 					ongoals={(dailyGoal, weeklyGoal) => changeSettings({ ...settings, dailyGoal, weeklyGoal })}
 				/>
+			{:else if view === 'reporting'}
+				<TaskReporting {today} {projects} {tasks} onopen={openTask} />
 			{:else if view === 'projects'}
 				<TaskProjects
 					{projects}

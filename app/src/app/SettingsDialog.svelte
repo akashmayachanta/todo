@@ -48,10 +48,14 @@
 		{ key: 'theme', label: 'Theme', icon: 'M12 3a9 9 0 100 18c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01a1.5 1.5 0 011.12-2.49H16a5 5 0 005-5c0-4.42-4.03-8-9-8zM6.5 12a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm3-4a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm5 0a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm3 4a1.5 1.5 0 110-3 1.5 1.5 0 010 3z' },
 		{ key: 'server', label: 'Server', icon: 'M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01' },
 	];
-	/** Desktop is only on Windows. */
-	const tabs = untrack(() => TABS.filter((t) => t.key !== 'desktop' || status.platform !== 'android'));
+	/** Desktop is only on Windows. A browser (platform 'web') has only what lives in the browser: General and Theme. */
+	const tabs = untrack(() =>
+		TABS.filter((t) =>
+			status.platform === 'web' ? t.key === 'general' || t.key === 'theme' : t.key !== 'desktop' || status.platform !== 'android',
+		),
+	);
 
-	let current = $state<SettingsTab>(untrack(() => (tabs.some((t) => t.key === tab) ? tab : 'account')));
+	let current = $state<SettingsTab>(untrack(() => (tabs.some((t) => t.key === tab) ? tab : tabs[0].key)));
 	/** Phones show the list of sections first and one section at a time; a section
 	 *  asked for by name (not the default) opens straight away. Desktop ignores it. */
 	let opened = $state(untrack(() => tab !== 'account'));
@@ -222,7 +226,7 @@
 	let desktopBusy = $state(false);
 
 	onMount(() => {
-		if (status.platform !== 'android') {
+		if (status.platform !== 'android' && status.platform !== 'web') {
 			call<DesktopSettings | null>('app_desktop_get').then((d) => (desktop = d)).catch(() => {});
 		}
 	});

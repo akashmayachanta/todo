@@ -16,7 +16,14 @@
 		status,
 		onsync,
 		onsettings,
-	}: { status: AppStatus; onsync: () => void; onsettings: (tab?: SettingsTab) => void } = $props();
+		onsignout,
+	}: {
+		status: AppStatus;
+		onsync: () => void;
+		onsettings: (tab?: SettingsTab) => void;
+		/** The browser's sign out (the app's is in Settings → Account). */
+		onsignout?: () => void;
+	} = $props();
 
 	let open = $state(false);
 	let place = $state<Placement | null>(null);
@@ -170,6 +177,13 @@
 		{/if}
 		{#if sync.pending && sync.state !== 'synced'}
 			<p class="acct-note">{sync.pending} change{sync.pending === 1 ? '' : 's'} waiting to sync</p>
+		{/if}
+		{#if onsignout}
+			<div class="acct-rule" role="separator"></div>
+			<button type="button" role="menuitem" class="dd-item acct-item" onclick={() => pick(onsignout)}>
+				<svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+				<span class="acct-item-label">Sign out</span>
+			</button>
 		{/if}
 
 	</div>

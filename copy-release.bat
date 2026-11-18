@@ -1,6 +1,6 @@
 @echo off
-rem Copies the latest built tasks-app.exe, tasks-server.exe and tasks.apk to the
-rem folder the server runs from. Only these and their .version files are replaced;
+rem Copies the latest built tasks-app.exe, tasks-server.exe, the browser UI (web\)
+rem and tasks.apk to the folder the server runs from. Only these and their .version files are replaced;
 rem .env and data\ there are left alone. A file whose size and timestamp match the
 rem copy already there is skipped.
 rem
@@ -37,6 +37,8 @@ set "ROBOCOPY_OPTIONS=/xx /r:0 /w:0 /njh /njs /ndl /nfl /nc /ns /np"
 if not exist "%TO%\" mkdir "%TO%" || set "FAILED=1"
 
 call :copy_file "%FROM%" tasks-app.exe
+rem The web UI goes before the server: a server restarted below only serves it if it's there.
+call :copy_web
 call :copy_file "%FROM%" tasks-server.exe
 call :copy_file "%APK_DIR%" tasks.apk
 call :upload_apk
@@ -83,6 +85,29 @@ if exist "%~1\%~2.version" (
         echo Failed:  %~2.version, so the apps won't see this build as an update
         set "FAILED=1"
     )
+)
+exit /b 0
+
+rem Mirrors the browser UI (target\release\web, from build-server.bat) to %TO%\web,
+rem where the server serves it at /tasks-app/. /mir also removes the last build's
+rem old files there; it only touches the web folder. The server reads the files on
+rem each request, so it doesn't need a restart unless the folder is new.
+:copy_web
+if not exist "%FROM%\web\index.html" (
+    echo Missing: web\ hasn't been built yet, run build-server.bat.
+    set "FAILED=1"
+    exit /b 0
+)
+robocopy "%FROM%\web" "%TO%\web" /mir /r:0 /w:0 /njh /njs /ndl /nfl /nc /ns /np >nul
+if errorlevel 8 (
+    echo Failed:  web\
+    set "FAILED=1"
+    exit /b 0
+)
+if errorlevel 1 (
+    echo Copied:  web\
+) else (
+    echo Skipped: web\, unchanged
 )
 exit /b 0
 

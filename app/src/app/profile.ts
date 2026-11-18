@@ -9,6 +9,7 @@
 import { writable } from 'svelte/store';
 import { browser } from '$app/environment';
 import { onTasksChanged } from '$lib/tasks/client';
+import { isTauri } from './platform';
 import { call, write } from './tauriClient';
 
 const SIZE = 128;
@@ -94,7 +95,8 @@ async function refresh() {
  * to move a profile saved here by an older version up to the account.
  */
 export async function startProfile(username: string, ready: boolean) {
-	if (!browser) return;
+	// The browser has no local DB; the profile row isn't in the REST API, so it shows the username.
+	if (!browser || !isTauri) return;
 	if (current !== username) {
 		current = username;
 		stopListening?.();

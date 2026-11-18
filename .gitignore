@@ -1,6 +1,7 @@
 /target
 /app/node_modules
 /app/build
+/app/build-web
 /app/.svelte-kit
 /app/src-tauri/target
 # Android release keystore and its passwords, never committed

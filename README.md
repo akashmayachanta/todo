@@ -163,6 +163,21 @@ exe. `TASKS_ENV_FILE` names a different file. See `.env.example`:
 | `TASKS_API_BASE_PATH` | `/tasks-api` | Route prefix; empty for the root |
 | `TASKS_DATA_DIR` | `data` | accounts.db and the user DBs |
 | `TASKS_ALLOW_SIGNUP` | `true` | Whether the app's Register works |
+| `TASKS_WEB_DIR` | `web` next to the exe | The browser UI, served at `/tasks-app/` |
+
+### In a browser
+
+The server also serves the app's UI at `http://<pc-ip>:8050/tasks-app/` (and `/`
+redirects there). `build-server.bat` builds it (`npm run build:web` in `app/`,
+base path `/tasks-app`) and copies `app\build-web` to `web\` next to the exe.
+Without that folder the page is off.
+
+In a browser the UI calls the REST API directly with its own device token
+("Browser" in the device list, kept in the browser's local storage). It's online
+only: no offline copy, reminders, pins, quick add popup, taskbar count or
+updates, and Settings shows only General and Theme. Other devices' edits arrive
+over `/sync/events`, as in the app. It assumes the API is at `/tasks-api`; for
+another `TASKS_API_BASE_PATH`, build it with `VITE_TASKS_API_BASE=<path>` set.
 
 The log is `tasks-server.log` in the data folder and starts over once it passes
 5 MB. `RUST_LOG=debug` gives more logging.
@@ -194,6 +209,9 @@ Every route is under `TASKS_API_BASE_PATH`. Errors come back as
 - `/reorder` takes `{ids}` of sibling tasks in their new order
 - `/projects`, `/projects/reorder`, `/projects/{id}`, `/projects/{id}/delete`
 - `/sections`, `/filters`, with the same `{id}` and `{id}/delete` forms
+- `POST /sections/reorder` takes `{project_id, ids}`
+- `POST /delete-completed` takes `{ids}`, deletes the done ones among them and
+  returns `{deleted}`
 - `GET /completions?since=`
 - `/sync/push`, `/sync/pull`, `/sync/events`, `/health`
 

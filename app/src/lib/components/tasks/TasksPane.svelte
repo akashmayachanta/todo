@@ -36,7 +36,7 @@
 			projects: Record<string, number>; sections: Record<string, number>; filters: Record<string, number>;
 		};
 		/** Minutes of open work in each project and section. */
-		minutes: { projects: Record<string, number>; sections: Record<string, number> };
+		minutes: { projects: Record<string, number>; sections: Record<string, number>; today?: number };
 		view: TaskView;
 		projectId: string | null;
 		filterId: string | null;
@@ -370,6 +370,7 @@
 						<svg aria-hidden="true" class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d={v.icon} /></svg>
 					{/if}
 					<span class="tasks-pane-label">{v.label}</span>
+					{#if v.key === 'today' && minutes.today}<span class="tasks-pane-count tasks-pane-time" title="Work due today and overdue">{formatDuration(minutes.today)}</span>{/if}
 					{#if v.key !== 'karma' && count(counts[v.key])}<span class="tasks-pane-count">{count(counts[v.key])}</span>{/if}
 				</a>
 			{/each}

@@ -169,6 +169,13 @@
 		go(here());
 	}
 
+	/** The task's project or section, from its breadcrumb. */
+	function goPlace(to: { project_id: string | null; section_id: string | null }) {
+		const base = resolve('/tasks' as any);
+		const url = to.project_id ? `${base}?project=${to.project_id}${to.section_id ? `#task-cat-${to.section_id}` : ''}` : `${base}?view=inbox`;
+		goto(url, { noScroll: !to.section_id, keepFocus: true });
+	}
+
 	// ── What is shown ──────────────────────────────────────────────────────────
 
 	let subtaskMap = $derived.by(() => {
@@ -212,7 +219,23 @@
 	/** The project's open tasks with no section, subtasks included, for the board's "No section" head. */
 	let unsectionedCount = $derived(open.filter((t) => t.project_id === projectId && t.section_id === null).length);
 	/** Minutes of open work rolled up to each project and section (subtasks included). */
-	let minutes = $derived(durationTotals(open, subtasksOf));
+	/**
+	 * Minutes of the work Today counts (due today or overdue). A parent whose duration is its
+	 * subtasks' total is left out when some of those subtasks are in the count themselves.
+	 */
+	let dueMinutes = $derived.by(() => {
+		const due = dated.filter((t) => t.due_date! <= today);
+		const ids = new Set(due.map((t) => t.id));
+		let total = 0;
+		for (const t of due) {
+			const m = t.duration_minutes ?? 0;
+			if (!m) continue;
+			if (t.parent_id === null && subtaskMinutes(subtasksOf(t.id)) !== null && subtasksOf(t.id).some((s) => ids.has(s.id))) continue;
+			total += m;
+		}
+		return total;
+	});
+	let minutes = $derived({ ...durationTotals(open, subtasksOf), today: dueMinutes });
 
 	let inboxTasks = $derived(topLevel.filter((t) => t.project_id === null).sort(byPosition));
 	let overdue = $derived(dated.filter((t) => t.due_date! < today).sort(byDue));
@@ -2404,6 +2427,7 @@
 		onopen={openTask}
 		ondelete={deleteTask}
 		onclose={closeTask}
+		onplace={goPlace}
 	/>
 {/if}
 

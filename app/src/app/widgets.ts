@@ -1,9 +1,11 @@
 // The desktop's extra windows (src-tauri/src/widgets.rs): none of them exist on Android.
 
 import type { PinTarget } from '$lib/components/tasks/pins';
+import { isTauri } from './platform';
 import { call } from './tauriClient';
 
-export const isDesktop = typeof navigator !== 'undefined' && !/android/i.test(navigator.userAgent);
+/** The Windows app; not Android, and not a browser (which has no pins, badge, title bar or updates). */
+export const isDesktop = isTauri && typeof navigator !== 'undefined' && !/android/i.test(navigator.userAgent);
 
 export function pinToDesktop(target: PinTarget): Promise<void> {
 	return call('app_pin_open', { kind: target.kind, id: target.id });

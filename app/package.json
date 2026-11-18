@@ -7,6 +7,7 @@
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
+		"build:web": "node scripts/build-web.mjs",
 		"tauri": "tauri",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"icons": "node scripts/icons.mjs",

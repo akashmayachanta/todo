@@ -7,5 +7,7 @@ import { invoke } from '@tauri-apps/api/core';
 
 /** Asks for notification permission (the first time a reminder is set). */
 export function askReminderPermission() {
+	// A browser (tasks-server's web page) shows no reminders.
+	if (!('__TAURI_INTERNALS__' in window)) return;
 	invoke('app_ask_notification_permission').catch(() => {});
 }

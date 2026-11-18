@@ -6,13 +6,15 @@ use std::sync::Arc;
 use axum::body::Bytes;
 use axum::extract::{FromRequest, FromRequestParts, Path, Query, Request, State};
 use axum::http::request::Parts;
-use axum::http::StatusCode;
+use axum::http::{header, HeaderValue, StatusCode};
+use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tasks_core::sync::{self, PullResponse, PushRequest, PushResponse};
+use tower_http::services::{ServeDir, ServeFile};
 use tasks_core::{ops, Section, SectionIn, Completions, Ctx, Filter, FilterIn, Project, ProjectIn, ProjectOrder, Task, TaskIn, TaskOrder, TaskPatch, TaskQuery};
 
 use crate::auth::{AuthUser, Device};
@@ -70,6 +72,7 @@ pub fn router(state: Arc<AppState>) -> Router {
     if !base.is_empty() {
         router = router.route(&p(""), get(list_tasks).post(create_task));
     }
+    router = web_routes(router, &state.config.web_dir, base.is_empty());
     router
         .route(&p("/"), get(list_tasks).post(create_task))
         .route(&p("/health"), get(health))
@@ -78,6 +81,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(&p("/projects/{id}"), post(update_project))
         .route(&p("/projects/{id}/delete"), post(delete_project))
         .route(&p("/sections"), get(list_sections).post(create_section))
+        .route(&p("/sections/reorder"), post(reorder_sections))
         .route(&p("/sections/{id}"), post(update_section))
         .route(&p("/sections/{id}/delete"), post(delete_section))
         .route(&p("/filters"), get(list_filters).post(create_filter))
@@ -85,6 +89,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(&p("/filters/{id}/delete"), post(delete_filter))
         .route(&p("/completions"), get(list_completions))
         .route(&p("/reorder"), post(reorder_tasks))
+        .route(&p("/delete-completed"), post(delete_completed))
         .route(&p("/auth/login"), post(login))
         .route(&p("/auth/register"), post(register))
         .route(&p("/auth/me"), get(me))
@@ -122,6 +127,11 @@ async fn reorder_tasks(State(s): St, u: AuthUser, Body(order): Body<TaskOrder>) 
     Ok(Json(write(&s, &u, move |c| ops::reorder_tasks(c, &Ctx::server(), &order.ids)).await?))
 }
 
+async fn delete_completed(State(s): St, u: AuthUser, Body(order): Body<TaskOrder>) -> ApiResult<Json<Value>> {
+    let deleted = write(&s, &u, move |c| ops::delete_completed(c, &Ctx::server(), &order.ids)).await?;
+    Ok(Json(json!({ "deleted": deleted })))
+}
+
 async fn reorder_projects(State(s): St, u: AuthUser, Body(order): Body<ProjectOrder>) -> ApiResult<Json<Vec<Project>>> {
     Ok(Json(write(&s, &u, move |c| ops::reorder_projects(c, &Ctx::server(), &order.ids)).await?))
 }
@@ -149,6 +159,16 @@ async fn list_sections(State(s): St, u: AuthUser, Q(q): Q<SectionQuery>) -> ApiR
 async fn create_section(State(s): St, u: AuthUser, Body(input): Body<SectionIn>) -> ApiResult<(StatusCode, Json<Section>)> {
     let item = write(&s, &u, move |c| ops::create_section(c, &Ctx::server(), input)).await?;
     Ok((StatusCode::CREATED, Json(item)))
+}
+
+#[derive(Deserialize)]
+struct SectionOrder {
+    project_id: String,
+    ids: Vec<String>,
+}
+
+async fn reorder_sections(State(s): St, u: AuthUser, Body(order): Body<SectionOrder>) -> ApiResult<Json<Vec<Section>>> {
+    Ok(Json(write(&s, &u, move |c| ops::reorder_sections(c, &Ctx::server(), &order.project_id, &order.ids)).await?))
 }
 
 async fn update_section(State(s): St, u: AuthUser, Path(id): Path<String>, Body(input): Body<SectionIn>) -> ApiResult<Json<Section>> {
@@ -363,4 +383,57 @@ async fn latest_release(State(s): St, _u: AuthUser, Q(q): Q<PlatformQuery>) -> A
 async fn download_release(State(s): St, _u: AuthUser, Q(q): Q<PlatformQuery>) -> ApiResult<axum::response::Response> {
     let releases = s.releases.clone();
     tokio::task::spawn_blocking(move || releases.download(q.platform)).await.map_err(|e| ApiError::internal(e.to_string()))?
+}
+
+// ── The web UI ───────────────────────────────────────────────────────────────
+
+/// Where the browser copy of the app lives (app/build-web, built with base path /tasks-app).
+const WEB_PATH: &str = "/tasks-app";
+
+/// Serves the web UI at /tasks-app/ (and sends / there, unless the API sits at the root).
+/// Skipped, with a log line, when the folder isn't there.
+fn web_routes(router: Router<Arc<AppState>>, dir: &std::path::Path, api_at_root: bool) -> Router<Arc<AppState>> {
+    if !dir.join("index.html").is_file() {
+        tracing::info!("No web UI at {} (TASKS_WEB_DIR); {WEB_PATH}/ is off", dir.display());
+        return router;
+    }
+    tracing::info!("Web UI at {WEB_PATH}/ from {}", dir.display());
+    let to_app = || async { Redirect::to(&format!("{WEB_PATH}/")) };
+    let mut router = router
+        .route(WEB_PATH, get(to_app))
+        .route(&format!("{WEB_PATH}/"), get(web_app))
+        .route(&format!("{WEB_PATH}/{{*path}}"), get(web_app));
+    if !api_at_root {
+        router = router.route("/", get(to_app));
+    }
+    router
+}
+
+/// A file from the web UI's folder; any other path is the single-page app's index.html,
+/// so deep links like /tasks-app/tasks?project=… load the app.
+async fn web_app(State(s): St, req: Request) -> Response {
+    let dir = s.config.web_dir.clone();
+    let (mut parts, body) = req.into_parts();
+    let rest = parts.uri.path().strip_prefix(WEB_PATH).unwrap_or("/");
+    let rest = if rest.is_empty() { "/" } else { rest };
+    let uri = match parts.uri.query() {
+        Some(q) => format!("{rest}?{q}"),
+        None => rest.to_string(),
+    };
+    parts.uri = match uri.parse() {
+        Ok(u) => u,
+        Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+    };
+    let req = Request::from_parts(parts, body);
+    let index = dir.join("index.html");
+    let res = match ServeDir::new(&dir).fallback(ServeFile::new(&index)).try_call(req).await {
+        Ok(res) => res,
+        Err(e) => return ApiError::internal(e.to_string()).into_response(),
+    };
+    let mut res = res.map(axum::body::Body::new);
+    // index.html names the current build's files, so it is always checked again.
+    if res.headers().get(header::CONTENT_TYPE).is_some_and(|t| t.as_bytes().starts_with(b"text/html")) {
+        res.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    }
+    res
 }

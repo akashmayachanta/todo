@@ -25,7 +25,7 @@
 	 * "/Section", "every monday", "!30m" typed into them set those fields. The arrows in
 	 * the head (or k / j) step to the previous and next task of the view.
 	 */
-	let { task, parent = null, siblings = [], subtasks, showDoneSubtasks = true, projects, sections, onprev = null, onnext = null, sort = null, onpin = null, onduplicate = null, onpatch, ontoggle, onaddsubtask, onopen, ondelete, onclose }: {
+	let { task, parent = null, siblings = [], subtasks, showDoneSubtasks = true, projects, sections, onprev = null, onnext = null, sort = null, onpin = null, onduplicate = null, onpatch, ontoggle, onaddsubtask, onopen, ondelete, onclose, onplace = null }: {
 		task: Task;
 		/** The task this is a subtask of. */
 		parent?: Task | null;
@@ -50,6 +50,8 @@
 		onopen: (task: Task) => void;
 		ondelete: (task: Task) => void;
 		onclose: () => void;
+		/** A breadcrumb was clicked: go to the task's project (or the Inbox), or its section. */
+		onplace?: ((to: { project_id: string | null; section_id: string | null }) => void) | null;
 	} = $props();
 
 	let title = $state('');
@@ -369,7 +371,7 @@
 	<div bind:this={panel} class="task-modal" role="dialog" aria-modal="true" aria-label="Task: {plainText(task.title)}" tabindex="-1">
 		<header class="task-modal-head">
 			<nav class="task-modal-crumbs" aria-label="Where this task is">
-					<span class="task-modal-crumb">
+					<button type="button" class="task-modal-crumb" title={project ? 'Go to project' : 'Go to Inbox'} onclick={() => onplace?.({ project_id: project?.id ?? null, section_id: null })}>
 						{#if project}
 							<span class="task-modal-hash" style="color: {projectColor(project.color)}">#</span>
 							<span class="truncate">{project.name}</span>
@@ -377,13 +379,13 @@
 							<svg aria-hidden="true" class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V7a2 2 0 00-2-2H6a2 2 0 00-2 2v6m16 0v4a2 2 0 01-2 2H6a2 2 0 01-2-2v-4m16 0h-4l-1 2h-6l-1-2H4" /></svg>
 							<span>Inbox</span>
 						{/if}
-					</span>
+					</button>
 					{#if section}
 						<span class="task-modal-crumb-sep" aria-hidden="true">/</span>
-						<span class="task-modal-crumb">
+						<button type="button" class="task-modal-crumb" title="Go to section" onclick={() => onplace?.({ project_id: project?.id ?? null, section_id: section.id })}>
 							<svg aria-hidden="true" class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="16" rx="2" stroke-width="2" /><path stroke-linecap="round" stroke-width="2" d="M5 9h14" /></svg>
 							<span class="truncate">{section.name}</span>
-						</span>
+						</button>
 					{/if}
 			</nav>
 			<div class="task-modal-head-actions">

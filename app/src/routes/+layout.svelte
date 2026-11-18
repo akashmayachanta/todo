@@ -30,18 +30,43 @@
 	import { followTitleBar } from '$shell/titlebar';
 	import SettingsDialog, { type SettingsTab } from '$shell/SettingsDialog.svelte';
 	import { startProfile } from '$shell/profile';
+	import { isTauri } from '$shell/platform';
+	import { API_BASE, followServerChanges, webSession, webSignOut, webTasksClient } from '$shell/webClient';
+	import WebSignIn from '$shell/WebSignIn.svelte';
+	import { base, resolve } from '$app/paths';
 
-	// Before any page loads: tasks come from the local DB (Rust). Reminders are
-	// system notifications scheduled there too (src-tauri/src/reminders.rs).
-	setTasksClient(tauriTasksClient);
+	// Before any page loads: in the app, tasks come from the local DB (Rust), and
+	// reminders are system notifications scheduled there too (src-tauri/src/reminders.rs).
+	// In a browser (tasks-server's /tasks-app page) they come straight from the server.
+	setTasksClient(isTauri ? tauriTasksClient : webTasksClient);
 
 	let { children } = $props();
 
 	// The popup and the pins are pages of their own, without the app around them.
 	// Anything that only makes sense once (a tapped task, Alt+N) stays with the main window.
-	const widget = window.location.pathname.startsWith('/widget');
+	const widget = isTauri && window.location.pathname.startsWith(`${base}/widget`);
 
 	let status = $state<AppStatus | null>(null);
+
+	// The browser has no sync of its own: every call is a server round, so it is always "synced".
+	$effect(() => {
+		if (isTauri) return;
+		const session = $webSession;
+		status = session
+			? {
+					configured: true,
+					server: { url: window.location.origin, tasks_base: API_BASE },
+					username: session.username,
+					sync: { state: 'synced', message: null, last_synced_at: null, pending: 0, ready: true },
+					platform: 'web',
+				}
+			: null;
+	});
+
+	// The browser hears of other devices' writes over GET /sync/events.
+	$effect(() => {
+		if (!isTauri && $webSession) return followServerChanges();
+	});
 	// The sign-in screen, opened from Settings → Account (signed in already).
 	let showSetup = $state(false);
 	// Signed in, but the first sync hasn't brought the tasks here yet.
@@ -64,7 +89,7 @@
 	}
 
 	function openTask(id: string) {
-		goto(`/tasks?task=${encodeURIComponent(id)}`);
+		goto(`${resolve('/tasks' as any)}?task=${encodeURIComponent(id)}`);
 	}
 
 	/**
@@ -101,24 +126,57 @@
 	/** A view Android's widget or an app shortcut asked for: the Tasks page's query string. */
 	async function takeOpenView() {
 		const query = await call<string | null>('app_take_open_view').catch(() => null);
-		if (query) goto(`/tasks?${query}`);
+		if (query) goto(`${resolve('/tasks' as any)}?${query}`);
 	}
 
 	function syncNow() {
+		// The browser has nothing to push: "sync" loads the tasks again.
+		if (!isTauri) return tasksChanged();
 		call('app_sync_now').catch(() => {});
 	}
 
 	function forceSync() {
+		if (!isTauri) return tasksChanged();
 		call('app_force_sync').catch(() => {});
 	}
 
+	// The quick add shortcut while the window has focus (the global one covers the rest of Windows); Ctrl+, Settings.
+	function onKey(e: KeyboardEvent) {
+		if (widget) return;
+		if (isQuickAddShortcut(e)) {
+			e.preventDefault();
+			openQuickAdd();
+		} else if (e.key === ',' && (e.ctrlKey || e.metaKey) && !e.altKey && ready) {
+			e.preventDefault();
+			openSettings(settingsTab ?? 'account');
+		}
+	}
+
+	/** The browser: no Tauri events or commands, just the keys and a reload when the tab comes back. */
+	function onMountWeb(stopTheme: () => void) {
+		function onVisible() {
+			if (document.visibilityState === 'visible') tasksChanged();
+		}
+		window.addEventListener('online', tasksChanged);
+		document.addEventListener('visibilitychange', onVisible);
+		document.addEventListener('keydown', onKey);
+		return () => {
+			window.removeEventListener('online', tasksChanged);
+			document.removeEventListener('visibilitychange', onVisible);
+			document.removeEventListener('keydown', onKey);
+			stopTheme();
+		};
+	}
+
 	async function signOut() {
+		if (!isTauri) return webSignOut();
 		status = await call<AppStatus>('app_sign_out');
 	}
 
 	onMount(() => {
 		applyTheme();
 		const stopTheme = followSystemTheme();
+		if (!isTauri) return onMountWeb(stopTheme);
 		const stops = [
 			listen('tasks://changed', () => tasksChanged()),
 			// Another window (a pin, the popup, the main one) wrote something.
@@ -165,17 +223,6 @@
 		window.addEventListener('online', syncNow);
 		document.addEventListener('visibilitychange', onVisible);
 
-		// The quick add shortcut while the window has focus (the global one covers the rest of Windows); Ctrl+, Settings.
-		function onKey(e: KeyboardEvent) {
-			if (widget) return;
-			if (isQuickAddShortcut(e)) {
-				e.preventDefault();
-				openQuickAdd();
-			} else if (e.key === ',' && (e.ctrlKey || e.metaKey) && !e.altKey && ready) {
-				e.preventDefault();
-				openSettings(settingsTab ?? 'account');
-			}
-		}
 		document.addEventListener('keydown', onKey);
 		return () => {
 			window.removeEventListener('online', syncNow);
@@ -189,7 +236,7 @@
 
 {#snippet paneHeader()}
 	{#if status}
-		<AccountMenu {status} onsync={syncNow} onsettings={openSettings} />
+		<AccountMenu {status} onsync={syncNow} onsettings={openSettings} onsignout={isTauri ? undefined : signOut} />
 	{/if}
 {/snippet}
 
@@ -204,7 +251,12 @@
 	<ToastHost />
 {:else}
 <div class="app-shell">
-	{#if status && (!status.configured || showSetup)}
+	{#if !isTauri && !$webSession}
+		<!-- tasks-server's web page: the browser signs in with the account. -->
+		<main class="app-main">
+			<WebSignIn />
+		</main>
+	{:else if status && (!status.configured || showSetup)}
 		<!-- First run (or signed out): signing in is required, and needs the network once. -->
 		<main class="app-main">
 			<Setup

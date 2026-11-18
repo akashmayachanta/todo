@@ -20,7 +20,7 @@ store.subscribe((s) => {
 	datePrefs.nextWeek = s.nextWeek;
 	datePrefs.weekend = s.weekend;
 	datePrefs.smartDates = s.smartDates;
-	if (browser && clockSent !== s.timeFormat) {
+	if (browser && '__TAURI_INTERNALS__' in window && clockSent !== s.timeFormat) {
 		clockSent = s.timeFormat;
 		invoke('app_set_clock', { hour12: s.timeFormat === '12h' }).catch(() => {});
 	}

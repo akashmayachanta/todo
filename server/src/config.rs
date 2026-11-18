@@ -15,6 +15,9 @@ pub struct Config {
     pub data_dir: PathBuf,
     /// Anyone who can reach the server may sign up (TASKS_ALLOW_SIGNUP, default true).
     pub allow_signup: bool,
+    /// The built web UI (app/build-web), served at /tasks-app (TASKS_WEB_DIR,
+    /// default `web` next to the exe). Not served when the folder is missing.
+    pub web_dir: PathBuf,
     /// The .env that was read, if any.
     pub env_file: Option<PathBuf>,
 }
@@ -43,6 +46,17 @@ impl Config {
             .unwrap_or_else(|| PathBuf::from("."));
         let data_dir = PathBuf::from(var("TASKS_DATA_DIR", "data"));
         let data_dir = if data_dir.is_absolute() { data_dir } else { root.join(data_dir) };
+        // A relative TASKS_WEB_DIR is relative to the .env's folder too; unset, it's `web` next to the exe.
+        let web_dir = match env::var("TASKS_WEB_DIR").ok().map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) {
+            Some(dir) => {
+                let dir = PathBuf::from(dir);
+                if dir.is_absolute() { dir } else { root.join(dir) }
+            }
+            None => env::current_exe()
+                .ok()
+                .and_then(|e| e.parent().map(|d| d.join("web")))
+                .unwrap_or_else(|| root.join("web")),
+        };
         let base_path = var("TASKS_API_BASE_PATH", "/tasks-api").trim_matches('/').to_string();
         let base_path = if base_path.is_empty() { String::new() } else { format!("/{base_path}") };
 
@@ -52,6 +66,7 @@ impl Config {
             base_path,
             data_dir,
             allow_signup: !matches!(var("TASKS_ALLOW_SIGNUP", "true").to_ascii_lowercase().as_str(), "false" | "0" | "no" | "off"),
+            web_dir,
             env_file,
         }
     }

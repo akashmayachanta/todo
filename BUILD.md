@@ -36,6 +36,10 @@ Check it:
 curl http://localhost:8050/tasks-api/health
 ```
 
+`build-server.bat` also builds the browser UI (`npm run build:web` in `app/`) into
+`target\release\web`. Open `http://<pc-ip>:8050/tasks-app/` from any browser on the
+network and sign in. See README, "In a browser".
+
 The phone needs HTTPS to reach the server, so run a tunnel too:
 
 ```powershell

@@ -195,17 +195,6 @@ export function subtaskMinutes(subtasks: Task[]): number | null {
 }
 
 /**
- * The duration to save on a task so it stays its subtasks' remaining total, or undefined
- * when it already is. `hadMinutes`: a subtask with a duration lost it or left, so a task
- * with none left drops the old total rather than keep it.
- */
-export function parentMinutes(parent: Task, subtasks: Task[], hadMinutes = false): number | null | undefined {
-	const left = subtaskMinutes(subtasks);
-	const next = left === null ? (hadMinutes ? null : parent.duration_minutes) : left || null;
-	return next === parent.duration_minutes ? undefined : next;
-}
-
-/**
  * Minutes of open work in each project and section: every open task's duration. A task
  * whose duration is its subtasks' total is left out, as its open subtasks count on their own.
  */

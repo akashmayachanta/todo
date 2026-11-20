@@ -3,6 +3,7 @@
 	import type { TaskProject, TaskSection } from '$lib/api';
 	import DropdownMenu from '$lib/components/DropdownMenu.svelte';
 	import { withFlip } from '$lib/flip';
+	import { placeBeside, sameOrder, stepTarget } from '$lib/ordering';
 	import { sortMove, type MoveDrop } from '$lib/sortable';
 	import { formatDuration } from '$lib/taskParse';
 	import PlaceMark from './PlaceMark.svelte';
@@ -80,12 +81,9 @@
 	let allCollapsed = $derived(foldable.length > 0 && foldable.every((p) => collapsed.includes(p.id)));
 
 	function moveProject(id: string, targetId: string, after: boolean) {
-		if (id === targetId) return;
-		const ids = projects.map((p) => p.id).filter((x) => x !== id);
-		const at = ids.indexOf(targetId);
-		if (at < 0) return;
-		ids.splice(after ? at + 1 : at, 0, id);
-		if (ids.some((x, i) => x !== projects[i].id)) onreorderprojects(ids);
+		const current = projects.map((p) => p.id);
+		const ids = placeBeside(current, id, targetId, after);
+		if (ids && !sameOrder(ids, current)) onreorderprojects(ids);
 	}
 
 	/** A drag let go (sortable.ts glides the rows to their new places). */
@@ -98,14 +96,14 @@
 	}
 
 	function stepProject(i: number, by: -1 | 1) {
-		const other = projects[i + by];
-		if (other) withFlip(() => moveProject(projects[i].id, other.id, by === 1));
+		const id = projects[i].id;
+		const to = stepTarget(projects.map((p) => p.id), id, by);
+		if (to) withFlip(() => moveProject(id, to.targetId, to.after));
 	}
 
 	function stepSection(c: TaskSection, by: -1 | 1) {
-		const list = byProject.get(c.project_id) ?? [];
-		const other = list[list.findIndex((x) => x.id === c.id) + by];
-		if (other) withFlip(() => onplacesection(c.id, c.project_id, other.id, by === 1));
+		const to = stepTarget((byProject.get(c.project_id) ?? []).map((x) => x.id), c.id, by);
+		if (to) withFlip(() => onplacesection(c.id, c.project_id, to.targetId, to.after));
 	}
 
 	/** The section whose name is being typed over. */

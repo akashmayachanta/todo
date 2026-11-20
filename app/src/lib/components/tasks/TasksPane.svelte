@@ -8,6 +8,7 @@
 	import { getPaneFooter, getPaneHeader } from '$lib/paneHeader';
 	import { formatDuration } from '$lib/taskParse';
 	import { motion, withFlip } from '$lib/flip';
+	import { placeBeside, sameOrder, stepTarget } from '$lib/ordering';
 	import TaskSearchBox from './TaskSearchBox.svelte';
 	import TodayIcon from './TodayIcon.svelte';
 	import PaneToggle from './PaneToggle.svelte';
@@ -164,18 +165,14 @@
 
 	/** Moves a project to sit before or after another, and saves the order if it changed. */
 	function moveProject(id: string, targetId: string, after: boolean) {
-		if (id === targetId) return;
-		const ids = projects.map((p) => p.id).filter((x) => x !== id);
-		const at = ids.indexOf(targetId);
-		if (at < 0) return;
-		ids.splice(after ? at + 1 : at, 0, id);
-		if (ids.some((x, i) => x !== projects[i].id)) onreorderprojects(ids);
+		const current = projects.map((p) => p.id);
+		const ids = placeBeside(current, id, targetId, after);
+		if (ids && !sameOrder(ids, current)) onreorderprojects(ids);
 	}
 
 	function step(p: TaskProject, by: -1 | 1) {
-		const i = projects.findIndex((x) => x.id === p.id);
-		const target = projects[i + by];
-		if (target) withFlip(() => moveProject(p.id, target.id, by === 1));
+		const to = stepTarget(projects.map((x) => x.id), p.id, by);
+		if (to) withFlip(() => moveProject(p.id, to.targetId, to.after));
 	}
 
 	// ── A section's menu ─────────────────────────────────────────────────────

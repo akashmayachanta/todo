@@ -74,14 +74,18 @@ object Native {
   @JvmStatic external fun widgetComplete(dataDir: String, id: String): String?
 }
 
-/** `remindAt` is the task's stored reminder, which the buttons hand back to Rust. */
-data class Reminder(val id: String, val title: String, val at: Long, val remindAt: String)
+/**
+ * `remindAt` is the task's stored reminder, which the buttons hand back to Rust.
+ * `duration` is how long the task takes, as shown ("1h 30m"), or "".
+ */
+data class Reminder(val id: String, val title: String, val at: Long, val remindAt: String, val duration: String)
 
 object Reminders {
   const val CHANNEL = "reminders"
   const val EXTRA_TASK = "dev.tasks.app.task_id"
   const val EXTRA_TITLE = "dev.tasks.app.title"
   const val EXTRA_REMIND_AT = "dev.tasks.app.remind_at"
+  const val EXTRA_DURATION = "dev.tasks.app.duration"
   const val ACTION_SNOOZE = "dev.tasks.app.SNOOZE"
   const val ACTION_COMPLETE = "dev.tasks.app.COMPLETE"
   private const val PREFS = "tasks-reminders"
@@ -105,7 +109,7 @@ object Reminders {
       val arr = JSONArray(json ?: "[]")
       for (i in 0 until arr.length()) {
         val o = arr.getJSONObject(i)
-        out.add(Reminder(o.getString("id"), o.optString("title"), o.getLong("at"), o.optString("remindAt")))
+        out.add(Reminder(o.getString("id"), o.optString("title"), o.getLong("at"), o.optString("remindAt"), o.optString("duration")))
       }
     } catch (_: Exception) {}
     return out
@@ -121,10 +125,11 @@ object Reminders {
       .putExtra(EXTRA_TASK, r.id)
       .putExtra(EXTRA_TITLE, r.title)
       .putExtra(EXTRA_REMIND_AT, r.remindAt)
+      .putExtra(EXTRA_DURATION, r.duration)
     return PendingIntent.getBroadcast(c, code(r.id), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
   }
 
-  /** Replaces the scheduled reminders with these (JSON: [{id, title, at}], at in ms). */
+  /** Replaces the scheduled reminders with these (JSON: [{id, title, at, remindAt, duration}], at in ms). */
   @Synchronized
   fun schedule(c: Context, json: String) {
     val am = c.getSystemService(AlarmManager::class.java)
@@ -150,7 +155,7 @@ object Reminders {
     }
     val keep = JSONArray()
     for (r in upcoming) {
-      keep.put(org.json.JSONObject().put("id", r.id).put("title", r.title).put("at", r.at).put("remindAt", r.remindAt))
+      keep.put(org.json.JSONObject().put("id", r.id).put("title", r.title).put("at", r.at).put("remindAt", r.remindAt).put("duration", r.duration))
     }
     prefs(c).edit().putString(KEY_LIST, keep.toString()).apply()
   }
@@ -174,6 +179,7 @@ class ReminderReceiver : BroadcastReceiver() {
     val id = intent.getStringExtra(Reminders.EXTRA_TASK) ?: return
     val title = intent.getStringExtra(Reminders.EXTRA_TITLE) ?: ""
     val remindAt = intent.getStringExtra(Reminders.EXTRA_REMIND_AT) ?: ""
+    val duration = intent.getStringExtra(Reminders.EXTRA_DURATION) ?: ""
     Reminders.ensureChannel(c)
     val code = Reminders.code(id)
     val open = Intent(c, MainActivity::class.java)
@@ -184,7 +190,7 @@ class ReminderReceiver : BroadcastReceiver() {
       .setSmallIcon(R.drawable.ic_stat_reminder)
       .setColor(0xFF14532D.toInt())
       .setContentTitle(title.ifEmpty { "Task reminder" })
-      .setContentText("Task reminder")
+      .setContentText(if (duration.isEmpty()) "Task reminder" else "Task reminder · $duration")
       .setPriority(NotificationCompat.PRIORITY_HIGH)
       .setCategory(NotificationCompat.CATEGORY_REMINDER)
       .setAutoCancel(true)

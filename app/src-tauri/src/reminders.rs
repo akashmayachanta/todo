@@ -30,6 +30,17 @@ pub(crate) const CLOCK_12H_KEY: &str = "clock_12h";
 /// How far Snooze moves a reminder.
 const SNOOZE_MINUTES: i64 = 10;
 
+/// A task's duration as the app shows it: "45m", "1h", "1h 30m". None without one.
+fn duration_text(minutes: Option<i64>) -> Option<String> {
+    let minutes = minutes.filter(|m| *m > 0)?;
+    let (h, m) = (minutes / 60, minutes % 60);
+    Some(match (h, m) {
+        (0, m) => format!("{m}m"),
+        (h, 0) => format!("{h}h"),
+        (h, m) => format!("{h}h {m}m"),
+    })
+}
+
 /// The link a toast's buttons open: `open/<id>`, `snooze/<id>/<remind_at>` or
 /// `complete/<id>/<remind_at>`. A bare `open` just shows the app.
 const TOAST_LINK: &str = "tasks-app:";
@@ -201,7 +212,11 @@ fn fire_due(app: &AppHandle, st: &Arc<AppState>) {
         #[cfg(not(windows))]
         let shown = false;
         if !shown {
-            let _ = app.notification().builder().title("Task reminder").body(&tasks_core::plain_title(&task.title)).show();
+            let mut body = tasks_core::plain_title(&task.title);
+            if let Some(d) = duration_text(task.duration_minutes) {
+                body = format!("{body} · {d}");
+            }
+            let _ = app.notification().builder().title("Task reminder").body(&body).show();
         }
         fired.push(key);
         any = true;
@@ -229,13 +244,16 @@ fn xml_escape(text: &str) -> String {
     text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&apos;")
 }
 
-/// The toast's XML. A short toast: it leaves the screen after a few seconds (how
+/// The toast's XML: the title, then "Today 15:00 · 45m" (the duration when the task has one). A short toast: it leaves the screen after a few seconds (how
 /// many is Windows' "Dismiss notifications after" setting) and waits in the
 /// notification centre, buttons and all. `scenario="reminder"` would keep it on
 /// screen until it was clicked.
 #[cfg(windows)]
-fn toast_xml(id: &str, title: &str, remind_at: &str, hour12: bool) -> Option<String> {
-    let line = toast_time(remind_at, hour12)?;
+fn toast_xml(id: &str, title: &str, remind_at: &str, duration: Option<i64>, hour12: bool) -> Option<String> {
+    let mut line = toast_time(remind_at, hour12)?;
+    if let Some(d) = duration_text(duration) {
+        line = format!("{line} · {d}");
+    }
     let title = xml_escape(title);
     let open = xml_escape(&format!("{TOAST_LINK}open/{id}"));
     let snooze = xml_escape(&format!("{TOAST_LINK}snooze/{id}/{remind_at}"));
@@ -258,7 +276,7 @@ fn show_toast(app: &AppHandle, task: &tasks_core::Task, hour12: bool) -> Result<
     use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
 
     let title = tasks_core::plain_title(&task.title);
-    let xml = toast_xml(&task.id, &title, task.remind_at.as_deref().unwrap_or_default(), hour12).ok_or("bad reminder time")?;
+    let xml = toast_xml(&task.id, &title, task.remind_at.as_deref().unwrap_or_default(), task.duration_minutes, hour12).ok_or("bad reminder time")?;
     let doc = XmlDocument::new()?;
     doc.LoadXml(&HSTRING::from(xml))?;
     let toast = ToastNotification::CreateToastNotification(&doc)?;
@@ -324,8 +342,9 @@ fn snooze_patch() -> tasks_core::TaskPatch {
 const MAX_SCHEDULED: usize = 200;
 
 /// The open tasks' upcoming reminders, soonest first, as Android's scheduler
-/// takes them (android/java/Reminders.kt): `[{id, title, at, remindAt}]`, at in ms.
+/// takes them (android/java/Reminders.kt): `[{id, title, at, remindAt, duration}]`, at in ms.
 /// `remindAt` is the stored value, which the notification's buttons hand back.
+/// `duration` is the text shown ("1h 30m"), or "" without one.
 #[cfg(mobile)]
 pub fn upcoming_json(st: &AppState) -> String {
     let upcoming = {
@@ -337,7 +356,7 @@ pub fn upcoming_json(st: &AppState) -> String {
         .into_iter()
         .filter_map(|t| {
             let at = tasks_core::time::instant_ms(t.remind_at.as_deref()?)?;
-            Some(serde_json::json!({ "id": t.id, "title": tasks_core::plain_title(&t.title), "at": at, "remindAt": t.remind_at }))
+            Some(serde_json::json!({ "id": t.id, "title": tasks_core::plain_title(&t.title), "at": at, "remindAt": t.remind_at, "duration": duration_text(t.duration_minutes).unwrap_or_default() }))
         })
         .take(MAX_SCHEDULED)
         .collect();

@@ -514,3 +514,72 @@ fn a_task_with_untimed_subtasks_keeps_its_own_duration() {
     ops::complete_task(&conn, &ctx, &a.id, day("2026-11-05")).unwrap();
     assert_eq!(ops::get_task(&conn, &parent.id).unwrap().duration_minutes, Some(20));
 }
+
+fn minutes(conn: &Connection, id: &str) -> Option<i64> {
+    ops::get_task(conn, id).unwrap().duration_minutes
+}
+
+fn set_minutes(conn: &Connection, ctx: &Ctx, id: &str, m: Option<i64>) -> Task {
+    ops::update_task(conn, ctx, id, TaskPatch { duration_minutes: Some(m), ..Default::default() }).unwrap()
+}
+
+#[test]
+fn adding_and_editing_timed_subtasks_keeps_the_tasks_total() {
+    let (conn, ctx) = setup();
+    let parent = task(&conn, &ctx, json!({ "title": "Move house" }));
+    let a = ops::create_task(&conn, &ctx, from(json!({ "title": "Pack", "parent_id": parent.id, "duration_minutes": 60 }))).unwrap();
+    assert_eq!(minutes(&conn, &parent.id), Some(60));
+    ops::create_task(&conn, &ctx, from(json!({ "title": "Clean", "parent_id": parent.id, "duration_minutes": 30 }))).unwrap();
+    assert_eq!(minutes(&conn, &parent.id), Some(90));
+    set_minutes(&conn, &ctx, &a.id, Some(15));
+    assert_eq!(minutes(&conn, &parent.id), Some(45));
+}
+
+#[test]
+fn the_last_subtask_losing_its_time_drops_the_tasks_total() {
+    let (conn, ctx) = setup();
+    let parent = task(&conn, &ctx, json!({ "title": "Trip" }));
+    let a = ops::create_task(&conn, &ctx, from(json!({ "title": "Book", "parent_id": parent.id, "duration_minutes": 45 }))).unwrap();
+    set_minutes(&conn, &ctx, &a.id, None);
+    assert_eq!(minutes(&conn, &parent.id), None);
+}
+
+#[test]
+fn a_timed_subtask_takes_its_time_to_its_new_task() {
+    let (conn, ctx) = setup();
+    let from_task = task(&conn, &ctx, json!({ "title": "Old" }));
+    let to_task = task(&conn, &ctx, json!({ "title": "New" }));
+    let a = ops::create_task(&conn, &ctx, from(json!({ "title": "Pack", "parent_id": from_task.id, "duration_minutes": 60 }))).unwrap();
+    ops::create_task(&conn, &ctx, from(json!({ "title": "Clean", "parent_id": from_task.id, "duration_minutes": 30 }))).unwrap();
+    ops::update_task(&conn, &ctx, &a.id, TaskPatch { parent_id: Some(Some(to_task.id.clone())), ..Default::default() }).unwrap();
+    assert_eq!(minutes(&conn, &from_task.id), Some(30));
+    assert_eq!(minutes(&conn, &to_task.id), Some(60));
+}
+
+#[test]
+fn deleting_a_timed_subtask_takes_its_time_off_the_total() {
+    let (conn, ctx) = setup();
+    let parent = task(&conn, &ctx, json!({ "title": "Move house" }));
+    let a = ops::create_task(&conn, &ctx, from(json!({ "title": "Pack", "parent_id": parent.id, "duration_minutes": 60 }))).unwrap();
+    let b = ops::create_task(&conn, &ctx, from(json!({ "title": "Clean", "parent_id": parent.id, "duration_minutes": 30 }))).unwrap();
+    ops::delete_task(&conn, &ctx, &a.id).unwrap();
+    assert_eq!(minutes(&conn, &parent.id), Some(30));
+    ops::delete_task(&conn, &ctx, &b.id).unwrap();
+    assert_eq!(minutes(&conn, &parent.id), None);
+}
+
+#[test]
+fn a_rolled_up_duration_cant_be_set_apart_from_its_subtasks() {
+    let (conn, ctx) = setup();
+    let parent = task(&conn, &ctx, json!({ "title": "Move house" }));
+    ops::create_task(&conn, &ctx, from(json!({ "title": "Pack", "parent_id": parent.id, "duration_minutes": 60 }))).unwrap();
+    assert_eq!(set_minutes(&conn, &ctx, &parent.id, Some(10)).duration_minutes, Some(60));
+}
+
+#[test]
+fn a_task_without_timed_subtasks_sets_its_own_duration() {
+    let (conn, ctx) = setup();
+    let parent = task(&conn, &ctx, json!({ "title": "Plan" }));
+    ops::create_task(&conn, &ctx, from(json!({ "title": "Outline", "parent_id": parent.id }))).unwrap();
+    assert_eq!(set_minutes(&conn, &ctx, &parent.id, Some(25)).duration_minutes, Some(25));
+}

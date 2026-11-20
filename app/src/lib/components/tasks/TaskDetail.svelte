@@ -15,6 +15,7 @@
 	import SmartTaskInput from './SmartTaskInput.svelte';
 	import SmartTips from './SmartTips.svelte';
 	import TaskGrip from './TaskGrip.svelte';
+	import TaskInlineEdit from './TaskInlineEdit.svelte';
 	import { dueAtOf, finishPatch, patchChips, smartPatch, smartTitle, titleEdit } from './smartEdit';
 	import { PRIORITY_OPTIONS, SUBTASK_MAX, defaultReminder, projectColor, subtaskLimit, subtaskMinutes } from './shared';
 
@@ -68,6 +69,8 @@
 	/** A subtask's title is being edited (otherwise it shows two lines, then "…"). */
 	let titleEditing = $state(false);
 	let titleField = $state<SmartTaskInput | null>(null);
+	/** The subtask being edited in its row (Alt+click, or Edit in its "⋯" menu). */
+	let editingSubId = $state<string | null>(null);
 	// Declared above the effects below, which run during setup and write to them.
 
 	// Each saved version of the task resets the fields to it.
@@ -86,6 +89,7 @@
 		newSubtask = '';
 		familyOpen = false;
 		titleEditing = false;
+		editingSubId = null;
 	});
 
 	// ── Parent bar (a subtask's head) ────────────────────────────────────────
@@ -357,7 +361,7 @@
 		}
 	}
 
-	/** A subtask's "⋯" menu: the actions its row has in the lists. Edit opens it here. */
+	/** A subtask's "⋯" menu: the actions its row has in the lists. Edit edits it in its row. */
 	let subMenuItems = $derived([
 		{ id: 'edit', label: 'Edit' },
 		...(onduplicate ? [{ id: 'duplicate', label: 'Duplicate' }] : []),
@@ -366,7 +370,7 @@
 	]);
 
 	function onSubMenu(sub: Task, id: string) {
-		if (id === 'edit') onopen(sub);
+		if (id === 'edit') editingSubId = sub.id;
 		else if (id === 'duplicate') onduplicate?.(sub);
 		else if (id === 'pin') onpin?.(sub);
 		else if (id === 'delete') ondelete(sub);
@@ -555,6 +559,9 @@
 						{/if}
 						{#each listedSubtasks as sub (sub.id)}
 							{@const subName = plainText(sub.title)}
+							{#if editingSubId === sub.id}
+								<TaskInlineEdit task={sub} {projects} {sections} {onpatch} ondone={() => (editingSubId = null)} />
+							{:else}
 							<div class="task-modal-sub" class:task-row-done={!!sub.completed_at} data-sort-id={sort ? sub.id : undefined} data-sort-kind={sort ? 'sub' : undefined}>
 								{#if sort}<TaskGrip id={sub.id} kind="sub" name={subName} {sort} />{/if}
 								<button
@@ -569,7 +576,16 @@
 								</button>
 								<!-- Links sit inside, as in TaskRow: the pointer clicks this, the keyboard the button over it. -->
 								<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-								<div class="task-modal-sub-title" title={subName} onclick={() => onopen(sub)}>
+								<div
+									class="task-modal-sub-title"
+									title="{subName} · Click to open · Alt+click to edit here"
+									onclick={(e) => {
+										if (e.altKey) {
+											e.preventDefault();
+											editingSubId = sub.id;
+										} else onopen(sub);
+									}}
+								>
 									<button type="button" class="task-open" aria-label="Open {subName}"></button>
 									<LinkedText text={sub.title} />
 								</div>
@@ -586,6 +602,7 @@
 									{/snippet}
 								</DropdownMenu>
 							</div>
+							{/if}
 						{/each}
 						{#if addingSubtask}
 							<div class="task-modal-sub-line">

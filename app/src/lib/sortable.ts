@@ -76,15 +76,27 @@ function half(el: HTMLElement, y: number): Mode {
 	return y > r.top + r.height / 2 ? 'after' : 'before';
 }
 
-/** In a board column, the card a drop lands by: before the first whose middle is below, else after the last. */
-function nearestIn(column: HTMLElement, y: number, source: HTMLElement): Hit {
-	const items = [...column.querySelectorAll<HTMLElement>('[data-sort-kind="top"]')].filter((i) => i !== source);
-	for (const i of items) {
-		const r = i.getBoundingClientRect();
-		if (y < r.top + r.height / 2) return { el: i, mode: 'before' };
+/**
+ * Which of these stacked items a drop at `y` lands by: before the first whose middle
+ * is below it, else after the last. Null with no items. The board's HTML5 card drag
+ * uses it too.
+ */
+export function slotAmong<T extends HTMLElement>(items: readonly T[], y: number): { el: T; after: boolean } | null {
+	for (const el of items) {
+		const r = el.getBoundingClientRect();
+		if (y < r.top + r.height / 2) return { el, after: false };
 	}
 	const last = items.at(-1);
-	return last ? { el: last, mode: 'after' } : { el: column, mode: 'zone' };
+	return last ? { el: last, after: true } : null;
+}
+
+const hitOf = (slot: { el: HTMLElement; after: boolean }): Hit => ({ el: slot.el, mode: slot.after ? 'after' : 'before' });
+
+/** In a board column, the card a drop lands by; the column itself when it has none. */
+function nearestIn(column: HTMLElement, y: number, source: HTMLElement): Hit {
+	const items = [...column.querySelectorAll<HTMLElement>('[data-sort-kind="top"]')].filter((i) => i !== source);
+	const slot = slotAmong(items, y);
+	return slot ? hitOf(slot) : { el: column, mode: 'zone' };
 }
 
 const SUB_REACH = 32; // px above or below a subtask list where the pointer still drops into it
@@ -101,12 +113,8 @@ function nearestSub(source: HTMLElement, x: number, y: number): Hit | null {
 	const items = [...list.children].filter(
 		(i): i is HTMLElement => i instanceof HTMLElement && i !== source && i.dataset.sortKind === 'sub',
 	);
-	for (const i of items) {
-		const b = i.getBoundingClientRect();
-		if (y < b.top + b.height / 2) return { el: i, mode: 'before' };
-	}
-	const last = items.at(-1);
-	return last ? { el: last, mode: 'after' } : null;
+	const slot = slotAmong(items, y);
+	return slot ? hitOf(slot) : null;
 }
 
 /** The zone (a section, or the tasks outside them) at that height, or the nearest one. */

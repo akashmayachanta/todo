@@ -324,7 +324,7 @@ fn task_props(nullable: bool) -> Map<String, Value> {
         "priority": { "type": t("integer"), "minimum": 1, "maximum": 4, "description": "1 is the most urgent, 4 is no priority (the default)." },
         "due_date": { "type": t("string"), "description": "YYYY-MM-DD, in the user's own calendar." },
         "due_time": { "type": t("string"), "description": "HH:MM, 24-hour. Needs a due_date." },
-        "duration_minutes": { "type": t("integer"), "minimum": 1, "maximum": 10080, "description": "How long it takes, in minutes." },
+        "duration_minutes": { "type": t("integer"), "minimum": 1, "maximum": 10080, "description": "How long it takes, in minutes. A task whose subtasks have durations takes what is left of theirs (the open ones' total) as its own, and a duration sent for it is ignored." },
         "location": { "type": t("string"), "description": "Where, at most 500 characters." },
         "remind_at": { "type": t("string"), "description": "When to remind the user: an ISO 8601 date-time with its offset, like 2026-11-20T09:00:00+05:30. Without an offset it is taken as UTC." },
         "recurrence": { "type": t("string"), "description": "How it repeats; needs a due_date. 'every day', 'every week', 'every month', 'every year', 'every 3 days', 'every 2 weeks', 'every weekday', or days like 'every monday, thursday'. Ticking it off moves it to its next date." },

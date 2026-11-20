@@ -15,8 +15,9 @@
 	import { taskSettings } from '$lib/stores/taskSettings';
 	import { onTasksChanged } from '$lib/tasks/client';
 	import { plainText } from '$lib/links';
-	import { sortSection, sorting, type SortApi, type SortDrop, type SortKind } from '$lib/sortable';
+	import { slotAmong, sortSection, sorting, type SortApi, type SortDrop, type SortKind } from '$lib/sortable';
 	import { withFlip } from '$lib/flip';
+	import { heldPositions, placeBeside, rankPositions, sameOrder, stepTarget } from '$lib/ordering';
 	import { addDays, dayLabel, daysBetween, formatDuration, fromYmd, todayHeading, ymd } from '$lib/taskParse';
 	import DropdownMenu from '$lib/components/DropdownMenu.svelte';
 	import DatePicker from '$lib/components/DatePicker.svelte';
@@ -43,7 +44,7 @@
 		type AddDefaults, type Bucket, type DateViewGroup, type GroupCtx,
 	} from '$lib/components/tasks/taskFilters';
 	import {
-		PROJECT_COLORS, byDue, byPosition, durationTotals, loadLayouts, parentFinder, placeName, projectColor, saveLayouts, shownWhenDue, parentMinutes, subtaskMinutes, taskRoots,
+		PROJECT_COLORS, byDue, byPosition, durationTotals, loadLayouts, parentFinder, placeName, projectColor, saveLayouts, shownWhenDue, subtaskMinutes, taskRoots,
 		defaultReminder, shiftInstant, type TaskLayout, type TaskSettings, type TaskView,
 	} from '$lib/components/tasks/shared';
 	import type { PinTarget } from '$lib/components/tasks/pins';
@@ -568,15 +569,11 @@
 		cardDropAt = null;
 	}
 
-	/** The card a drop lands by: before the first one whose middle is below the pointer, else after the last. */
+	/** The card a drop lands by, leaving out the cards being dragged. */
 	function cardSpot(colEl: HTMLElement, y: number, ids: ReadonlySet<string>): { id: string; after: boolean } | null {
 		const cards = [...colEl.querySelectorAll<HTMLElement>('[data-card-id]')].filter((c) => !ids.has(c.dataset.cardId!));
-		for (const c of cards) {
-			const r = c.getBoundingClientRect();
-			if (y < r.top + r.height / 2) return { id: c.dataset.cardId!, after: false };
-		}
-		const last = cards.at(-1);
-		return last ? { id: last.dataset.cardId!, after: true } : null;
+		const slot = slotAmong(cards, y);
+		return slot ? { id: slot.el.dataset.cardId!, after: slot.after } : null;
 	}
 
 	/** A subtask follows its parent, so it can't be dropped on a project or section. */
@@ -691,33 +688,25 @@
 			list = topSiblings(task.project_id, sectionId);
 		}
 
-		const others = list.filter((t) => t.id !== task.id);
-		const at = target && !d.into ? others.findIndex((t) => t.id === target.id) + (d.after ? 1 : 0) : others.length;
-		const ordered = [...others.slice(0, at), moved, ...others.slice(at)];
-		const ids = ordered.map((t) => t.id);
-		if (!patch && ids.every((id, i) => id === list[i]?.id)) return;
+		const listIds = list.map((t) => t.id);
+		const ids = placeBeside(listIds, task.id, target && !d.into ? target.id : null, d.after);
+		if (!ids || (!patch && sameOrder(ids, listIds))) return;
 
 		const before = tasks;
-		const slots = ordered.map((t) => t.position).sort((a, b) => a - b);
-		const next = new Map<string, Task>();
-		let last = -Infinity;
-		ordered.forEach((t, i) => {
-			last = Math.max(slots[i], last + 1);
-			next.set(t.id, { ...t, position: last });
+		const byId = new Map(list.map((t) => [t.id, t]));
+		byId.set(task.id, moved);
+		const positions = heldPositions(ids.map((id) => byId.get(id)!));
+		tasks = tasks.map((t) => {
+			const position = positions.get(t.id);
+			return position === undefined ? t : { ...byId.get(t.id)!, position };
 		});
-		tasks = tasks.map((t) => next.get(t.id) ?? t);
 
 		try {
 			if (patch) await api.tasks.update(task.id, patch);
 			const saved = new Map((await api.tasks.reorder(ids)).map((t) => [t.id, t]));
 			tasks = tasks.map((t) => saved.get(t.id) ?? t);
-			// A task's subtasks follow it to another section.
+			// A task's subtasks follow it to another section; a subtask's time, to its new task's total.
 			if (patch) await reloadTasks();
-			// A subtask with a duration takes it from one task's total to the other's.
-			if (patch?.parent_id && task.duration_minutes) {
-				await syncParentMinutes(patch.parent_id);
-				await syncParentMinutes(task.parent_id, true);
-			}
 		} catch (e) {
 			tasks = before;
 			toast.error(errorDetail(e));
@@ -732,8 +721,8 @@
 		const list = kind === 'sub'
 			? subtasksOf(task.parent_id!).filter((s) => !!s.completed_at === !!task.completed_at)
 			: topSiblings(task.project_id, task.section_id);
-		const other = list[list.findIndex((t) => t.id === id) + by];
-		if (other) withFlip(() => dropTask({ id, kind, targetId: other.id, after: by === 1, into: false, zone: null, scope: null }));
+		const to = stepTarget(list.map((t) => t.id), id, by);
+		if (to) withFlip(() => dropTask({ id, kind, targetId: to.targetId, after: to.after, into: false, zone: null, scope: null }));
 	}
 
 	const sortApi: SortApi = { ondrop: dropTask, onstep: stepTask };
@@ -995,18 +984,11 @@
 			const created = await api.tasks.create({ ...data, parent_id: parent.id });
 			tasks = [...tasks, created];
 			if (created.remind_at) askReminderPermission();
-			if (created.duration_minutes) await syncParentMinutes(parent.id);
+			// tasks-core added its time to the task's total.
+			if (created.duration_minutes) await reloadTasks();
 		} catch (e) {
 			toast.error(errorDetail(e));
 		}
-	}
-
-	/** A task whose subtasks have durations takes their remaining total as its own, saved like any edit. */
-	async function syncParentMinutes(parentId: string | null, hadMinutes = false) {
-		const parent = parentId ? tasks.find((t) => t.id === parentId) : null;
-		if (!parent) return;
-		const next = parentMinutes(parent, subtasksOf(parent.id), hadMinutes);
-		if (next !== undefined) replace(await api.tasks.update(parent.id, { duration_minutes: next }));
 	}
 
 	async function patchTask(task: Task, patch: TaskPatch) {
@@ -1019,24 +1001,14 @@
 			const remind_at = defaultReminder(patch.due_date, 'due_time' in patch ? patch.due_time : task.due_time);
 			if (remind_at) patch = { ...patch, remind_at };
 		}
-		// A task with timed subtasks takes their total; its own can't be set apart from them.
-		if ('duration_minutes' in patch && task.parent_id === null && subtaskMinutes(subtasksOf(task.id)) !== null) {
-			const { duration_minutes: _, ...rest } = patch;
-			patch = rest;
-			if (!Object.keys(patch).length) return;
-		}
 		try {
 			const updated = await api.tasks.update(task.id, patch);
 			replace(updated);
 			if (patch.remind_at) askReminderPermission();
 			// A move carries the subtasks along on the server.
 			if (('project_id' in patch || 'section_id' in patch) && task.parent_id === null) await reloadTasks();
-			if (task.parent_id !== null && ('duration_minutes' in patch || 'parent_id' in patch)) {
-				const had = !!task.duration_minutes;
-				const moved = updated.parent_id !== task.parent_id;
-				await syncParentMinutes(updated.parent_id, had && !moved);
-				if (moved) await syncParentMinutes(task.parent_id, had);
-			}
+			// tasks-core moved a subtask's time in or out of its task's total.
+			else if (task.parent_id !== null && ('duration_minutes' in patch || 'parent_id' in patch)) await reloadTasks();
 		} catch (e) {
 			toast.error(errorDetail(e));
 		}
@@ -1084,7 +1056,7 @@
 			searchDone = searchDone.filter((t) => t.id !== task.id);
 			if (taskId === task.id) closeTask();
 			toast.success('Task deleted');
-			if (task.duration_minutes) await syncParentMinutes(task.parent_id, true);
+			if (task.parent_id !== null && task.duration_minutes) await reloadTasks();
 		} catch (e) {
 			toast.error(errorDetail(e));
 		}
@@ -1294,8 +1266,6 @@
 		clearSelection();
 		await reloadTasks();
 		if (gone) toast.success(`Deleted ${countOf(gone)}`);
-		const parents = new Set(roots.filter((t) => t.parent_id !== null && t.duration_minutes).map((t) => t.parent_id));
-		for (const parent of parents) await syncParentMinutes(parent, true);
 	}
 
 	/** Tasks dropped on the side pane: on a project, a section or the Inbox moves them; on Today dates them. */
@@ -1332,7 +1302,6 @@
 			await api.tasks.reorder(ids);
 			await reloadTasks();
 			if (created.remind_at) askReminderPermission();
-			if (task.parent_id !== null && task.duration_minutes) await syncParentMinutes(task.parent_id);
 			toast.success(`Duplicated "${plainText(task.title)}"`);
 		} catch (e) {
 			toast.error(errorDetail(e));
@@ -1455,8 +1424,8 @@
 			newSection = '';
 			newSectionDesc = '';
 			addingSection = null;
-			if (at < order.length) {
-				const ids = [...order.slice(0, at), created.id, ...order.slice(at)];
+			const ids = at < order.length ? placeBeside(order, created.id, order[at], false) : null;
+			if (ids) {
 				const saved = new Map((await api.tasks.sections.reorder(pid, ids)).map((c) => [c.id, c]));
 				sections = sections.map((c) => saved.get(c.id) ?? c);
 			}
@@ -1572,16 +1541,15 @@
 		if (!moving || !target || targetId === id) return;
 		const current = sections
 			.filter((c) => c.project_id === toProject)
-			.sort((a, b) => a.position - b.position || a.id.localeCompare(b.id));
-		const others = current.filter((c) => c.id !== id);
-		const found = targetId ? others.findIndex((c) => c.id === targetId) : -1;
-		const at = found < 0 ? others.length : found + (after ? 1 : 0);
-		const ids = [...others.slice(0, at), moving, ...others.slice(at)].map((c) => c.id);
+			.sort((a, b) => a.position - b.position || a.id.localeCompare(b.id))
+			.map((c) => c.id);
+		// A target no longer in the project: it goes last.
+		const ids = placeBeside(current, id, targetId, after) ?? placeBeside(current, id, null, after)!;
 		const moved = moving.project_id !== toProject;
-		if (!moved && ids.every((x, i) => x === current[i].id)) return;
+		if (!moved && sameOrder(ids, current)) return;
 
 		const before = sections;
-		const place = new Map(ids.map((x, i) => [x, i + 1]));
+		const place = rankPositions(ids);
 		sections = sections.map((c) => (place.has(c.id) ? { ...c, project_id: toProject, position: place.get(c.id)! } : c));
 		try {
 			if (moved) await api.tasks.sections.update(id, { project_id: toProject, name: moving.name });
@@ -1601,16 +1569,12 @@
 
 	/** Puts a section before or after another of the project's, and saves the order. Shown at once, put back on failure. */
 	async function dropSection(id: string, targetId: string, after: boolean) {
-		const list = projectSections;
-		const moving = list.find((c) => c.id === id);
-		const others = list.filter((c) => c.id !== id);
-		const at = others.findIndex((c) => c.id === targetId);
-		if (!moving || at < 0 || !projectId) return;
-		const ids = [...others.slice(0, at + (after ? 1 : 0)), moving, ...others.slice(at + (after ? 1 : 0))].map((c) => c.id);
-		if (ids.every((x, i) => x === list[i].id)) return;
+		const current = projectSections.map((c) => c.id);
+		const ids = current.includes(id) ? placeBeside(current, id, targetId, after) : null;
+		if (!ids || !projectId || sameOrder(ids, current)) return;
 
 		const before = sections;
-		const place = new Map(ids.map((x, i) => [x, i + 1]));
+		const place = rankPositions(ids);
 		sections = sections.map((c) => (place.has(c.id) ? { ...c, position: place.get(c.id)! } : c));
 		try {
 			const saved = new Map((await api.tasks.sections.reorder(projectId, ids)).map((c) => [c.id, c]));
@@ -1623,9 +1587,8 @@
 
 	/** The menu's Move up / Move down (left / right on the board). */
 	function stepSection(c: TaskSection, by: -1 | 1) {
-		const i = projectSections.findIndex((x) => x.id === c.id);
-		const other = projectSections[i + by];
-		if (other) withFlip(() => dropSection(c.id, other.id, by === 1));
+		const to = stepTarget(projectSections.map((x) => x.id), c.id, by);
+		if (to) withFlip(() => dropSection(c.id, to.targetId, to.after));
 	}
 
 	function onSectionMenu(c: TaskSection, id: string) {

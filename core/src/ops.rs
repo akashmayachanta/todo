@@ -612,6 +612,9 @@ pub fn create_task(conn: &Connection, ctx: &Ctx, input: TaskIn) -> Result<Task> 
         ],
     )?;
     touch(conn, ctx, "tasks", &id)?;
+    if let (Some(parent_id), Some(_)) = (&input.parent_id, input.duration_minutes) {
+        sync_parent_minutes(conn, ctx, parent_id, false)?;
+    }
     get_task(conn, &id)
 }
 
@@ -646,12 +649,15 @@ pub fn reorder_tasks(conn: &Connection, ctx: &Ctx, ids: &[String]) -> Result<Vec
     ids.iter().map(|id| get_task(conn, id)).collect()
 }
 
-/// Its subtasks go with it.
+/// Its subtasks go with it. A subtask's time leaves its task's total.
 pub fn delete_task(conn: &Connection, ctx: &Ctx, id: &str) -> Result<()> {
-    get_task(conn, id)?;
+    let task = get_task(conn, id)?;
     tombstone(conn, ctx, "tasks", id)?;
     for sub in live_ids(conn, "tasks", "parent_id = ?1", &[&id])? {
         tombstone(conn, ctx, "tasks", &sub)?;
+    }
+    if let (Some(parent_id), Some(_)) = (&task.parent_id, task.duration_minutes) {
+        sync_parent_minutes(conn, ctx, parent_id, true)?;
     }
     Ok(())
 }
@@ -713,6 +719,10 @@ pub fn update_task(conn: &Connection, ctx: &Ctx, id: &str, patch: TaskPatch) -> 
     if let Some(Some(m)) = p.duration_minutes {
         check_duration(m)?;
     }
+    // A task with timed subtasks takes their total; its own can't be set apart from them.
+    if p.duration_minutes.is_some() && item.parent_id.is_none() && subtask_minutes(&live_subtasks(conn, id)?).is_some() {
+        p.duration_minutes = None;
+    }
     if let Some(Some(l)) = &p.location {
         check_location(l)?;
     }
@@ -741,6 +751,9 @@ pub fn update_task(conn: &Connection, ctx: &Ctx, id: &str, patch: TaskPatch) -> 
             return Err(Error::BadRequest("A time needs a date".into()));
         }
     }
+
+    // What moves a subtask's time in or out of its task's total.
+    let rolls_up = item.parent_id.is_some() && (p.duration_minutes.is_some() || p.completed_at.is_some() || p.parent_id.is_some());
 
     let mut changes: Vec<(&str, SqlValue)> = Vec::new();
     match p.parent_id.take() {
@@ -849,7 +862,18 @@ pub fn update_task(conn: &Connection, ctx: &Ctx, id: &str, patch: TaskPatch) -> 
     } else {
         set_columns(conn, ctx, "tasks", id, changes)?;
     }
-    get_task(conn, id)
+    let task = get_task(conn, id)?;
+    if rolls_up {
+        let had = item.duration_minutes.is_some();
+        let moved = task.parent_id != item.parent_id;
+        if let Some(parent_id) = &task.parent_id {
+            sync_parent_minutes(conn, ctx, parent_id, had && !moved)?;
+        }
+        if let (true, Some(old)) = (moved, &item.parent_id) {
+            sync_parent_minutes(conn, ctx, old, had)?;
+        }
+    }
+    Ok(task)
 }
 
 // ── Completing ───────────────────────────────────────────────────────────────
@@ -888,20 +912,28 @@ fn subtask_minutes(subtasks: &[Task]) -> Option<i64> {
     Some(total.min(MAX_MINUTES))
 }
 
-/// A task whose subtasks have durations takes their remaining total as its own.
-fn sync_parent_minutes(conn: &Connection, ctx: &Ctx, parent_id: &str) -> Result<()> {
-    let parent = get_task(conn, parent_id)?;
-    let subtasks = query(
+fn live_subtasks(conn: &Connection, parent_id: &str) -> Result<Vec<Task>> {
+    query(
         conn,
         &format!("SELECT {TASK_COLS} FROM tasks t WHERE t.parent_id = ?1 AND t.deleted_at IS NULL"),
         &[&parent_id],
         task_row,
-    )?;
-    let Some(left) = subtask_minutes(&subtasks) else { return Ok(()) };
-    let next = (left != 0).then_some(left);
+    )
+}
+
+/// A task whose subtasks have durations takes their remaining total as its own,
+/// None once they are all done. `had`: a subtask with a duration just lost it or
+/// left, so a task with no timed subtask left drops the old total rather than keep it.
+fn sync_parent_minutes(conn: &Connection, ctx: &Ctx, parent_id: &str, had: bool) -> Result<()> {
+    let parent = get_task(conn, parent_id)?;
+    let next = match subtask_minutes(&live_subtasks(conn, parent_id)?) {
+        Some(left) => (left != 0).then_some(left),
+        None if had => None,
+        None => return Ok(()),
+    };
     if next != parent.duration_minutes {
-        let patch = TaskPatch { duration_minutes: Some(next), ..Default::default() };
-        update_task(conn, ctx, parent_id, patch)?;
+        // Not through update_task, which keeps a rolled-up duration from being set.
+        set_columns(conn, ctx, "tasks", parent_id, vec![("duration_minutes", int(next))])?;
     }
     Ok(())
 }
@@ -915,11 +947,7 @@ pub fn complete_task(conn: &Connection, ctx: &Ctx, id: &str, today: NaiveDate) -
     if task.completed_at.is_some() {
         return Ok(task);
     }
-    let done = update_task(conn, ctx, id, completion_patch(&task, today))?;
-    if let (Some(parent_id), Some(_)) = (&task.parent_id, task.duration_minutes) {
-        sync_parent_minutes(conn, ctx, parent_id)?;
-    }
-    Ok(done)
+    update_task(conn, ctx, id, completion_patch(&task, today))
 }
 
 /// Unticks a done task: it is open again, its Karma tick is taken back, and a
@@ -929,11 +957,7 @@ pub fn reopen_task(conn: &Connection, ctx: &Ctx, id: &str) -> Result<Task> {
     if task.completed_at.is_none() {
         return Ok(task);
     }
-    let open = update_task(conn, ctx, id, TaskPatch { completed_at: Some(None), ..Default::default() })?;
-    if let (Some(parent_id), Some(_)) = (&task.parent_id, task.duration_minutes) {
-        sync_parent_minutes(conn, ctx, parent_id)?;
-    }
-    Ok(open)
+    update_task(conn, ctx, id, TaskPatch { completed_at: Some(None), ..Default::default() })
 }
 
 /// The Karma log since an instant, oldest first. task_id is null once the task is deleted.

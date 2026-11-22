@@ -16,7 +16,7 @@
 	import SmartTips from './SmartTips.svelte';
 	import TaskGrip from './TaskGrip.svelte';
 	import TaskInlineEdit from './TaskInlineEdit.svelte';
-	import { dueAtOf, patchChips, settlePatch, smartPatch, smartTitle, titleEdit } from './smartEdit';
+	import { dueAtOf, patchChips, settlePatch, smartEdit } from './smartEdit';
 	import { PRIORITY_OPTIONS, SUBTASK_MAX, projectColor, subtaskLimit, subtaskMinutes } from './shared';
 
 	/**
@@ -170,8 +170,8 @@
 	}
 
 	// ── Smart title ──────────────────────────────────────────────────────────
-	let st = $derived(smartTitle(title, task, projects, sections));
-	let titleChips = $derived(patchChips(smartPatch(st.smart, task), projects, sections));
+	let st = $derived(smartEdit(title, task, projects, sections));
+	let titleChips = $derived(patchChips(st.fields, projects, sections));
 	let titleLimit = $derived(task.parent_id ? subtaskLimit(st.smart.title, task.title) : null);
 	/**
 	 * A subtask's title shows at most two lines, ending in "…", until it is clicked;
@@ -194,7 +194,7 @@
 	function saveTitle() {
 		// Too long for a subtask: it stays in the box, with the counter, to be shortened.
 		if (titleLimit?.over) return;
-		const patch = titleEdit(st.smart, task);
+		const patch = st.patch;
 		if (!patch) {
 			title = task.title;
 			return;

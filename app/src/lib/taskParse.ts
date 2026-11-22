@@ -271,6 +271,9 @@ function weekWordDate(phrase: string, today: string): string {
 	return addDays(today, ahead + (p.startsWith('next') ? 7 : 0));
 }
 
+/** A bare "a"/"an"/"the" and a time unit, with no "in", "ago" or number. */
+const ARTICLE_UNIT_RE = /^(?:a|an|the)\s+[a-z]+\.?$/i;
+
 /** "no date", "no due date": takes the date and time off. */
 const NO_DATE_RE = /(^|\s)(no\s+(?:due\s+)?date)(?=\s|$|[.,;])/i;
 
@@ -461,7 +464,9 @@ export function parseQuickAdd(
 	// "issue from today 10am, now nov 16 6p" is due nov 16 at 18:00.
 	const hits = noDate || !smart ? [] : datesNow().parse(mask(text, tokens), now, { forwardDate: true })
 		// A lone month name ("may", "march") is far more often a word of the title.
-		.filter((h) => hasDay(h.start) || h.start.isCertain('hour') || h.start.isCertain('year'));
+		.filter((h) => hasDay(h.start) || h.start.isCertain('hour') || h.start.isCertain('year'))
+		// chrono reads "the s", "a min", "the day" as that long from now; in a title they are words.
+		.filter((h) => !ARTICLE_UNIT_RE.test(h.text));
 	// A day, or a month and year ("nov 2027"); anything else is a time alone.
 	const dated = (c: chrono.ParsedComponents) => hasDay(c) || c.isCertain('month') || c.isCertain('year');
 	let dateAt = -1;
@@ -621,6 +626,22 @@ export function dayLabel(date: string, now = new Date()): string {
 	if (diff > 1 && diff < 7) return d.toLocaleDateString(undefined, { weekday: 'short' });
 	const sameYear = d.getFullYear() === now.getFullYear();
 	return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) });
+}
+
+/**
+ * A picked date with its day spelled out, for where a date was just chosen or typed:
+ * "Tomorrow, 23 Nov", "Sat 28 Nov", "Mon 4 Jan 2027".
+ */
+export function pickedDayLabel(date: string, now = new Date()): string {
+	const diff = daysBetween(ymd(now), date);
+	const d = fromYmd(date);
+	if (diff >= -1 && diff <= 1) {
+		return `${dayLabel(date, now)}, ${d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`;
+	}
+	const sameYear = d.getFullYear() === now.getFullYear();
+	return d
+		.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) })
+		.replace(/,/g, '');
 }
 
 /** "Thu 5 Nov", in the order the user's locale writes it. */

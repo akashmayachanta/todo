@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 	import { datePrefs } from '$lib/datePrefs.svelte';
-	import { addDays, dayLabel, formatTime, fromYmd, parseQuickAdd, ymd } from '$lib/taskParse';
+	import { addDays, pickedDayLabel, formatTime, fromYmd, parseQuickAdd, ymd } from '$lib/taskParse';
 
 	/**
 	 * The task view's Date field, after Todoist's: a heading with a + (or the date
@@ -109,8 +109,8 @@
 		month = ymd(new Date(d.getFullYear(), d.getMonth() + by, 1));
 	}
 
-	/** What the field shows when a date is set: "Today 5:00 pm". */
-	let summary = $derived(date ? `${dayLabel(date)}${time ? ` ${formatTime(time)}` : ''}` : time ? formatTime(time) : '');
+	/** What the field shows when a date is set: "Tomorrow, 23 Nov 5:00 pm". */
+	let summary = $derived(date ? `${pickedDayLabel(date)}${time ? ` ${formatTime(time)}` : ''}` : time ? formatTime(time) : '');
 
 	async function show() {
 		open = true;

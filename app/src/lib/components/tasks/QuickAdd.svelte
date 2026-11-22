@@ -7,7 +7,7 @@
 	import { taskSettings } from '$lib/stores/taskSettings';
 	import { guessPlace, trainPlaces, type PlaceGuess } from '$lib/suggestPlace';
 	import { onTasksChanged } from '$lib/tasks/client';
-	import { dayLabel, formatDuration, formatTime, parseQuickAdd } from '$lib/taskParse';
+	import { pickedDayLabel, formatDuration, formatTime, parseQuickAdd } from '$lib/taskParse';
 	import SmartTaskInput from './SmartTaskInput.svelte';
 	import { projectColor } from './shared';
 	import './quickadd.css';
@@ -140,7 +140,7 @@
 	<div class="quick-add-foot">
 		<div class="quick-add-chips">
 			{#if result.due_date}
-				<span class="task-chip" data-kind="date">{dayLabel(result.due_date, now)}{result.due_time ? ` ${formatTime(result.due_time)}` : ''}</span>
+				<span class="task-chip" data-kind="date">{pickedDayLabel(result.due_date, now)}{result.due_time ? ` ${formatTime(result.due_time)}` : ''}</span>
 			{/if}
 			{#if result.duration_minutes}
 				<span class="task-chip" data-kind="duration">for {formatDuration(result.duration_minutes)}</span>

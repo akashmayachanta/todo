@@ -1,6 +1,6 @@
 import { formatInstant } from '$lib/datePrefs.svelte';
 import type { Task, TaskSection, TaskPatch, TaskProject } from '$lib/api';
-import { dayLabel, formatDuration, formatTime, localInstant, nextDayFor, parseEdit, ymd, type QuickAdd } from '$lib/taskParse';
+import { pickedDayLabel, formatDuration, formatTime, localInstant, nextDayFor, parseEdit, ymd, type QuickAdd } from '$lib/taskParse';
 import { projectColor } from './shared';
 
 /**
@@ -41,16 +41,24 @@ export function smartPatch(smart: QuickAdd, task: Task): TaskPatch {
 }
 
 /**
- * The whole change a smart title makes: its fields and the title left once they are
- * taken out. null when nothing changes or no title would be left.
+ * A task's title edited as a smart line, worked out once for every editor (the task
+ * page and the in-list editor), so what they preview is what they save.
+ * - `fields`: what the line sets, already settled (a time past today moves to tomorrow).
+ * - `next`: the task as it will be once saved.
+ * - `patch`: the whole change to save, title included; null when nothing changes or
+ *   no title would be left.
  */
-export function titleEdit(smart: QuickAdd, task: Task): TaskPatch | null {
-	const patch = smartPatch(smart, task);
+export function smartEdit(text: string, task: Task, projects: TaskProject[], sections: TaskSection[]) {
+	const st = smartTitle(text, task, projects, sections);
+	const fields = settlePatch(task, smartPatch(st.smart, task));
 	// A line that only sets fields ("tomorrow p1") keeps the title.
-	const title = smart.title || (Object.keys(patch).length ? task.title : '');
-	if (!title) return null;
-	if (title !== task.title) patch.title = title;
-	return Object.keys(patch).length ? patch : null;
+	const title = st.smart.title || (Object.keys(fields).length ? task.title : '');
+	let patch: TaskPatch | null = null;
+	if (title) {
+		const p: TaskPatch = { ...fields, ...(title !== task.title ? { title } : {}) };
+		if (Object.keys(p).length) patch = p;
+	}
+	return { ...st, fields, patch, next: { ...task, ...fields } as Task };
 }
 
 export type SmartChip = { kind: string; label: string; priority?: number; color?: string };
@@ -59,7 +67,7 @@ export type SmartChip = { kind: string; label: string; priority?: number; color?
 export function patchChips(p: TaskPatch, projects: TaskProject[], sections: TaskSection[]): SmartChip[] {
 	const chips: SmartChip[] = [];
 	if ('due_date' in p && p.due_date) {
-		chips.push({ kind: 'date', label: dayLabel(p.due_date) + (p.due_time ? ` ${formatTime(p.due_time)}` : '') });
+		chips.push({ kind: 'date', label: pickedDayLabel(p.due_date) + (p.due_time ? ` ${formatTime(p.due_time)}` : '') });
 	} else if ('due_date' in p) {
 		chips.push({ kind: 'date', label: 'No date' });
 	}

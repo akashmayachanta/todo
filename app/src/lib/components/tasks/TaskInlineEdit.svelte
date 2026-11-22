@@ -6,7 +6,7 @@
 	import { askReminderPermission } from '$lib/stores/taskReminders';
 	import { describeDue, formatDuration } from '$lib/taskParse';
 	import SmartTaskInput from './SmartTaskInput.svelte';
-	import { settlePatch, smartPatch, smartTitle, titleEdit } from './smartEdit';
+	import { smartEdit } from './smartEdit';
 	import { SUBTASK_MAX, placeName, projectColor, subtaskLimit } from './shared';
 
 	/**
@@ -29,21 +29,21 @@
 	let field = $state<SmartTaskInput | null>(null);
 	let root = $state<HTMLFormElement | null>(null);
 
-	let st = $derived(smartTitle(title, task, projects, sections));
+	let st = $derived(smartEdit(title, task, projects, sections));
 	let limit = $derived(task.parent_id ? subtaskLimit(st.smart.title, task.title) : null);
 	/** The task as it will be once saved; tasks-core sets the reminder a new due time brings or moves. */
-	let next = $derived({ ...task, ...settlePatch(task, smartPatch(st.smart, task)) });
+	let next = $derived(st.next);
 	let due = $derived(describeDue(next));
 	let project = $derived(projects.find((p) => p.id === next.project_id) ?? null);
 
 	async function save() {
 		if (busy) return;
-		if (limit?.over || (!st.smart.title && !Object.keys(smartPatch(st.smart, task)).length)) {
+		if (limit?.over || (!st.smart.title && !Object.keys(st.fields).length)) {
 			// Too long for a subtask, or emptied: there is nothing to save it as.
 			field?.focus();
 			return;
 		}
-		const patch: TaskPatch = titleEdit(st.smart, task) ?? {};
+		const patch: TaskPatch = { ...st.patch };
 		const d = description.trim() || null;
 		if (d !== (task.description ?? null)) patch.description = d;
 		if (!Object.keys(patch).length) {
@@ -53,7 +53,7 @@
 		if (patch.remind_at) askReminderPermission();
 		busy = true;
 		try {
-			await onpatch(task, settlePatch(task, patch));
+			await onpatch(task, patch);
 			ondone();
 		} finally {
 			busy = false;

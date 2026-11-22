@@ -218,14 +218,10 @@ and `liveSession` both match the group currently being written.
   `addGroups` calls `attachDurations` itself, so times are sent even when
   "Include video times" is off. Re-adding fills in a missing time on an
   existing subtask but never overwrites one that is set.
-- **The group task's `duration_minutes` is saved, not derived.** A parent's
-  time is the sum of its open subtasks' times. The server keeps it so when a
-  subtask is ticked or reopened, but not when one is added or given a time
-  (the Tasks app does that client-side). So after syncing a group,
-  `addGroups` saves that total on the task itself, mirroring `parentMinutes`
-  in the app's `shared.ts`: capped at 10080, `null` once every timed subtask
-  is done, left alone when no subtask has a time. It re-reads the task first
-  when it ticked or reopened anything, since the server changed the total.
+- **The group task's `duration_minutes` is the server's to keep.** A parent's
+  time is the sum of its open subtasks' times, and tasks-core updates it
+  whenever a subtask is added, given a time, ticked, reopened, moved or
+  deleted, so the extension never sends it.
 - **The MCP token sits in `chrome.storage.local`**, readable by anyone with the
   Chrome profile. It is listed in Tasks → Settings → AI under the name the user
   gave it, where it can be deleted, and it stops at its expiry.

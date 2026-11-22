@@ -202,8 +202,10 @@ pub struct TaskIn {
     pub duration_minutes: Option<i64>,
     #[serde(default)]
     pub location: Option<String>,
-    #[serde(default)]
-    pub remind_at: Option<String>,
+    /// Left out: the default reminder, at the due moment if that is still ahead
+    /// (reminder.rs). Null: no reminder.
+    #[serde(default, deserialize_with = "double")]
+    pub remind_at: Option<Option<String>>,
     #[serde(default)]
     pub recurrence: Option<String>,
     #[serde(default)]

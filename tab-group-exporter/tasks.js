@@ -44,17 +44,6 @@ function minutes(seconds) {
   return seconds ? Math.min(DURATION_MAX, Math.max(1, Math.round(seconds / 60))) : null;
 }
 
-// A task's time as its subtasks' remaining total: the open ones' minutes,
-// capped, or null once they are all done. Undefined when no subtask has a
-// time (the task keeps its own) or the total is already right.
-function parentMinutes(task, subtasks) {
-  if (!subtasks.some((s) => s.duration_minutes)) return undefined;
-  let total = 0;
-  for (const s of subtasks) if (s.completed_at == null) total += s.duration_minutes ?? 0;
-  const next = Math.min(total, DURATION_MAX) || null;
-  return next === (task.duration_minutes ?? null) ? undefined : next;
-}
-
 // ---------- Config ----------
 
 // A fresh install starts with an empty record; an update from a version
@@ -426,14 +415,7 @@ export async function addGroups(groups) {
       ticked++;
     }
 
-    // A task's time is its open subtasks' total. The server keeps it so when
-    // a subtask is ticked or reopened, but not when one is added or given a
-    // time, so after a sync the extension saves it the same way
-    // (parentMinutes in the app's shared.ts). The server may have changed the
-    // task's time above, so it is read again before comparing.
-    if (reopened || ticked) Object.assign(task, await tool('get_task', { id: task.id }));
-    const total = parentMinutes(task, tasks.filter((t) => t.parent_id === task.id));
-    if (total !== undefined) await patchTask(task, { duration_minutes: total });
+    // The task's time, its open subtasks' total, is kept by the server.
 
     result.added += added;
     result.timed += timed;

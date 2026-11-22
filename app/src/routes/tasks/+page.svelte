@@ -45,7 +45,7 @@
 	} from '$lib/components/tasks/taskFilters';
 	import {
 		PROJECT_COLORS, byDue, byPosition, durationTotals, loadLayouts, parentFinder, placeName, projectColor, saveLayouts, shownWhenDue, subtaskMinutes, taskRoots,
-		defaultReminder, shiftInstant, type TaskLayout, type TaskSettings, type TaskView,
+		type TaskLayout, type TaskSettings, type TaskView,
 	} from '$lib/components/tasks/shared';
 	import type { PinTarget } from '$lib/components/tasks/pins';
 	import { setTaskbarCount } from '$shell/taskbar';
@@ -992,19 +992,11 @@
 	}
 
 	async function patchTask(task: Task, patch: TaskPatch) {
-		// Moving a task to another day (board, calendar) moves its reminder by as many days.
-		if (patch.due_date && task.due_date && task.remind_at && !('remind_at' in patch) && patch.due_date !== task.due_date) {
-			patch = { ...patch, remind_at: shiftInstant(task.remind_at, daysBetween(task.due_date, patch.due_date)) };
-		}
-		// A task given a date with no reminder yet is reminded at its due time (10:00 for a date alone).
-		if (patch.due_date && !task.remind_at && !('remind_at' in patch)) {
-			const remind_at = defaultReminder(patch.due_date, 'due_time' in patch ? patch.due_time : task.due_time);
-			if (remind_at) patch = { ...patch, remind_at };
-		}
+		// tasks-core moves the reminder with a new date or time, or gives a dated task its default one.
 		try {
 			const updated = await api.tasks.update(task.id, patch);
 			replace(updated);
-			if (patch.remind_at) askReminderPermission();
+			if (updated.remind_at && updated.remind_at !== task.remind_at) askReminderPermission();
 			// A move carries the subtasks along on the server.
 			if (('project_id' in patch || 'section_id' in patch) && task.parent_id === null) await reloadTasks();
 			// tasks-core moved a subtask's time in or out of its task's total.

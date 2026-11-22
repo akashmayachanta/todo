@@ -1,6 +1,5 @@
 import type { Task, TaskSection, TaskPriority, TaskProject } from '$lib/api';
 import { plainText } from '$lib/links';
-import { localInstant } from '$lib/taskParse';
 import { DEFAULT_DATE_PREFS, type DatePrefs } from '$lib/datePrefs.svelte';
 
 export type TaskView = 'inbox' | 'today' | 'upcoming' | 'karma' | 'reporting' | 'projects' | 'project' | 'filter' | 'search';
@@ -101,16 +100,6 @@ export function loadTaskSettings(): TaskSettings {
 
 export function saveTaskSettings(settings: TaskSettings) {
 	try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* not remembered after a reload */ }
-}
-
-/**
- * The reminder a task gets by default: at its due time, when that is still ahead.
- * A date with no time is reminded at 10:00 that day (`localInstant`).
- */
-export function defaultReminder(due_date: string | null | undefined, due_time: string | null | undefined, now = new Date()): string | null {
-	if (!due_date) return null;
-	const at = localInstant(due_date, due_time ?? null);
-	return new Date(at).getTime() > now.getTime() ? at : null;
 }
 
 /** The most characters a subtask's title shows (core's SUBTASK_TITLE_MAX). */
@@ -224,11 +213,4 @@ export function byDue(a: Task, b: Task): number {
 
 export function byPosition(a: Task, b: Task): number {
 	return a.position - b.position || a.id.localeCompare(b.id);
-}
-
-/** An ISO instant moved by whole local days (so 9:00 stays 9:00 across DST). */
-export function shiftInstant(iso: string, days: number): string {
-	const d = new Date(iso);
-	d.setDate(d.getDate() + days);
-	return d.toISOString();
 }

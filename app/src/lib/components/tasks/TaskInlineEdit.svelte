@@ -6,7 +6,7 @@
 	import { askReminderPermission } from '$lib/stores/taskReminders';
 	import { describeDue, formatDuration } from '$lib/taskParse';
 	import SmartTaskInput from './SmartTaskInput.svelte';
-	import { finishPatch, settlePatch, smartPatch, smartTitle, titleEdit } from './smartEdit';
+	import { settlePatch, smartPatch, smartTitle, titleEdit } from './smartEdit';
 	import { SUBTASK_MAX, placeName, projectColor, subtaskLimit } from './shared';
 
 	/**
@@ -31,7 +31,7 @@
 
 	let st = $derived(smartTitle(title, task, projects, sections));
 	let limit = $derived(task.parent_id ? subtaskLimit(st.smart.title, task.title) : null);
-	/** The task as it will be once saved, with the reminder a new due time brings or moves. */
+	/** The task as it will be once saved; tasks-core sets the reminder a new due time brings or moves. */
 	let next = $derived({ ...task, ...settlePatch(task, smartPatch(st.smart, task)) });
 	let due = $derived(describeDue(next));
 	let project = $derived(projects.find((p) => p.id === next.project_id) ?? null);
@@ -53,7 +53,7 @@
 		if (patch.remind_at) askReminderPermission();
 		busy = true;
 		try {
-			await onpatch(task, finishPatch(task, patch));
+			await onpatch(task, settlePatch(task, patch));
 			ondone();
 		} finally {
 			busy = false;

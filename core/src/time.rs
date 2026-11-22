@@ -48,16 +48,6 @@ pub fn parse_instant(value: &str) -> Option<String> {
     None
 }
 
-/// Moves an instant by whole days, keeping its local time of day across a clock change.
-pub fn shift_days(at: &str, days: i64) -> Option<String> {
-    use chrono::{Duration, Local};
-
-    let local = Local.timestamp_millis_opt(instant_ms(at)?).single()?;
-    let same_time = (local.date_naive() + Duration::days(days)).and_time(local.time());
-    let moved = same_time.and_local_timezone(Local).earliest().unwrap_or(local + Duration::days(days));
-    Some(iso(moved.with_timezone(&Utc)))
-}
-
 /// Milliseconds since the epoch for a canonical (or any parseable) instant.
 pub fn instant_ms(value: &str) -> Option<i64> {
     let canonical = parse_instant(value)?;

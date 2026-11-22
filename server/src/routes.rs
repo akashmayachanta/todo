@@ -293,7 +293,7 @@ struct CompleteIn {
 }
 
 /// Ticks a task: core decides what that changes (ops::complete_task). A repeating
-/// task's reminder moves by whole days in the server's time zone.
+/// task's reminder keeps its lead on its next date, in the server's time zone.
 async fn complete_task(State(s): St, u: AuthUser, Path(id): Path<String>, Body(input): Body<CompleteIn>) -> ApiResult<Json<Task>> {
     let today = parse_today(input.today.as_deref())?;
     Ok(Json(write(&s, &u, move |c| ops::complete_task(c, &Ctx::server(), &id, today)).await?))

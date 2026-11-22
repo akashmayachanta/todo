@@ -20,7 +20,7 @@
 //!   sections and tasks, a task its subtasks; a deleted section's tasks stay
 //!   in the project without a section.
 
-use chrono::NaiveDate;
+use chrono::{Local, NaiveDate, Utc};
 use rusqlite::types::Value as SqlValue;
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Row, ToSql};
 use serde_json::Value;
@@ -28,7 +28,8 @@ use serde_json::Value;
 use crate::model::*;
 use crate::sync::{live_ids, tombstone, touch};
 use crate::recurrence::next_occurrence;
-use crate::time::{ms_to_iso, now_iso, shift_days};
+use crate::reminder::{self, Due};
+use crate::time::{ms_to_iso, now_iso};
 use crate::{new_id, Ctx, Error, Result};
 
 // ── Reading rows ─────────────────────────────────────────────────────────────
@@ -565,10 +566,18 @@ pub fn create_task(conn: &Connection, ctx: &Ctx, input: TaskIn) -> Result<Task> 
     if let Some(l) = &input.location {
         check_location(l)?;
     }
-    let remind_at = input.remind_at.as_deref().map(|v| instant("remind_at", v)).transpose()?;
     if input.due_time.is_some() && input.due_date.is_none() {
         return Err(Error::BadRequest("A time needs a date".into()));
     }
+    // Left out: the default reminder for its due moment. Null: none.
+    let remind_at = match &input.remind_at {
+        Some(Some(v)) => Some(instant("remind_at", v)?),
+        Some(None) => None,
+        None => {
+            let due = Due { date: input.due_date.as_deref(), time: input.due_time.as_deref() };
+            reminder::default_reminder(&Local, due, Utc::now())
+        }
+    };
 
     let (project_id, section_id) = if let Some(parent_id) = &input.parent_id {
         let parent = get_task(conn, parent_id)?;
@@ -752,6 +761,25 @@ pub fn update_task(conn: &Connection, ctx: &Ctx, id: &str, patch: TaskPatch) -> 
         }
     }
 
+    // A new date or time, with no reminder asked for, moves the reminder with the
+    // due moment, or brings the default one (reminder.rs).
+    if p.remind_at.is_none() && (p.due_date.is_some() || p.due_time.is_some()) {
+        let date = p.due_date.clone().unwrap_or_else(|| item.due_date.clone());
+        let time = p.due_time.clone().unwrap_or_else(|| item.due_time.clone());
+        let sets = matches!(p.due_date, Some(Some(_))) || matches!(p.due_time, Some(Some(_)));
+        let next = reminder::after_due_change(
+            &Local,
+            Utc::now(),
+            item.remind_at.as_deref(),
+            Due { date: item.due_date.as_deref(), time: item.due_time.as_deref() },
+            Due { date: date.as_deref(), time: time.as_deref() },
+            sets,
+        );
+        if next != item.remind_at {
+            p.remind_at = Some(next);
+        }
+    }
+
     // What moves a subtask's time in or out of its task's total.
     let rolls_up = item.parent_id.is_some() && (p.duration_minutes.is_some() || p.completed_at.is_some() || p.parent_id.is_some());
 
@@ -879,21 +907,28 @@ pub fn update_task(conn: &Connection, ctx: &Ctx, id: &str, patch: TaskPatch) -> 
 // ── Completing ───────────────────────────────────────────────────────────────
 
 /// What ticking a task changes. A repeating task with a date moves to its next
-/// date, and its reminder by as many days, and the tick is logged for Karma;
-/// any other task is done.
+/// date, its reminder keeping its lead, and the tick is logged for Karma; any
+/// other task is done. One with no reminder gets no default one from a tick.
 fn completion_patch(task: &Task, today: NaiveDate) -> TaskPatch {
     let due = task.due_date.as_deref().and_then(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok());
     let next = match (task.recurrence.as_deref(), due) {
-        (Some(rule), Some(due)) => next_occurrence(rule, due, today).map(|next| (due, next)),
+        (Some(rule), Some(due)) => next_occurrence(rule, due, today),
         _ => None,
     };
     match next {
-        Some((due, next)) => TaskPatch {
-            due_date: Some(Some(next.to_string())),
-            remind_at: Some(task.remind_at.as_deref().and_then(|at| shift_days(at, (next - due).num_days()))),
-            completes_occurrence: Some(true),
-            ..Default::default()
-        },
+        Some(next) => {
+            let next = next.to_string();
+            let time = task.due_time.as_deref();
+            let was = Due { date: task.due_date.as_deref(), time };
+            let is = Due { date: Some(&next), time };
+            let remind_at = task.remind_at.as_deref().and_then(|at| reminder::follow(&Local, at, was, is));
+            TaskPatch {
+                due_date: Some(Some(next.clone())),
+                remind_at: Some(remind_at),
+                completes_occurrence: Some(true),
+                ..Default::default()
+            }
+        }
         None => TaskPatch { completed_at: Some(Some(now_iso())), ..Default::default() },
     }
 }

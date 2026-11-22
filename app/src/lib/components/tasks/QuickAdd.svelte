@@ -9,7 +9,7 @@
 	import { onTasksChanged } from '$lib/tasks/client';
 	import { dayLabel, formatDuration, formatTime, parseQuickAdd } from '$lib/taskParse';
 	import SmartTaskInput from './SmartTaskInput.svelte';
-	import { defaultReminder, projectColor } from './shared';
+	import { projectColor } from './shared';
 	import './quickadd.css';
 
 	/**
@@ -78,8 +78,8 @@
 			due_date,
 			due_time,
 			duration_minutes: parsed.duration_minutes,
-			// A due time brings a reminder at that time unless the line names one.
-			remind_at: parsed.remind_at ?? defaultReminder(due_date, due_time, now),
+			// Unless the line names one, tasks-core gives a dated task its default reminder.
+			...(parsed.remind_at ? { remind_at: parsed.remind_at } : {}),
 			recurrence: parsed.recurrence,
 		};
 	});

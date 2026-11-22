@@ -1,8 +1,7 @@
 import { formatInstant } from '$lib/datePrefs.svelte';
 import type { Task, TaskSection, TaskPatch, TaskProject } from '$lib/api';
-import { askReminderPermission } from '$lib/stores/taskReminders';
 import { dayLabel, formatDuration, formatTime, localInstant, nextDayFor, parseEdit, ymd, type QuickAdd } from '$lib/taskParse';
-import { defaultReminder, projectColor } from './shared';
+import { projectColor } from './shared';
 
 /**
  * Editing a task's title as a smart line, shared by the task modal and the inline
@@ -85,21 +84,13 @@ export function dueAtOf(task: Pick<Task, 'due_date' | 'due_time'>): number | nul
 }
 
 /**
- * A patch as it should be saved: a task getting a date or time, with no reminder
- * yet, gets one at the due time (10:00 for a date alone); a change of date or time moves an existing reminder
- * with it, the same time before; taking the date off takes the reminder off.
+ * A patch as it should be saved. A new time for a task due today or earlier, without
+ * picking another day, moves it to when that time next comes: today if still ahead,
+ * else tomorrow. Due today at 18:00, set to 10:00 at 19:00: tomorrow 10:00. Future
+ * dates keep their day. The reminder is left to tasks-core: a task given a date
+ * gets its default reminder there, and a reminder moves with its due moment.
  */
-export function finishPatch(task: Task, patch: TaskPatch): TaskPatch {
-	const out = settlePatch(task, patch);
-	if (out.remind_at && !task.remind_at && !('remind_at' in patch)) askReminderPermission();
-	return out;
-}
-
-/** finishPatch without asking for permission, for showing what a save will do. */
 export function settlePatch(task: Task, patch: TaskPatch): TaskPatch {
-	// A new time for a task due today or earlier, without picking another day, moves
-	// it to when that time next comes: today if still ahead, else tomorrow. Due today
-	// at 18:00, set to 10:00 at 19:00: tomorrow 10:00. Future dates keep their day.
 	if (patch.due_time && patch.due_time !== task.due_time && task.due_date && (patch.due_date ?? task.due_date) === task.due_date) {
 		const now = new Date();
 		if (task.due_date <= ymd(now)) {
@@ -107,22 +98,5 @@ export function settlePatch(task: Task, patch: TaskPatch): TaskPatch {
 			if (day !== task.due_date) patch = { ...patch, due_date: day };
 		}
 	}
-	// Taking the date off ("no date") takes the reminder off too, as tasks-core does.
-	if ('due_date' in patch && !patch.due_date && task.remind_at && !patch.remind_at) {
-		return { ...patch, remind_at: null };
-	}
-	if ((patch.due_date || patch.due_time) && !task.remind_at && !('remind_at' in patch)) {
-		const date = patch.due_date ?? task.due_date;
-		const time = 'due_time' in patch ? patch.due_time : task.due_time;
-		const remind_at = defaultReminder(date, time);
-		return remind_at ? { ...patch, remind_at } : patch;
-	}
-	const dueAt = dueAtOf(task);
-	if (!task.remind_at || 'remind_at' in patch || dueAt === null) return patch;
-	if (!('due_date' in patch) && !('due_time' in patch)) return patch;
-	const date = 'due_date' in patch ? patch.due_date : task.due_date;
-	if (!date) return patch;
-	const time = 'due_time' in patch ? patch.due_time ?? null : task.due_time;
-	const before = dueAt - new Date(task.remind_at).getTime();
-	return { ...patch, remind_at: new Date(new Date(localInstant(date, time)).getTime() - before).toISOString() };
+	return patch;
 }

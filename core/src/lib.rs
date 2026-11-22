@@ -13,6 +13,7 @@ pub mod db;
 pub mod model;
 pub mod ops;
 pub mod recurrence;
+pub mod reminder;
 pub mod sync;
 pub mod time;
 

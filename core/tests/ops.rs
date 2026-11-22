@@ -53,6 +53,66 @@ fn clearing_the_date_keeps_a_reminder_set_in_the_same_change() {
     assert_eq!(cleared.remind_at.as_deref(), Some("2026-12-01T05:00:00.000Z"));
 }
 
+// ── Reminders (the rules themselves are tested in reminder.rs) ───────────────
+
+/// The due moment on this machine's clock, as a stored instant.
+fn due_at(date: &str, time: Option<&str>) -> String {
+    let due = tasks_core::reminder::Due { date: Some(date), time };
+    tasks_core::time::iso(tasks_core::reminder::due_moment(&chrono::Local, due).unwrap())
+}
+
+#[test]
+fn a_new_dated_task_gets_the_default_reminder_unless_it_asks_for_none() {
+    let (conn, ctx) = setup();
+    let timed = task(&conn, &ctx, json!({ "title": "Call", "due_date": "2099-03-02", "due_time": "15:00" }));
+    assert_eq!(timed.remind_at, Some(due_at("2099-03-02", Some("15:00"))));
+    let untimed = task(&conn, &ctx, json!({ "title": "Shop", "due_date": "2099-03-02" }));
+    assert_eq!(untimed.remind_at, Some(due_at("2099-03-02", None)));
+    let none = task(&conn, &ctx, json!({ "title": "Quiet", "due_date": "2099-03-02", "remind_at": null }));
+    assert_eq!(none.remind_at, None);
+    // Already past, or no date: nothing.
+    assert_eq!(task(&conn, &ctx, json!({ "title": "Late", "due_date": "2000-01-01" })).remind_at, None);
+    assert_eq!(task(&conn, &ctx, json!({ "title": "Someday" })).remind_at, None);
+}
+
+#[test]
+fn giving_a_task_a_date_gives_it_the_default_reminder() {
+    let (conn, ctx) = setup();
+    let t = task(&conn, &ctx, json!({ "title": "Call" }));
+    let dated = ops::update_task(&conn, &ctx, &t.id, from(json!({ "due_date": "2099-03-02", "due_time": "09:00" }))).unwrap();
+    assert_eq!(dated.remind_at, Some(due_at("2099-03-02", Some("09:00"))));
+
+    let quiet = task(&conn, &ctx, json!({ "title": "Quiet" }));
+    let patch = from(json!({ "due_date": "2099-03-02", "remind_at": null }));
+    assert_eq!(ops::update_task(&conn, &ctx, &quiet.id, patch).unwrap().remind_at, None);
+}
+
+#[test]
+fn a_reminder_moves_with_the_due_date_and_time_keeping_its_lead() {
+    let (conn, ctx) = setup();
+    let t = task(&conn, &ctx, json!({ "title": "Call", "due_date": "2099-03-02", "due_time": "15:00" }));
+    let lead = 30 * 60_000;
+    let early = tasks_core::time::instant_ms(&due_at("2099-03-02", Some("15:00"))).unwrap() - lead;
+    let set = ops::update_task(&conn, &ctx, &t.id, from(json!({ "remind_at": tasks_core::time::ms_to_iso(early) }))).unwrap();
+
+    let moved = ops::update_task(&conn, &ctx, &set.id, from(json!({ "due_date": "2099-03-05", "due_time": "18:00" }))).unwrap();
+    let want = tasks_core::time::instant_ms(&due_at("2099-03-05", Some("18:00"))).unwrap() - lead;
+    assert_eq!(moved.remind_at, Some(tasks_core::time::ms_to_iso(want)));
+
+    // A reminder asked for in the same change wins.
+    let patch = from(json!({ "due_date": "2099-03-06", "remind_at": "2099-03-01T00:00:00Z" }));
+    let asked = ops::update_task(&conn, &ctx, &t.id, patch).unwrap();
+    assert_eq!(asked.remind_at.as_deref(), Some("2099-03-01T00:00:00.000Z"));
+}
+
+#[test]
+fn completing_a_repeating_task_without_a_reminder_brings_none() {
+    let (conn, ctx) = setup();
+    let t = task(&conn, &ctx, json!({ "title": "Stretch", "due_date": "2099-03-02", "recurrence": "every day", "remind_at": null }));
+    let next = ops::complete_task(&conn, &ctx, &t.id, day("2099-03-02")).unwrap();
+    assert_eq!((next.due_date.as_deref(), next.remind_at), (Some("2099-03-03"), None));
+}
+
 // ── Moving a section ────────────────────────────────────────────────────────
 
 #[test]

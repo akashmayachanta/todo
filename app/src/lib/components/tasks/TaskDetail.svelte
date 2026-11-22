@@ -16,8 +16,8 @@
 	import SmartTips from './SmartTips.svelte';
 	import TaskGrip from './TaskGrip.svelte';
 	import TaskInlineEdit from './TaskInlineEdit.svelte';
-	import { dueAtOf, finishPatch, patchChips, smartPatch, smartTitle, titleEdit } from './smartEdit';
-	import { PRIORITY_OPTIONS, SUBTASK_MAX, defaultReminder, projectColor, subtaskLimit, subtaskMinutes } from './shared';
+	import { dueAtOf, patchChips, settlePatch, smartPatch, smartTitle, titleEdit } from './smartEdit';
+	import { PRIORITY_OPTIONS, SUBTASK_MAX, projectColor, subtaskLimit, subtaskMinutes } from './shared';
 
 	/**
 	 * One task in a modal: the title, description and subtasks on the left, its fields in a
@@ -118,7 +118,7 @@
 	let placeValue = $derived(task.section_id ? `c${task.section_id}` : task.project_id ? `p${task.project_id}` : 'inbox');
 
 	function save(patch: TaskPatch) {
-		return onpatch(task, finishPatch(task, patch));
+		return onpatch(task, settlePatch(task, patch));
 	}
 
 	// ── Duration ─────────────────────────────────────────────────────────────
@@ -285,7 +285,8 @@
 			priority: p.priority ?? 4,
 			due_date: p.due_date,
 			due_time: p.due_date ? p.due_time : null,
-			remind_at: p.remind_at ?? defaultReminder(p.due_date, p.due_date ? p.due_time : null),
+			// Left out, tasks-core gives a dated subtask its default reminder.
+			...(p.remind_at ? { remind_at: p.remind_at } : {}),
 			recurrence: p.recurrence,
 			duration_minutes: minutes ?? p.duration_minutes,
 		});

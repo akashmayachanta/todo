@@ -8,9 +8,11 @@ license.workspace = true
 [lib]
 # The _lib suffix keeps the lib apart from the bin on Windows (cargo#8519).
 name = "tasks_app_lib"
-# rlib for the Windows exe, cdylib for Android. Add "staticlib" back to build
-# for iOS; it made a 237 MB .lib on every Windows build.
-crate-type = ["cdylib", "rlib"]
+# rlib only, for the Windows exe: a cdylib here makes every Windows build link
+# an unused tasks_app_lib.dll. Android needs the cdylib, so build-android.sh
+# adds it in the Linux copy; keep this line exactly as it is, or update that
+# script too. Add "staticlib" for iOS; it made a 237 MB .lib on every Windows build.
+crate-type = ["rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

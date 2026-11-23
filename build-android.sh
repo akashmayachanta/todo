@@ -41,6 +41,15 @@ rsync -a \
 # Windows must not linger here and be copied into the Android project again.
 rsync -a --delete "$SRC/app/android/" "$DEST/app/android/"
 
+# The Windows repo builds the app crate as an rlib only (a cdylib there links an
+# unused DLL on every Windows build). Android loads the app as a cdylib, so add it here.
+MANIFEST="$DEST/app/src-tauri/Cargo.toml"
+sed -i 's/^crate-type = \["rlib"\]$/crate-type = ["cdylib", "rlib"]/' "$MANIFEST"
+if ! grep -q '^crate-type = \["cdylib", "rlib"\]$' "$MANIFEST"; then
+  echo "error: couldn't set crate-type to cdylib in $MANIFEST; see build-android.sh." >&2
+  exit 1
+fi
+
 APK="$DEST/app/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk"
 
 cd "$DEST/app"

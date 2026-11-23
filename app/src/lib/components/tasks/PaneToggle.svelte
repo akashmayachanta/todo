@@ -10,7 +10,8 @@
 	class="tasks-pane-toggle {klass}"
 	aria-label={$paneCollapsed ? 'Open sidebar' : 'Close sidebar'}
 	aria-expanded={!$paneCollapsed}
-	title={$paneCollapsed ? 'Open sidebar' : 'Close sidebar'}
+	title={$paneCollapsed ? 'Open sidebar (M)' : 'Close sidebar (M)'}
+	aria-keyshortcuts="M"
 	onclick={togglePane}
 >
 	<svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">

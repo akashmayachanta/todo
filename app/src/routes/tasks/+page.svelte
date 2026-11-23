@@ -38,7 +38,7 @@
 	import TaskProjects from '$lib/components/tasks/TaskProjects.svelte';
 	import FilterDialog from '$lib/components/tasks/FilterDialog.svelte';
 	import PaneToggle from '$lib/components/tasks/PaneToggle.svelte';
-	import { paneCollapsed } from '$lib/stores/paneCollapsed';
+	import { paneCollapsed, togglePane } from '$lib/stores/paneCollapsed';
 	import {
 		DATE_VIEW_GROUPS, FILTER_GROUPS, compileFilter, filterDefaults, groupTasks, loadGrouping, saveGrouping,
 		type AddDefaults, type Bucket, type DateViewGroup, type GroupCtx,
@@ -1763,6 +1763,13 @@
 		const el = e.target as HTMLElement | null;
 		if (el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName))) return;
 		if (goKey(e)) return;
+		// M hides the sidebar, or brings it back. Phones show the pane as the Browse tab instead.
+		if (e.key.toLowerCase() === 'm' && !e.shiftKey && !e.repeat && !browsing) {
+			if (projectDialog || filterDialog || movingSection || movingTasks || taskId) return;
+			e.preventDefault();
+			togglePane();
+			return;
+		}
 		if (e.key !== 'q') return;
 		if (projectDialog || filterDialog || movingSection || movingTasks || taskId || view === 'karma' || view === 'reporting' || view === 'projects' || view === 'search') return;
 		e.preventDefault();

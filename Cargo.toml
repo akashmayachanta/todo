@@ -28,3 +28,9 @@ strip = true
 # they are unaffected. The cost is a slightly less optimised exe. Delete
 # target/release/incremental if it ever grows too large.
 incremental = true
+
+# The app crate is mostly glue between the UI and the DB, and it is rebuilt on
+# every Windows build (it embeds the UI), so it is optimized less to compile
+# faster. Dependencies, tasks-core included, stay fully optimized.
+[profile.release.package.tasks-app]
+opt-level = 1

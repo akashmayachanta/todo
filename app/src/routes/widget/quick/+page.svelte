@@ -2,7 +2,8 @@
 	import { onMount } from 'svelte';
 	import { listen } from '@tauri-apps/api/event';
 	import { api, errorDetail } from '$lib/api';
-	import type { TaskSection, TaskIn, TaskProject } from '$lib/api';
+	import type { TaskFilter, TaskSection, TaskIn, TaskProject } from '$lib/api';
+	import GoTo from '$lib/components/tasks/GoTo.svelte';
 	import QuickAdd from '$lib/components/tasks/QuickAdd.svelte';
 	import SmartTips from '$lib/components/tasks/SmartTips.svelte';
 	import { placeName } from '$lib/components/tasks/shared';
@@ -10,7 +11,7 @@
 	import { askReminderPermission } from '$lib/stores/taskReminders';
 	import { dayLabel } from '$lib/taskParse';
 	import { onTasksChanged } from '$lib/tasks/client';
-	import { hideQuickAdd } from '$shell/widgets';
+	import { hideQuickAdd, showView } from '$shell/widgets';
 	import '../../tasks/tasks.css';
 	import '../widget.css';
 
@@ -18,11 +19,15 @@
 	 * The quick add popup: its own window, kept loaded and hidden (src-tauri/src/widgets.rs),
 	 * so Alt+N shows it at once from any app without bringing up the main window. Esc,
 	 * clicking away or losing focus hides it; after adding, it says where the task went.
+	 * A line starting with `>` goes to a view, project, section or filter in the main window instead.
 	 */
 	const ADDED_FOR_MS = 1000;
 
 	let projects = $state<TaskProject[]>([]);
 	let sections = $state<TaskSection[]>([]);
+	let filters = $state<TaskFilter[]>([]);
+	/** Set while going somewhere: what was typed after the `>`. */
+	let goTo = $state<string | null>(null);
 	/** Bumped each time it opens, for an empty line with the focus in it. */
 	let session = $state(0);
 	let added = $state('');
@@ -30,7 +35,9 @@
 
 	async function loadPlaces() {
 		try {
-			[projects, sections] = await Promise.all([api.tasks.projects.list(), api.tasks.sections.list()]);
+			[projects, sections, filters] = await Promise.all([
+				api.tasks.projects.list(), api.tasks.sections.list(), api.tasks.filters.list(),
+			]);
 		} catch (e) {
 			toast.error(errorDetail(e));
 		}
@@ -51,6 +58,16 @@
 		}
 	}
 
+	async function go(query: string) {
+		try {
+			await showView(query);
+			goTo = null;
+			hideQuickAdd();
+		} catch (e) {
+			toast.error(errorDetail(e));
+		}
+	}
+
 	function focusLine() {
 		document.querySelector<HTMLInputElement>('.quick-add-input')?.focus();
 	}
@@ -61,6 +78,7 @@
 		const stopOpen = listen('tasks://quick-open', () => {
 			clearTimeout(addedTimer);
 			added = '';
+			goTo = null;
 			session++;
 			loadPlaces();
 		});
@@ -82,10 +100,14 @@
 	<div class="widget-quick-card" role="dialog" aria-label="Add task">
 		{#if added}
 			<p class="widget-quick-added" role="status">{added}</p>
+		{:else if goTo !== null}
+			{#key session}
+				<GoTo {projects} {sections} {filters}initial={goTo} ongo={go} onback={() => (goTo = null)} oncancel={hideQuickAdd} />
+			{/key}
 		{:else}
 			<div class="widget-quick-row">
 				{#key session}
-					<QuickAdd {projects} {sections} onadd={add} oncancel={hideQuickAdd} />
+					<QuickAdd {projects} {sections} onadd={add} oncancel={hideQuickAdd} ongoto={(q) => (goTo = q)} />
 				{/key}
 				<SmartTips />
 			</div>

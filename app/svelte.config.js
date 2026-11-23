@@ -16,6 +16,8 @@ const config = {
 		// A single-page app inside the webview; index.html is the fallback for every route.
 		adapter: adapter({ pages: out, assets: out, fallback: 'index.html', strict: false }),
 		paths: { base: webBase },
+		// src/service-worker.ts is only for the browser copy; +layout.svelte registers it there.
+		serviceWorker: { register: false },
 		alias: {
 			$shell: 'src/app',
 		},

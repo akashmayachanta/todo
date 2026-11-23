@@ -2198,7 +2198,7 @@ button.task-modal-crumb:hover {
 }
 
 .task-col {
-  flex: 0 0 17.5rem;
+  flex: 0 0 15rem;
   min-width: 0;
 }
 
@@ -3680,7 +3680,7 @@ html.sort-active [data-move-id] {
 }
 
 .projects-board .projects-card {
-  flex: 0 0 17.5rem;
+  flex: 0 0 15rem;
   min-width: 0;
 }
 

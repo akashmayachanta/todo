@@ -182,6 +182,11 @@ updates, and Settings shows only Account, General, Theme and AI. Other devices' 
 over `/sync/events`, as in the app. It assumes the API is at `/tasks-api`; for
 another `TASKS_API_BASE_PATH`, build it with `VITE_TASKS_API_BASE=<path>` set.
 
+Over HTTPS (a Cloudflare Tunnel, say) a phone can install the page as an app
+("Install app" in Chrome, Share → Add to Home Screen on iPhone). The manifest is
+`app/static/manifest.webmanifest`, and `app/src/service-worker.ts` keeps only the
+app's own files, so tasks still need the server.
+
 The log is `tasks-server.log` in the data folder and starts over once it passes
 5 MB. `RUST_LOG=debug` gives more logging.
 

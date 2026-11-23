@@ -34,6 +34,7 @@
 	import { API_BASE, followServerChanges, webSession, webSignOut, webTasksClient } from '$shell/webClient';
 	import WebSignIn from '$shell/WebSignIn.svelte';
 	import { base, resolve } from '$app/paths';
+	import { dev } from '$app/environment';
 
 	// Before any page loads: in the app, tasks come from the local DB (Rust), and
 	// reminders are system notifications scheduled there too (src-tauri/src/reminders.rs).
@@ -157,6 +158,10 @@
 		function onVisible() {
 			if (document.visibilityState === 'visible') tasksChanged();
 		}
+		// Lets a phone install the page as an app (src/service-worker.ts). Needs HTTPS.
+		if (!dev && 'serviceWorker' in navigator) {
+			navigator.serviceWorker.register(`${base}/service-worker.js`).catch(() => {});
+		}
 		window.addEventListener('online', tasksChanged);
 		document.addEventListener('visibilitychange', onVisible);
 		document.addEventListener('keydown', onKey);
@@ -205,6 +210,8 @@
 				listen('tasks://quick-add', () => takeQuickAdd(true)),
 				listen('tasks://open-view', () => takeOpenView()),
 				listen<string>('tasks://open-task', (e) => openTask(e.payload)),
+				// The quick add popup's `>`: a view, project or filter, as the Tasks page's query string.
+				listen<string>('tasks://show-view', (e) => goto(`${resolve('/tasks' as any)}?${e.payload}`)),
 			);
 		}
 

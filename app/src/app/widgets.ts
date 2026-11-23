@@ -21,6 +21,11 @@ export function showTask(id: string): Promise<void> {
 	return call('app_show_task', { id });
 }
 
+/** Brings up the main window at a Tasks page view, given as its query string ("project=…"). */
+export function showView(query: string): Promise<void> {
+	return call('app_show_view', { query });
+}
+
 /** Hides the quick add popup this page is in. */
 export function hideQuickAdd(): Promise<void> {
 	return call('app_quick_hide');

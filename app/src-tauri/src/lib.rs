@@ -30,6 +30,8 @@ pub const EVENT_QUICK_ADD: &str = "tasks://quick-add";
 pub const EVENT_OPEN_VIEW: &str = "tasks://open-view";
 /// Tells the page to open a task (a tapped notification).
 pub const EVENT_OPEN_TASK: &str = "tasks://open-task";
+/// Tells the page to show a view, with its query string as the payload (the popup's `>`).
+pub const EVENT_SHOW_VIEW: &str = "tasks://show-view";
 
 /// Set once the main window has been shown, so only its first showing is maximized
 /// (after that, a restore from the tray keeps whatever size the user left it at).
@@ -251,6 +253,7 @@ pub fn run() {
             commands::app_take_quick_add,
             commands::app_take_open_view,
             commands::app_show_task,
+            commands::app_show_view,
             commands::app_pin_open,
             commands::app_pin_close,
             commands::app_quick_hide,

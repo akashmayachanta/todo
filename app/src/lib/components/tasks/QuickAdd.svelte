@@ -16,19 +16,30 @@
 	 * One line that becomes a task: "Call bank tomorrow 5pm p1 #Home !30m". The parts read as
 	 * date, priority, place, recurrence or reminder are highlighted in the line and shown as
 	 * chips under it. `#` offers the projects and sections, `/` the sections. Enter adds, Esc cancels.
+	 * With `ongoto` (the Ctrl+Space popup and the in-app dialog), a leading `>` switches to going to a place instead.
 	 * When the line names no place, its words may file it ($lib/suggestPlace): the place chip
 	 * then shows that place, and clicking it puts the task back where it would have gone.
 	 */
-	let { projects, sections, defaults = {}, onadd, oncancel }: {
+	let { projects, sections, defaults = {}, onadd, oncancel, ongoto }: {
 		projects: TaskProject[];
 		sections: TaskSection[];
 		/** Where the task goes, its date and priority unless the line says otherwise. */
 		defaults?: { project_id?: string | null; section_id?: string | null; due_date?: string | null; priority?: TaskPriority };
 		onadd: (data: TaskIn) => Promise<void>;
 		oncancel: () => void;
+		/** When given, a line starting with `>` asks to go somewhere instead, with what follows it. */
+		ongoto?: (query: string) => void;
 	} = $props();
 
 	let text = $state('');
+
+	$effect(() => {
+		if (ongoto && text.startsWith('>')) {
+			const rest = text.slice(1);
+			text = '';
+			ongoto(rest);
+		}
+	});
 	let busy = $state(false);
 	let field = $state<SmartTaskInput | null>(null);
 	let now = $state(new Date());

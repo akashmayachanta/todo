@@ -13,6 +13,7 @@
 	import TodayIcon from './TodayIcon.svelte';
 	import PaneToggle from './PaneToggle.svelte';
 	import { projectColor, type TaskSettings, type TaskView } from './shared';
+	import type { PinTarget } from './pins';
 
 	/**
 	 * The Tasks page's own pane: the account (from the app shell) and the sidebar button
@@ -27,7 +28,7 @@
 		projects, sections, filters, counts, minutes, view, projectId, filterId, settings, today, query = '', browsing = false,
 		onsearch, onaddproject, oneditproject, ondeleteproject, onreorderprojects, onfavoriteproject, onaddfilter, oneditfilter, ondeletefilter,
 		onplacesection, onmovesection, onrenamesection, ondeletesection,
-		taskDrag = false, ondroptasks = null,
+		taskDrag = false, ondroptasks = null, onpin = null,
 	}: {
 		projects: TaskProject[];
 		sections: TaskSection[];
@@ -68,7 +69,12 @@
 		taskDrag?: boolean;
 		/** Tasks dropped on a project, section or the Inbox (a move), or on Today (a date). */
 		ondroptasks?: ((to: { project_id: string | null; section_id: string | null } | { due_date: string }) => void) | null;
+		/** Pins a project, section or filter to the desktop; null where there are no pins. */
+		onpin?: ((target: PinTarget) => void) | null;
 	} = $props();
+
+	/** The "Pin to desktop" item, where there are pins. */
+	let pinItem = $derived(onpin ? [{ id: 'pin', label: 'Pin to desktop', icon: 'pin' }] : []);
 
 	let search = $state<TaskSearchBox | null>(null);
 
@@ -214,7 +220,8 @@
 			const other = list[list.findIndex((x) => x.id === c.id) + (id === 'up' ? -1 : 1)];
 			if (other) withFlip(() => onplacesection(c.id, c.project_id, other.id, id === 'down'));
 		} else {
-			ondeletesection(c);
+			if (id === 'pin') onpin?.({ kind: 'section', id: c.id });
+			else ondeletesection(c);
 		}
 	}
 
@@ -406,8 +413,8 @@
 						class="tasks-pane-menu"
 						triggerClass="tasks-icon-btn"
 						ariaLabel="Favorite actions for {p.name}"
-						items={[{ id: 'unfavorite', label: 'Remove from favorites' }]}
-						onselect={() => onfavoriteproject(p)}
+						items={[...pinItem, { id: 'unfavorite', label: 'Remove from favorites' }]}
+						onselect={(id) => (id === 'pin' ? onpin?.({ kind: 'project', id: p.id }) : onfavoriteproject(p))}
 					>
 						{#snippet icon()}
 							<svg aria-hidden="true" class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path d="M6 10a2 2 0 11-4 0 2 2 0 014 0zm6 0a2 2 0 11-4 0 2 2 0 014 0zm6 0a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
@@ -436,8 +443,8 @@
 					class="tasks-pane-menu"
 					triggerClass="tasks-icon-btn"
 					ariaLabel="Filter actions for {f.name}"
-					items={[{ id: 'edit', label: 'Edit filter' }, { id: 'delete', label: 'Delete filter', danger: true }]}
-					onselect={(id) => (id === 'edit' ? oneditfilter(f) : ondeletefilter(f))}
+					items={[{ id: 'edit', label: 'Edit filter' }, ...pinItem, { id: 'delete', label: 'Delete filter', danger: true }]}
+					onselect={(id) => (id === 'edit' ? oneditfilter(f) : id === 'pin' ? onpin?.({ kind: 'filter', id: f.id }) : ondeletefilter(f))}
 				>
 					{#snippet icon()}
 						<svg aria-hidden="true" class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path d="M6 10a2 2 0 11-4 0 2 2 0 014 0zm6 0a2 2 0 11-4 0 2 2 0 014 0zm6 0a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
@@ -514,6 +521,7 @@
 					items={[
 						{ id: 'edit', label: 'Edit' },
 						{ id: 'favorite', label: p.favorite ? 'Remove from favorites' : 'Add to favorites', icon: p.favorite ? 'unfavorite' : 'favorite' },
+						...pinItem,
 						{ id: 'up', label: 'Move up', disabled: i === 0 },
 						{ id: 'down', label: 'Move down', disabled: i === projects.length - 1 },
 						{ id: 'delete', label: 'Delete project', danger: true },
@@ -521,6 +529,7 @@
 					onselect={(id) =>
 						id === 'edit' ? oneditproject(p)
 						: id === 'favorite' ? onfavoriteproject(p)
+						: id === 'pin' ? onpin?.({ kind: 'project', id: p.id })
 						: id === 'up' ? step(p, -1)
 						: id === 'down' ? step(p, 1)
 						: ondeleteproject(p)}
@@ -584,6 +593,7 @@
 								items={[
 									{ id: 'move', label: 'Move to project', disabled: projects.length < 2 },
 									{ id: 'rename', label: 'Rename' },
+									...pinItem,
 									{ id: 'up', label: 'Move up', disabled: j === 0 },
 									{ id: 'down', label: 'Move down', disabled: j === cats.length - 1 },
 									{ id: 'delete', label: 'Delete section', danger: true },

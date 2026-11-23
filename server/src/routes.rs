@@ -557,6 +557,9 @@ async fn web_app(State(s): St, req: Request) -> Response {
     let (mut parts, body) = req.into_parts();
     let rest = parts.uri.path().strip_prefix(WEB_PATH).unwrap_or("/");
     let rest = if rest.is_empty() { "/" } else { rest };
+    // A phone's installed copy looks for a new service worker and manifest on each start,
+    // so caches in between (Cloudflare, the browser) must check with us too.
+    let always_check = matches!(rest, "/service-worker.js" | "/manifest.webmanifest");
     let uri = match parts.uri.query() {
         Some(q) => format!("{rest}?{q}"),
         None => rest.to_string(),
@@ -573,7 +576,7 @@ async fn web_app(State(s): St, req: Request) -> Response {
     };
     let mut res = res.map(axum::body::Body::new);
     // index.html names the current build's files, so it is always checked again.
-    if res.headers().get(header::CONTENT_TYPE).is_some_and(|t| t.as_bytes().starts_with(b"text/html")) {
+    if always_check || res.headers().get(header::CONTENT_TYPE).is_some_and(|t| t.as_bytes().starts_with(b"text/html")) {
         res.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
     }
     res

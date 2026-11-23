@@ -2052,6 +2052,7 @@
 		ondeletesection={deleteSection}
 		taskDrag={dragging !== null}
 		ondroptasks={dropOnPane}
+		onpin={isDesktop ? pin : null}
 	/>
 
 	<!-- svelte-ignore a11y_no_static_element_interactions -->

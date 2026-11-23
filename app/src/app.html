@@ -7,6 +7,13 @@
 		<!-- The app icon, for the browser copy's tab (static/, refreshed by `npm run icons`). -->
 		<link rel="icon" href="%sveltekit.assets%/favicon.svg" type="image/svg+xml" />
 		<link rel="icon" href="%sveltekit.assets%/favicon.png" type="image/png" sizes="32x32" />
+		<!-- Installing the browser copy on a phone (static/manifest.webmanifest, src/service-worker.ts). -->
+		<link rel="manifest" href="%sveltekit.assets%/manifest.webmanifest" />
+		<link rel="apple-touch-icon" href="%sveltekit.assets%/pwa/apple-touch-icon.png" />
+		<meta name="mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-title" content="Tasks" />
+		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 		<style>html, body { overflow-x: clip; height: 100%; margin: 0; }</style>
 		<script>
 			// The saved theme before first paint; with no choice yet it follows the system.

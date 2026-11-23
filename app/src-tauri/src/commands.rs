@@ -395,6 +395,15 @@ pub fn app_show_task(app: AppHandle, id: String) {
     let _ = app.emit(crate::EVENT_OPEN_TASK, id);
 }
 
+/// Opens a Tasks page view (its query string, e.g. "project=…") in the main window,
+/// from the quick add popup's `>`.
+#[tauri::command]
+pub fn app_show_view(app: AppHandle, query: String) {
+    #[cfg(desktop)]
+    crate::show_main(&app);
+    let _ = app.emit(crate::EVENT_SHOW_VIEW, query);
+}
+
 // ── The desktop's extra windows; none of them exist on Android ───────────────
 
 /// Pins a list or a task to the desktop. Async: see widgets.rs.

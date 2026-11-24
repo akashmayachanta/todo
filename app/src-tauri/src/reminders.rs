@@ -31,7 +31,7 @@ pub(crate) const CLOCK_12H_KEY: &str = "clock_12h";
 const SNOOZE_MINUTES: i64 = 10;
 
 /// A task's duration as the app shows it: "45m", "1h", "1h 30m". None without one.
-fn duration_text(minutes: Option<i64>) -> Option<String> {
+pub(crate) fn duration_text(minutes: Option<i64>) -> Option<String> {
     let minutes = minutes.filter(|m| *m > 0)?;
     let (h, m) = (minutes / 60, minutes % 60);
     Some(match (h, m) {

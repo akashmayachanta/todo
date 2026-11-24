@@ -115,7 +115,7 @@ pub fn list(conn: &Connection, kind: &str, id: &str) -> tasks_core::Result<Value
             json!({
                 "id": t.id,
                 "title": tasks_core::plain_title(&t.title),
-                "due": due_label(date, t.due_time.as_deref(), today, hour12),
+                "due": due_label(date, t.due_time.as_deref(), t.duration_minutes, today, hour12),
                 "overdue": date.is_some_and(|d| d < today),
                 "tone": due_tone(date, t.due_time.as_deref(), t.duration_minutes, now),
                 "priority": t.priority,
@@ -167,9 +167,13 @@ fn due_tone(date: Option<NaiveDate>, time: Option<&str>, duration: Option<i64>, 
 }
 
 /// "Today", "Tomorrow", "Yesterday", "Mon 17 Nov" (with the year when it isn't
-/// this one), then the time if there is one. Empty for an undated task.
-fn due_label(date: Option<NaiveDate>, time: Option<&str>, today: NaiveDate, hour12: bool) -> String {
-    let Some(date) = date else { return String::new() };
+/// this one), then the time if there is one, as a range when the task has a
+/// duration ("Today 09:00 – 10:30"), as the page's describeDue. Without a time the
+/// duration follows ("Today · 1h 30m"); an undated task shows just its duration,
+/// and nothing when it has none.
+fn due_label(date: Option<NaiveDate>, time: Option<&str>, duration: Option<i64>, today: NaiveDate, hour12: bool) -> String {
+    let length = crate::reminders::duration_text(duration);
+    let Some(date) = date else { return length.unwrap_or_default() };
     let mut out = match (date - today).num_days() {
         0 => "Today".to_string(),
         1 => "Tomorrow".to_string(),
@@ -177,9 +181,23 @@ fn due_label(date: Option<NaiveDate>, time: Option<&str>, today: NaiveDate, hour
         _ if date.year() == today.year() => date.format("%a %-d %b").to_string(),
         _ => date.format("%-d %b %Y").to_string(),
     };
-    if let Some(time) = time.and_then(|t| chrono::NaiveTime::parse_from_str(t, "%H:%M").ok()) {
-        out.push(' ');
-        out.push_str(&if hour12 { time.format("%-I:%M %p").to_string() } else { time.format("%H:%M").to_string() });
+    let clock = |t: NaiveTime| if hour12 { t.format("%-I:%M %p").to_string() } else { t.format("%H:%M").to_string() };
+    match time.and_then(|t| NaiveTime::parse_from_str(t, "%H:%M").ok()) {
+        Some(start) => {
+            out.push(' ');
+            out.push_str(&clock(start));
+            if let Some(minutes) = duration.filter(|m| *m > 0) {
+                // NaiveTime wraps past midnight, as the page's addMinutes.
+                out.push_str(" – ");
+                out.push_str(&clock(start + chrono::Duration::minutes(minutes)));
+            }
+        }
+        None => {
+            if let Some(length) = length {
+                out.push_str(" · ");
+                out.push_str(&length);
+            }
+        }
     }
     out
 }

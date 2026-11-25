@@ -2,7 +2,7 @@
 	import { untrack } from 'svelte';
 	import { api, errorDetail, type Task, type TaskProject, type TaskReport, type TaskReportItem } from '$lib/api';
 	import { plainText } from '$lib/links';
-	import { addDays, fromYmd } from '$lib/taskParse';
+	import { addDays, formatDuration, fromYmd } from '$lib/taskParse';
 	import Avatar from '$shell/Avatar.svelte';
 	import { me } from '$shell/profile';
 	import PlaceMark from './PlaceMark.svelte';
@@ -214,6 +214,7 @@
 								</span>
 							{/if}
 							<span class="report-meta">
+								{#if r.task?.duration_minutes}<span class="report-duration" title="Takes {formatDuration(r.task.duration_minutes)}">{formatDuration(r.task.duration_minutes)}</span>{/if}
 								{#if pl}<span class="report-place">{pl.name}<PlaceMark color={pl.color} /></span>{/if}
 								<time class="report-time" datetime={at.toISOString()} title={at.toLocaleString()}>{when(at)}</time>
 							</span>

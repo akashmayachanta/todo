@@ -10,6 +10,7 @@
 	import { pickedDayLabel, formatDuration, formatTime, parseQuickAdd } from '$lib/taskParse';
 	import SmartTaskInput from './SmartTaskInput.svelte';
 	import { projectColor } from './shared';
+	import { defaultReminder } from './smartEdit';
 	import './quickadd.css';
 
 	/**
@@ -95,6 +96,8 @@
 		};
 	});
 
+	/** The reminder the task will have once added: the one named, or tasks-core's default. */
+	let reminder = $derived(result.remind_at ?? defaultReminder(result.due_date, result.due_time));
 	let project = $derived(projects.find((p) => p.id === result.project_id) ?? null);
 	let section = $derived(sections.find((c) => c.id === result.section_id) ?? null);
 	/** The place a turned-down guess names, offered beside the chip to take it back. */
@@ -159,10 +162,10 @@
 			{#if result.recurrence}
 				<span class="task-chip" data-kind="recurrence">↻ {result.recurrence}</span>
 			{/if}
-			{#if result.remind_at}
+			{#if reminder}
 				<span class="task-chip" data-kind="reminder">
 					<svg aria-hidden="true" class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
-					{formatInstant(result.remind_at)}
+					{formatInstant(reminder)}
 				</span>
 			{/if}
 			{#if result.priority && result.priority < 4}

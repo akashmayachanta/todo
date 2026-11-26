@@ -58,7 +58,51 @@ export function smartEdit(text: string, task: Task, projects: TaskProject[], sec
 		const p: TaskPatch = { ...fields, ...(title !== task.title ? { title } : {}) };
 		if (Object.keys(p).length) patch = p;
 	}
-	return { ...st, fields, patch, next: { ...task, ...fields } as Task };
+	const shown = previewPatch(task, fields);
+	return { ...st, fields, patch, shown, next: { ...task, ...shown } as Task };
+}
+
+// ── What tasks-core does on save ─────────────────────────────────────────────
+// Every editor previews through these, so its chips show what the save will do.
+// They mirror core/src/reminder.rs and ops.rs; change them together.
+
+/**
+ * A change to an existing task as tasks-core will save it: the patch, plus the
+ * reminder that moves with a new due date or time. Use it for any preview of an edit.
+ */
+export function previewPatch(task: Task, patch: TaskPatch): TaskPatch {
+	if ('remind_at' in patch) return patch;
+	const remind_at = reminderAfterDueChange(task, patch);
+	return remind_at === task.remind_at ? patch : { ...patch, remind_at };
+}
+
+/** The reminder tasks-core gives a new task that doesn't name one: at its due moment, if still ahead. */
+export function defaultReminder(due_date: string | null | undefined, due_time: string | null | undefined): string | null {
+	if (!due_date) return null;
+	const at = dueAtOf({ due_date, due_time: due_time ?? null })!;
+	return at > Date.now() ? new Date(at).toISOString() : null;
+}
+
+/**
+ * The reminder tasks-core will give a task once this change is saved, when the change
+ * doesn't set one itself (core/src/reminder.rs, ops.rs `update_task`): a new due date
+ * or time moves the reminder so it keeps its lead, or brings the default one at the
+ * due moment if that is still ahead; taking the date off takes the reminder off.
+ */
+export function reminderAfterDueChange(task: Task, fields: TaskPatch): string | null {
+	if (!('due_date' in fields) && !('due_time' in fields)) return task.remind_at;
+	const date = 'due_date' in fields ? (fields.due_date ?? null) : task.due_date;
+	if (!date) return null;
+	const time = 'due_time' in fields ? (fields.due_time ?? null) : task.due_time;
+	const to = dueAtOf({ due_date: date, due_time: time })!;
+	if (task.remind_at) {
+		const from = dueAtOf(task);
+		const at = new Date(task.remind_at).getTime();
+		if (from === null || Number.isNaN(at)) return task.remind_at;
+		return new Date(to - (from - at)).toISOString();
+	}
+	const sets = !!fields.due_date || !!fields.due_time;
+	return sets ? defaultReminder(date, time) : null;
 }
 
 export type SmartChip = { kind: string; label: string; priority?: number; color?: string };
@@ -76,6 +120,8 @@ export function patchChips(p: TaskPatch, projects: TaskProject[], sections: Task
 	if (p.recurrence) chips.push({ kind: 'recurrence', label: `↻ ${p.recurrence}` });
 	if (p.remind_at) {
 		chips.push({ kind: 'reminder', label: `Remind ${formatInstant(p.remind_at)}` });
+	} else if ('remind_at' in p) {
+		chips.push({ kind: 'reminder', label: 'No reminder' });
 	}
 	if (p.priority) chips.push({ kind: 'priority', label: `P${p.priority}`, priority: p.priority });
 	if ('project_id' in p) {

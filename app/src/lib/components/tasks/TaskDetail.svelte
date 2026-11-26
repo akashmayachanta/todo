@@ -171,7 +171,7 @@
 
 	// ── Smart title ──────────────────────────────────────────────────────────
 	let st = $derived(smartEdit(title, task, projects, sections));
-	let titleChips = $derived(patchChips(st.fields, projects, sections));
+	let titleChips = $derived(patchChips(st.shown, projects, sections));
 	let titleLimit = $derived(task.parent_id ? subtaskLimit(st.smart.title, task.title) : null);
 	/**
 	 * A subtask's title shows at most two lines, ending in "…", until it is clicked;
@@ -185,10 +185,27 @@
 		titleField?.focus();
 	}
 
-	function finishTitle() {
+	/** Enter saved the title, so the blur that follows keeps it. */
+	let titleCommitted = false;
+
+	/** Enter: save the title. An over-long one stays open, with its counter, to be shortened. */
+	function commitTitle() {
+		if (titleLimit?.over) return;
 		saveTitle();
-		// An over-long title stays open, with its counter, to be shortened.
-		if (!titleLimit?.over) titleEditing = false;
+		titleCommitted = true;
+		blurActive(); // runs leaveTitle now, which takes the flag back
+		titleCommitted = false;
+		titleEditing = false;
+	}
+
+	/** Leaving the title without Enter discards what was typed, as the inline editor does. */
+	function leaveTitle() {
+		if (titleCommitted) {
+			titleCommitted = false;
+			return;
+		}
+		title = task.title;
+		titleEditing = false;
 	}
 
 	function saveTitle() {
@@ -514,8 +531,8 @@
 								scopeProjectId={st.scope}
 								ariaLabel="Title"
 								class="task-modal-title {task.completed_at ? 'task-modal-title-done' : ''}"
-								onenter={blurActive}
-								onblur={task.parent_id ? finishTitle : saveTitle}
+								onenter={commitTitle}
+								onblur={leaveTitle}
 							/>
 						{/if}
 						{#if titleLimit?.shown}

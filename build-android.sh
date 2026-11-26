@@ -9,7 +9,7 @@
 set -euo pipefail
 
 SRC="$(cd "$(dirname "$0")" && pwd)"   # the Windows repo, seen from WSL
-DEST="${DEST:-$HOME/todo}"             # the Linux copy that is built
+DEST="${DEST:-$HOME/GIT/todo}"           # the Linux copy that is built
 
 # Run from the Linux copy, the sync would copy it onto itself: the APK would be
 # built from stale code and left in Linux, not in the Windows repo.

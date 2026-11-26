@@ -83,7 +83,7 @@ list the build commands they need to run.
 - Creating a window from a sync command deadlocks on Windows, so those commands are async.
 
 **Android**
-- It is built in WSL from a Linux copy at `~/todo`. `build-android.sh` syncs code there
+- It is built in WSL from a Linux copy at `~/GIT/todo`. `build-android.sh` syncs code there
   but skips `app/src-tauri/gen/android`, which exists only in that copy, so a change
   meant for that folder must be applied by a script in `app/scripts/`.
 - The app's own Kotlin (reminder alarms, background sync, boot receiver, the

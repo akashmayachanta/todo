@@ -17,7 +17,7 @@ The README explains how the app works. This file is just the steps.
 | Windows exe | `build-windows.bat` (double-click, or run it from PowerShell); add `nsis` for the installer too | `target\release\tasks-app.exe`, with `nsis`: `target\release\bundle\nsis\*-setup.exe` |
 | Android APK | In Ubuntu: `bash /mnt/c/Drive/Vault/todo/build-android.sh` | `target\apk\tasks.apk` |
 
-`build-android.sh` copies the latest code into `~/todo`, builds there, and copies the APK back into the Windows repo.
+`build-android.sh` copies the latest code into `~/GIT/todo`, builds there, and copies the APK back into the Windows repo.
 
 ---
 
@@ -195,7 +195,7 @@ Build from a copy on the Linux filesystem, not from `/mnt/c/...`:
 rsync -a \
   --exclude node_modules --exclude target --exclude app/build \
   --exclude .svelte-kit --exclude app/src-tauri/gen/android \
-  /mnt/c/Drive/Vault/todo/ ~/todo/
+  /mnt/c/Drive/Vault/todo/ ~/GIT/todo/
 ```
 
 Run the same command again whenever you change code on Windows. It leaves out
@@ -204,7 +204,7 @@ Run the same command again whenever you change code on Windows. It leaves out
 ### 3.3 Generate the Android project (once)
 
 ```bash
-cd ~/todo/app
+cd ~/GIT/todo/app
 npm ci
 npm run android:init     # writes src-tauri/gen/android and adds the reminder permissions
 ```
@@ -215,7 +215,7 @@ npm run android:init     # writes src-tauri/gen/android and adds the reminder pe
 keytool -genkey -v -keystore ~/tasks-release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias tasks
 ```
 
-Create `~/todo/app/src-tauri/gen/android/keystore.properties`. It's git-ignored.
+Create `~/GIT/todo/app/src-tauri/gen/android/keystore.properties`. It's git-ignored.
 
 ```
 password=<keystore password>
@@ -232,7 +232,7 @@ Back up `~/tasks-release.jks` somewhere safe. Updates to an installed APK have t
 ### 3.5 Build the APK
 
 ```bash
-cd ~/todo/app
+cd ~/GIT/todo/app
 npm run android:build
 ```
 
@@ -243,7 +243,7 @@ nearly every modern phone. For an APK that also runs on 32-bit phones and x86 em
 The APK is at the path below. Its name says `universal` even for an arm64-only build:
 
 ```
-~/todo/app/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk
+~/GIT/todo/app/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk
 ```
 
 From Windows, the same file is at
@@ -273,7 +273,7 @@ options → Wireless debugging → *Pair device with pairing code*. Then, in WSL
 ```bash
 adb pair <phone-ip>:<pair-port>      # enter the code
 adb connect <phone-ip>:<port>
-adb install -r ~/todo/app/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk
+adb install -r ~/GIT/todo/app/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk
 ```
 
 If WSL can't reach the phone, put this in `%USERPROFILE%\.wslconfig`, then run `wsl --shutdown`:
@@ -308,7 +308,7 @@ the `.jks`. To move it back to the Windows repo:
 
 ```bash
 rsync -a --exclude build --exclude .gradle --exclude keystore.properties \
-  ~/todo/app/src-tauri/gen/android/ /mnt/c/Drive/Vault/todo/app/src-tauri/gen/android/
+  ~/GIT/todo/app/src-tauri/gen/android/ /mnt/c/Drive/Vault/todo/app/src-tauri/gen/android/
 ```
 
 ## Troubleshooting
